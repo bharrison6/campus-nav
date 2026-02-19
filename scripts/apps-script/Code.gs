@@ -50,8 +50,6 @@ function routeAction(action, params) {
       return getAllCampusData();
     case 'getDataVersion':
       return getDataVersion();
-    case 'saveQrLocation':
-      return saveQrLocation(params);
     default:
       throw new Error('Unknown action: ' + action);
   }

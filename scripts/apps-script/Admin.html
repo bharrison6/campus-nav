@@ -333,8 +333,19 @@
 
   <div class="container">
 
-    <!-- Loading state -->
-    <div id="loading-state" class="loading no-print">
+    <!-- PIN login gate -->
+    <div id="pin-gate" class="card" style="max-width:360px;margin:60px auto;text-align:center;">
+      <h2 style="color:var(--navy);margin-bottom:16px;">Admin Login</h2>
+      <p style="color:var(--text-light);margin-bottom:16px;">Enter the admin PIN to continue.</p>
+      <input type="password" id="pin-input" placeholder="PIN" maxlength="20"
+        style="width:100%;padding:12px;font-size:18px;text-align:center;border:1px solid var(--border);border-radius:8px;margin-bottom:12px;"
+        onkeydown="if(event.key==='Enter')verifyPin()">
+      <button onclick="verifyPin()" style="width:100%;padding:12px;background:var(--navy);color:#fff;border:none;border-radius:8px;font-size:16px;cursor:pointer;">Login</button>
+      <div id="pin-error" style="color:var(--error);margin-top:8px;display:none;"></div>
+    </div>
+
+    <!-- Loading state (hidden until PIN verified) -->
+    <div id="loading-state" class="loading no-print" style="display:none;">
       <div class="spinner"></div>
       <div>Loading campus data...</div>
     </div>
@@ -484,9 +495,40 @@
        ======================================================== */
     var APP_URL = 'https://script.google.com/macros/s/AKfycbxM-sMOC8CQQf2ckPX6MgZHZsnWu-oAWKp0DeuqbEp3idjSKGZUY288zN_KhXlwbhy53Q/exec';
     var campusData = null;
+    var adminPin = '';
 
     /* ========================================================
-       INIT — Load campus data on page open
+       PIN AUTHENTICATION
+       ======================================================== */
+    function verifyPin() {
+      var pin = document.getElementById('pin-input').value;
+      if (!pin) { showPinError('Please enter a PIN.'); return; }
+
+      google.script.run
+        .withSuccessHandler(function(valid) {
+          if (valid) {
+            adminPin = pin;
+            document.getElementById('pin-gate').style.display = 'none';
+            document.getElementById('loading-state').style.display = '';
+            loadData();
+          } else {
+            showPinError('Invalid PIN.');
+          }
+        })
+        .withFailureHandler(function(err) {
+          showPinError(err.message || 'Verification failed.');
+        })
+        .verifyAdminPin(pin);
+    }
+
+    function showPinError(msg) {
+      var el = document.getElementById('pin-error');
+      el.textContent = msg;
+      el.style.display = 'block';
+    }
+
+    /* ========================================================
+       INIT — Load campus data after PIN verified
        ======================================================== */
     function loadData() {
       google.script.run
@@ -633,8 +675,9 @@
       document.getElementById('loc-qr-output').classList.add('visible');
       document.getElementById('loc-print-btn').style.display = '';
 
-      // Save to sheet
+      // Save to sheet (include PIN for server-side auth)
       var saveData = {
+        pin: adminPin,
         buildingId: buildingId,
         floorId: floorId,
         nodeId: nodeId,
@@ -789,9 +832,9 @@
     }
 
     /* ========================================================
-       BOOT
+       BOOT — PIN gate is shown by default; loadData() called after PIN verified
        ======================================================== */
-    loadData();
+    document.getElementById('pin-input').focus();
   </script>
 </body>
 </html>
