@@ -726,8 +726,55 @@
     .modal-body .btn-view-inside {
       margin-top: 20px;
     }
+
+    /* ============================================================
+       PANORAMA MODAL
+       ============================================================ */
+    #panorama-modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.9);
+      z-index: 10000;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #btn-close-panorama {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      z-index: 10001;
+      width: 40px;
+      height: 40px;
+      border: none;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.9);
+      color: #333;
+      font-size: 1.125rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    }
+
+    #panorama-container {
+      width: 95%;
+      height: 80%;
+      max-width: 1200px;
+      border-radius: 12px;
+      overflow: hidden;
+    }
   </style>
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pannellum@2.5.6/build/pannellum.css">
+  <script src="https://cdn.jsdelivr.net/npm/pannellum@2.5.6/build/pannellum.js"></script>
 </head>
 <body>
 
@@ -845,6 +892,14 @@
   </div>
 
   <div id="error-toast"></div>
+
+  <!-- ============================================================
+       PANORAMA MODAL
+       ============================================================ -->
+  <div id="panorama-modal" style="display:none">
+    <button id="btn-close-panorama" onclick="closePanorama()">&#10005;</button>
+    <div id="panorama-container"></div>
+  </div>
 
   <!-- ============================================================
        JAVASCRIPT
@@ -1099,6 +1154,7 @@
       });
 
       addBuildingMarkers();
+      addPhotoMarkers();
     }
 
     function addBuildingMarkers() {
@@ -1128,6 +1184,30 @@
         marker.addListener('click', function() {
           showBuildingPanel(building, hasFloors);
           map.panTo(marker.getPosition());
+        });
+      });
+    }
+
+    function addPhotoMarkers() {
+      if (!APP.campusData || !APP.campusData.photos) return;
+      APP.campusData.photos.filter(function(p) {
+        return p.type === 'outdoor' && p.lat && p.lng;
+      }).forEach(function(photo) {
+        var marker = new google.maps.Marker({
+          position: { lat: Number(photo.lat), lng: Number(photo.lng) },
+          map: map,
+          icon: {
+            path: google.maps.SymbolPath.CIRCLE,
+            scale: 8,
+            fillColor: '#FBBC04',
+            fillOpacity: 1,
+            strokeColor: '#F9AB00',
+            strokeWeight: 2
+          },
+          title: photo.caption || 'Photo'
+        });
+        marker.addListener('click', function() {
+          showPanorama(photo);
         });
       });
     }
@@ -1335,6 +1415,9 @@
         rooms.forEach(function(room) { drawRoomPolygon(room); });
       }
 
+      // Draw indoor photo markers
+      drawIndoorPhotoMarkers();
+
       // Draw nav path if active
       if (currentNavPath) {
         drawNavPath(currentNavPath);
@@ -1397,6 +1480,28 @@
       indoorCtx.arc(Number(last.x), Number(last.y), 6, 0, 2 * Math.PI);
       indoorCtx.fillStyle = '#EA4335';
       indoorCtx.fill();
+    }
+
+    function drawIndoorPhotoMarkers() {
+      if (!currentFloor) return;
+      var photos = (APP.campusData.photos || []).filter(function(p) {
+        return p.type === 'indoor' && p.floorId === currentFloor.id;
+      });
+      var ctx = indoorCtx;
+      photos.forEach(function(photo) {
+        ctx.beginPath();
+        ctx.arc(Number(photo.x), Number(photo.y), 8, 0, 2 * Math.PI);
+        ctx.fillStyle = '#FBBC04';
+        ctx.fill();
+        ctx.strokeStyle = '#F9AB00';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        // White center dot
+        ctx.beginPath();
+        ctx.arc(Number(photo.x), Number(photo.y), 3, 0, 2 * Math.PI);
+        ctx.fillStyle = '#fff';
+        ctx.fill();
+      });
     }
 
     /* Canvas interaction: pan, zoom, tap */
@@ -1483,6 +1588,19 @@
       var rect = indoorCanvas.getBoundingClientRect();
       var canvasX = (clientX - rect.left - canvasOffsetX) / canvasScale;
       var canvasY = (clientY - rect.top - canvasOffsetY) / canvasScale;
+
+      // Check photo markers first (smaller targets, higher priority)
+      var photos = (APP.campusData.photos || []).filter(function(p) {
+        return p.type === 'indoor' && p.floorId === currentFloor.id;
+      });
+      for (var i = 0; i < photos.length; i++) {
+        var dx = canvasX - Number(photos[i].x);
+        var dy = canvasY - Number(photos[i].y);
+        if (dx * dx + dy * dy < 144) { // 12px radius
+          showPanorama(photos[i]);
+          return;
+        }
+      }
 
       // Check rooms
       var rooms = APP.campusData.rooms.filter(function(r) { return r.floorId === currentFloor.id; });
@@ -1973,6 +2091,32 @@
       document.getElementById('event-building').value = '';
       document.getElementById('event-room').innerHTML = '<option value="">Select room...</option>';
       document.getElementById('event-name').value = '';
+    }
+
+    /* ==========================================================
+       PANORAMA VIEWER
+       ========================================================== */
+    function showPanorama(photo) {
+      var modal = document.getElementById('panorama-modal');
+      modal.style.display = 'flex';
+
+      pannellum.viewer('panorama-container', {
+        type: 'equirectangular',
+        panorama: getDriveDirectUrl(photo.driveUrl),
+        autoLoad: true,
+        compass: true,
+        northOffset: Number(photo.heading) || 0,
+        title: photo.caption || '',
+        showControls: true,
+        mouseZoom: true,
+        touchPanSpeedCoeffFactor: 1
+      });
+    }
+
+    function closePanorama() {
+      var modal = document.getElementById('panorama-modal');
+      modal.style.display = 'none';
+      document.getElementById('panorama-container').innerHTML = '';
     }
 
     /* ==========================================================
