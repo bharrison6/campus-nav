@@ -7,6 +7,13 @@ function doGet(e) {
   var params = e ? (e.parameter || {}) : {};
   var action = params.action || '';
 
+  // Admin page
+  if (action === 'admin') {
+    return HtmlService.createHtmlOutputFromFile('Admin')
+      .setTitle('Campus Nav Admin')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  }
+
   // Serve the web app (default when no action specified)
   if (!action || action === 'web') {
     return HtmlService.createHtmlOutputFromFile('WebApp')
@@ -43,6 +50,8 @@ function routeAction(action, params) {
       return getAllCampusData();
     case 'getDataVersion':
       return getDataVersion();
+    case 'saveQrLocation':
+      return saveQrLocation(params);
     default:
       throw new Error('Unknown action: ' + action);
   }

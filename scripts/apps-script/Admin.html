@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Campus Nav Admin</title>
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+  <style>
+    :root {
+      --navy: #002145;
+      --gold: #FDB515;
+      --light-gray: #f4f5f7;
+      --border: #d1d5db;
+      --text: #1f2937;
+      --text-light: #6b7280;
+      --success: #059669;
+      --error: #dc2626;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--light-gray);
+      color: var(--text);
+      line-height: 1.5;
+    }
+
+    /* Header */
+    .header {
+      background: var(--navy);
+      color: #fff;
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .header h1 {
+      font-size: 20px;
+      font-weight: 600;
+    }
+    .header .badge {
+      background: var(--gold);
+      color: var(--navy);
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 4px;
+      text-transform: uppercase;
+    }
+
+    /* Layout */
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 24px 16px;
+    }
+
+    /* Tabs */
+    .tab-bar {
+      display: flex;
+      gap: 0;
+      border-bottom: 2px solid var(--border);
+      margin-bottom: 24px;
+    }
+    .tab-btn {
+      padding: 10px 20px;
+      border: none;
+      background: none;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text-light);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -2px;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .tab-btn:hover { color: var(--navy); }
+    .tab-btn.active {
+      color: var(--navy);
+      border-bottom-color: var(--gold);
+      font-weight: 600;
+    }
+
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* Card */
+    .card {
+      background: #fff;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+    .card h2 {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 16px;
+      color: var(--navy);
+    }
+
+    /* Form */
+    .form-group {
+      margin-bottom: 14px;
+    }
+    .form-group label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      margin-bottom: 4px;
+      color: var(--text);
+    }
+    .form-group select,
+    .form-group input[type="text"],
+    .form-group input[type="datetime-local"],
+    .form-group input[type="date"],
+    .form-group textarea {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 14px;
+      font-family: inherit;
+      background: #fff;
+      color: var(--text);
+    }
+    .form-group select:focus,
+    .form-group input:focus,
+    .form-group textarea:focus {
+      outline: none;
+      border-color: var(--navy);
+      box-shadow: 0 0 0 2px rgba(0,33,69,0.12);
+    }
+    .form-group textarea {
+      min-height: 120px;
+      resize: vertical;
+    }
+
+    .checkbox-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .checkbox-group input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--navy);
+    }
+    .checkbox-group label {
+      font-size: 14px;
+      margin-bottom: 0;
+    }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 10px 20px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.1s;
+    }
+    .btn:active { transform: scale(0.98); }
+
+    .btn-primary {
+      background: var(--navy);
+      color: #fff;
+    }
+    .btn-primary:hover { background: #003366; }
+
+    .btn-gold {
+      background: var(--gold);
+      color: var(--navy);
+      font-weight: 600;
+    }
+    .btn-gold:hover { background: #e5a310; }
+
+    .btn-outline {
+      background: #fff;
+      color: var(--navy);
+      border: 1px solid var(--border);
+    }
+    .btn-outline:hover { background: var(--light-gray); }
+
+    .btn-row {
+      display: flex;
+      gap: 10px;
+      margin-top: 16px;
+      flex-wrap: wrap;
+    }
+
+    /* QR Output */
+    .qr-output {
+      margin-top: 20px;
+      text-align: center;
+      display: none;
+    }
+    .qr-output.visible { display: block; }
+    .qr-output .qr-label {
+      font-size: 13px;
+      color: var(--text-light);
+      margin-top: 8px;
+      word-break: break-all;
+    }
+
+    /* Batch grid */
+    .batch-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 16px;
+      margin-top: 20px;
+    }
+    .batch-card {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 16px;
+      text-align: center;
+      background: #fff;
+    }
+    .batch-card .batch-label {
+      font-size: 12px;
+      color: var(--text-light);
+      margin-top: 6px;
+    }
+
+    /* Message */
+    .status-msg {
+      padding: 10px 14px;
+      border-radius: 6px;
+      font-size: 13px;
+      margin-bottom: 14px;
+      display: none;
+    }
+    .status-msg.visible { display: block; }
+    .status-msg.success {
+      background: #ecfdf5;
+      color: var(--success);
+      border: 1px solid #a7f3d0;
+    }
+    .status-msg.error {
+      background: #fef2f2;
+      color: var(--error);
+      border: 1px solid #fecaca;
+    }
+    .status-msg.info {
+      background: #eff6ff;
+      color: #1d4ed8;
+      border: 1px solid #bfdbfe;
+    }
+
+    /* Loading */
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: var(--text-light);
+    }
+    .loading .spinner {
+      width: 32px;
+      height: 32px;
+      border: 3px solid var(--border);
+      border-top-color: var(--navy);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      margin: 0 auto 12px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Print styles */
+    @media print {
+      .no-print { display: none !important; }
+      body { background: #fff; }
+      .container { max-width: 100%; padding: 0; }
+      .card { border: none; box-shadow: none; padding: 12px 0; }
+
+      .qr-print-card {
+        break-inside: avoid;
+        width: 3in;
+        height: 3in;
+        text-align: center;
+        border: 1px solid #ccc;
+        padding: 12px;
+        display: inline-flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+      }
+      .qr-print-card .print-label {
+        font-size: 11px;
+        margin-top: 6px;
+        color: #333;
+      }
+
+      .batch-grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        justify-content: flex-start;
+      }
+      .batch-card {
+        break-inside: avoid;
+        width: 3in;
+        height: 3in;
+        border: 1px solid #ccc;
+        padding: 8px;
+        display: inline-flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+      }
+    }
+
+    /* Responsive */
+    @media (max-width: 600px) {
+      .header h1 { font-size: 17px; }
+      .container { padding: 16px 12px; }
+      .card { padding: 16px; }
+      .tab-btn { padding: 8px 12px; font-size: 13px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <div class="header no-print">
+    <h1>Murray State Campus Navigation</h1>
+    <span class="badge">Admin</span>
+  </div>
+
+  <div class="container">
+
+    <!-- Loading state -->
+    <div id="loading-state" class="loading no-print">
+      <div class="spinner"></div>
+      <div>Loading campus data...</div>
+    </div>
+
+    <!-- Main content (hidden until data loads) -->
+    <div id="main-content" style="display:none;">
+
+      <!-- Status message -->
+      <div id="status-msg" class="status-msg"></div>
+
+      <!-- Tabs -->
+      <div class="tab-bar no-print">
+        <button class="tab-btn active" data-tab="location" onclick="switchTab('location')">Location QR</button>
+        <button class="tab-btn" data-tab="schedule" onclick="switchTab('schedule')">Schedule QR</button>
+        <button class="tab-btn" data-tab="batch" onclick="switchTab('batch')">Batch Generate</button>
+      </div>
+
+      <!-- ===================== LOCATION QR TAB ===================== -->
+      <div id="tab-location" class="tab-panel active">
+        <div class="card">
+          <h2>Generate Location QR Code</h2>
+
+          <div class="form-group">
+            <label for="loc-building">Building</label>
+            <select id="loc-building" onchange="onBuildingChange()">
+              <option value="">Select building...</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="loc-floor">Floor</label>
+            <select id="loc-floor">
+              <option value="">Select floor...</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="loc-nodeId">Node ID</label>
+            <input type="text" id="loc-nodeId" placeholder="e.g. nav-engphys-1-001">
+          </div>
+
+          <div class="form-group">
+            <label for="loc-description">Description</label>
+            <input type="text" id="loc-description" placeholder="e.g. Room 101 Entrance">
+          </div>
+
+          <div class="form-group">
+            <div class="checkbox-group">
+              <input type="checkbox" id="loc-permanent" checked onchange="onPermanentChange()">
+              <label for="loc-permanent">Permanent QR code</label>
+            </div>
+          </div>
+
+          <div class="form-group" id="loc-expires-group" style="display:none;">
+            <label for="loc-expires">Expiration Date</label>
+            <input type="date" id="loc-expires">
+          </div>
+
+          <div class="btn-row no-print">
+            <button class="btn btn-primary" onclick="generateLocationQr()">Generate QR</button>
+            <button class="btn btn-outline" id="loc-print-btn" onclick="window.print()" style="display:none;">Print QR</button>
+          </div>
+
+          <div id="loc-qr-output" class="qr-output">
+            <div class="qr-print-card" style="display:inline-flex; flex-direction:column; align-items:center; justify-content:center;">
+              <div id="loc-qr-container"></div>
+              <div id="loc-qr-desc" class="print-label"></div>
+            </div>
+            <div class="qr-label no-print" id="loc-qr-url"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===================== SCHEDULE QR TAB ===================== -->
+      <div id="tab-schedule" class="tab-panel">
+        <div class="card">
+          <h2>Generate Schedule QR Code</h2>
+
+          <div class="form-group">
+            <label for="sched-time">Event Time</label>
+            <input type="datetime-local" id="sched-time">
+          </div>
+
+          <div class="form-group">
+            <label for="sched-building">Building</label>
+            <select id="sched-building">
+              <option value="">Select building...</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="sched-room">Room</label>
+            <input type="text" id="sched-room" placeholder="e.g. 101">
+          </div>
+
+          <div class="form-group">
+            <label for="sched-name">Event Name</label>
+            <input type="text" id="sched-name" placeholder="e.g. Physics 201 Lecture">
+          </div>
+
+          <div class="btn-row no-print">
+            <button class="btn btn-primary" onclick="generateScheduleQr()">Generate QR</button>
+            <button class="btn btn-outline" id="sched-print-btn" onclick="window.print()" style="display:none;">Print QR</button>
+          </div>
+
+          <div id="sched-qr-output" class="qr-output">
+            <div class="qr-print-card" style="display:inline-flex; flex-direction:column; align-items:center; justify-content:center;">
+              <div id="sched-qr-container"></div>
+              <div id="sched-qr-desc" class="print-label"></div>
+            </div>
+            <div class="qr-label no-print" id="sched-qr-url"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===================== BATCH TAB ===================== -->
+      <div id="tab-batch" class="tab-panel">
+        <div class="card no-print">
+          <h2>Batch QR Generation</h2>
+          <p style="font-size:13px; color:var(--text-light); margin-bottom:12px;">
+            Enter one location per line in JSON format. Each line should be a JSON object with fields:
+            <code>building</code>, <code>floor</code>, <code>nodeId</code>, <code>description</code>,
+            <code>permanent</code> (optional, defaults true), <code>expires</code> (optional).
+          </p>
+
+          <div class="form-group">
+            <label for="batch-input">Locations (JSON, one per line)</label>
+            <textarea id="batch-input" placeholder='{"building":"bld-engphys","floor":"floor-engphys-1","nodeId":"nav-001","description":"Room 101"}
+{"building":"bld-engphys","floor":"floor-engphys-1","nodeId":"nav-002","description":"Room 102"}'></textarea>
+          </div>
+
+          <div class="btn-row">
+            <button class="btn btn-primary" onclick="generateBatchQr()">Generate Batch</button>
+            <button class="btn btn-outline" id="batch-print-btn" onclick="window.print()" style="display:none;">Print Batch</button>
+          </div>
+        </div>
+
+        <div id="batch-output" class="batch-grid"></div>
+      </div>
+
+    </div><!-- /main-content -->
+  </div><!-- /container -->
+
+  <script>
+    /* ========================================================
+       GLOBALS
+       ======================================================== */
+    var APP_URL = 'https://script.google.com/macros/s/AKfycbxM-sMOC8CQQf2ckPX6MgZHZsnWu-oAWKp0DeuqbEp3idjSKGZUY288zN_KhXlwbhy53Q/exec';
+    var campusData = null;
+
+    /* ========================================================
+       INIT — Load campus data on page open
+       ======================================================== */
+    function loadData() {
+      google.script.run
+        .withSuccessHandler(function(data) {
+          campusData = data;
+          populateDropdowns();
+          document.getElementById('loading-state').style.display = 'none';
+          document.getElementById('main-content').style.display = 'block';
+        })
+        .withFailureHandler(function(err) {
+          document.getElementById('loading-state').innerHTML =
+            '<div style="color:var(--error);">Failed to load data: ' + escapeHtml(err.message || String(err)) + '</div>';
+        })
+        .getAllCampusData();
+    }
+
+    /* ========================================================
+       DROPDOWNS
+       ======================================================== */
+    function populateDropdowns() {
+      var buildings = (campusData && campusData.buildings) || [];
+
+      // Location tab building dropdown
+      var locSel = document.getElementById('loc-building');
+      locSel.innerHTML = '<option value="">Select building...</option>';
+      for (var i = 0; i < buildings.length; i++) {
+        var b = buildings[i];
+        var opt = document.createElement('option');
+        opt.value = b.id;
+        opt.textContent = b.name || b.id;
+        locSel.appendChild(opt);
+      }
+
+      // Schedule tab building dropdown
+      var schedSel = document.getElementById('sched-building');
+      schedSel.innerHTML = '<option value="">Select building...</option>';
+      for (var j = 0; j < buildings.length; j++) {
+        var b2 = buildings[j];
+        var opt2 = document.createElement('option');
+        opt2.value = b2.id;
+        opt2.textContent = b2.name || b2.id;
+        schedSel.appendChild(opt2);
+      }
+    }
+
+    /**
+     * When building changes in location tab, populate floor dropdown.
+     */
+    function onBuildingChange() {
+      var buildingId = document.getElementById('loc-building').value;
+      var floorSel = document.getElementById('loc-floor');
+      floorSel.innerHTML = '<option value="">Select floor...</option>';
+
+      if (!buildingId || !campusData || !campusData.floors) return;
+
+      var floors = campusData.floors.filter(function(f) {
+        return f.buildingId === buildingId;
+      });
+      floors.sort(function(a, b) { return (a.level || 0) - (b.level || 0); });
+
+      for (var i = 0; i < floors.length; i++) {
+        var f = floors[i];
+        var opt = document.createElement('option');
+        opt.value = f.id;
+        opt.textContent = f.label || ('Floor ' + f.level);
+        floorSel.appendChild(opt);
+      }
+    }
+
+    /**
+     * Toggle expiration date picker based on permanent checkbox.
+     */
+    function onPermanentChange() {
+      var isPermanent = document.getElementById('loc-permanent').checked;
+      document.getElementById('loc-expires-group').style.display = isPermanent ? 'none' : 'block';
+    }
+
+    /* ========================================================
+       TAB SWITCHING
+       ======================================================== */
+    function switchTab(tabName) {
+      // Update buttons
+      var btns = document.querySelectorAll('.tab-btn');
+      for (var i = 0; i < btns.length; i++) {
+        btns[i].classList.toggle('active', btns[i].getAttribute('data-tab') === tabName);
+      }
+      // Update panels
+      var panels = document.querySelectorAll('.tab-panel');
+      for (var j = 0; j < panels.length; j++) {
+        panels[j].classList.toggle('active', panels[j].id === 'tab-' + tabName);
+      }
+    }
+
+    /* ========================================================
+       QR CODE URL ENCODING
+       ======================================================== */
+    function encodeQrUrl(payload) {
+      var json = JSON.stringify(payload);
+      var base64 = btoa(unescape(encodeURIComponent(json)));
+      return APP_URL + '?qr=' + encodeURIComponent(base64);
+    }
+
+    /* ========================================================
+       LOCATION QR GENERATOR
+       ======================================================== */
+    function generateLocationQr() {
+      var buildingId = document.getElementById('loc-building').value;
+      var floorId = document.getElementById('loc-floor').value;
+      var nodeId = document.getElementById('loc-nodeId').value.trim();
+      var description = document.getElementById('loc-description').value.trim();
+      var permanent = document.getElementById('loc-permanent').checked;
+      var expires = document.getElementById('loc-expires').value || '';
+
+      if (!buildingId) { showMessage('Please select a building.', 'error'); return; }
+      if (!nodeId) { showMessage('Please enter a Node ID.', 'error'); return; }
+      if (!description) { showMessage('Please enter a description.', 'error'); return; }
+
+      var payload = {
+        type: 'location',
+        building: buildingId,
+        floor: floorId,
+        nodeId: nodeId,
+        permanent: permanent,
+        expires: expires,
+        description: description
+      };
+
+      var url = encodeQrUrl(payload);
+
+      // Render QR code
+      var container = document.getElementById('loc-qr-container');
+      container.innerHTML = '';
+      new QRCode(container, {
+        text: url,
+        width: 200,
+        height: 200,
+        colorDark: '#002145',
+        colorLight: '#ffffff',
+        correctLevel: QRCode.CorrectLevel.M
+      });
+
+      document.getElementById('loc-qr-desc').textContent = description;
+      document.getElementById('loc-qr-url').textContent = url;
+      document.getElementById('loc-qr-output').classList.add('visible');
+      document.getElementById('loc-print-btn').style.display = '';
+
+      // Save to sheet
+      var saveData = {
+        buildingId: buildingId,
+        floorId: floorId,
+        nodeId: nodeId,
+        description: description,
+        permanent: permanent,
+        expires: expires
+      };
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          showMessage('QR location saved (ID: ' + result.id + ')', 'success');
+        })
+        .withFailureHandler(function(err) {
+          showMessage('QR generated but failed to save: ' + (err.message || String(err)), 'error');
+        })
+        .saveQrLocation(saveData);
+    }
+
+    /* ========================================================
+       SCHEDULE QR GENERATOR
+       ======================================================== */
+    function generateScheduleQr() {
+      var time = document.getElementById('sched-time').value;
+      var building = document.getElementById('sched-building').value;
+      var room = document.getElementById('sched-room').value.trim();
+      var name = document.getElementById('sched-name').value.trim();
+
+      if (!time) { showMessage('Please select an event time.', 'error'); return; }
+      if (!building) { showMessage('Please select a building.', 'error'); return; }
+      if (!room) { showMessage('Please enter a room number.', 'error'); return; }
+
+      var payload = {
+        type: 'schedule',
+        time: time,
+        building: building,
+        room: room,
+        name: name || ''
+      };
+
+      var url = encodeQrUrl(payload);
+
+      // Render QR code
+      var container = document.getElementById('sched-qr-container');
+      container.innerHTML = '';
+      new QRCode(container, {
+        text: url,
+        width: 200,
+        height: 200,
+        colorDark: '#002145',
+        colorLight: '#ffffff',
+        correctLevel: QRCode.CorrectLevel.M
+      });
+
+      var label = (name || 'Event') + ' - ' + room + ' @ ' + time;
+      document.getElementById('sched-qr-desc').textContent = label;
+      document.getElementById('sched-qr-url').textContent = url;
+      document.getElementById('sched-qr-output').classList.add('visible');
+      document.getElementById('sched-print-btn').style.display = '';
+
+      showMessage('Schedule QR code generated.', 'success');
+    }
+
+    /* ========================================================
+       BATCH QR GENERATOR
+       ======================================================== */
+    function generateBatchQr() {
+      var input = document.getElementById('batch-input').value.trim();
+      if (!input) { showMessage('Please enter at least one location.', 'error'); return; }
+
+      var lines = input.split('\n').filter(function(line) { return line.trim().length > 0; });
+      var items = [];
+
+      for (var i = 0; i < lines.length; i++) {
+        try {
+          var parsed = JSON.parse(lines[i].trim());
+          items.push(parsed);
+        } catch (e) {
+          showMessage('Invalid JSON on line ' + (i + 1) + ': ' + escapeHtml(e.message), 'error');
+          return;
+        }
+      }
+
+      if (items.length === 0) { showMessage('No valid items found.', 'error'); return; }
+
+      var grid = document.getElementById('batch-output');
+      grid.innerHTML = '';
+
+      for (var j = 0; j < items.length; j++) {
+        var item = items[j];
+        var payload = {
+          type: 'location',
+          building: item.building || '',
+          floor: item.floor || '',
+          nodeId: item.nodeId || '',
+          permanent: item.permanent !== false,
+          expires: item.expires || '',
+          description: item.description || ''
+        };
+
+        var url = encodeQrUrl(payload);
+
+        var card = document.createElement('div');
+        card.className = 'batch-card';
+
+        var qrDiv = document.createElement('div');
+        qrDiv.id = 'batch-qr-' + j;
+        card.appendChild(qrDiv);
+
+        var labelDiv = document.createElement('div');
+        labelDiv.className = 'batch-label';
+        labelDiv.textContent = item.description || ('Item ' + (j + 1));
+        card.appendChild(labelDiv);
+
+        grid.appendChild(card);
+
+        new QRCode(qrDiv, {
+          text: url,
+          width: 180,
+          height: 180,
+          colorDark: '#002145',
+          colorLight: '#ffffff',
+          correctLevel: QRCode.CorrectLevel.M
+        });
+      }
+
+      document.getElementById('batch-print-btn').style.display = '';
+      showMessage('Generated ' + items.length + ' QR code(s).', 'success');
+    }
+
+    /* ========================================================
+       STATUS MESSAGES
+       ======================================================== */
+    function showMessage(msg, type) {
+      var el = document.getElementById('status-msg');
+      el.textContent = msg;
+      el.className = 'status-msg visible ' + (type || 'info');
+
+      // Auto-hide after 5 seconds
+      clearTimeout(showMessage._timer);
+      showMessage._timer = setTimeout(function() {
+        el.classList.remove('visible');
+      }, 5000);
+    }
+
+    /* ========================================================
+       UTILITIES
+       ======================================================== */
+    function escapeHtml(str) {
+      var div = document.createElement('div');
+      div.appendChild(document.createTextNode(str));
+      return div.innerHTML;
+    }
+
+    /* ========================================================
+       BOOT
+       ======================================================== */
+    loadData();
+  </script>
+</body>
+</html>
