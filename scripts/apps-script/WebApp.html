@@ -2096,11 +2096,14 @@
     /* ==========================================================
        PANORAMA VIEWER
        ========================================================== */
+    var panoramaViewer = null;
+
     function showPanorama(photo) {
+      if (panoramaViewer) { panoramaViewer.destroy(); panoramaViewer = null; }
       var modal = document.getElementById('panorama-modal');
       modal.style.display = 'flex';
 
-      pannellum.viewer('panorama-container', {
+      panoramaViewer = pannellum.viewer('panorama-container', {
         type: 'equirectangular',
         panorama: getDriveDirectUrl(photo.driveUrl),
         autoLoad: true,
@@ -2111,13 +2114,26 @@
         mouseZoom: true,
         touchPanSpeedCoeffFactor: 1
       });
+      panoramaViewer.on('error', function() {
+        closePanorama();
+        showError('Could not load panorama image');
+      });
     }
 
     function closePanorama() {
+      if (panoramaViewer) { panoramaViewer.destroy(); panoramaViewer = null; }
       var modal = document.getElementById('panorama-modal');
       modal.style.display = 'none';
-      document.getElementById('panorama-container').innerHTML = '';
     }
+
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') {
+        var modal = document.getElementById('panorama-modal');
+        if (modal.style.display === 'flex') {
+          closePanorama();
+        }
+      }
+    });
 
     /* ==========================================================
        APP INITIALIZATION
