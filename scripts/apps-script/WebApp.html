@@ -1231,8 +1231,22 @@
         showError('Scan a QR code or set a starting position first.');
         return;
       }
-      // Pathfinding will be implemented in Task 10
-      showError('Pathfinding coming soon!');
+
+      var roomNode = APP.campusData.navNodes.find(function(n) { return n.roomId === roomId; });
+      if (!roomNode) {
+        showError('No navigation data for this room.');
+        return;
+      }
+
+      currentNavPath = findPath(currentStartNode.id, roomNode.id);
+      if (!currentNavPath) {
+        showError('No path found to this room.');
+        return;
+      }
+
+      closeRoomPanel();
+      renderFloorPlan();
+      showFloorChangeInstructions(currentNavPath);
     }
 
     function setStartFromRoom(roomId) {
@@ -1244,6 +1258,91 @@
       } else {
         showError('No navigation node for this room.');
       }
+    }
+
+    /* ==========================================================
+       A* PATHFINDING
+       ========================================================== */
+    function findPath(startNodeId, goalNodeId) {
+      var nodes = {};
+      APP.campusData.navNodes.forEach(function(n) { nodes[n.id] = n; });
+
+      var startNode = nodes[startNodeId];
+      var goalNode = nodes[goalNodeId];
+      if (!startNode || !goalNode) return null;
+
+      // Build adjacency list (bidirectional)
+      var adjacency = {};
+      APP.campusData.navEdges.forEach(function(edge) {
+        if (!adjacency[edge.fromNodeId]) adjacency[edge.fromNodeId] = [];
+        if (!adjacency[edge.toNodeId]) adjacency[edge.toNodeId] = [];
+        adjacency[edge.fromNodeId].push({ nodeId: edge.toNodeId, distance: Number(edge.distance), floorChange: edge.floorChange });
+        adjacency[edge.toNodeId].push({ nodeId: edge.fromNodeId, distance: Number(edge.distance), floorChange: edge.floorChange });
+      });
+
+      function heuristic(a, b) {
+        var dx = Number(a.x) - Number(b.x);
+        var dy = Number(a.y) - Number(b.y);
+        var floorPenalty = (a.floorId !== b.floorId) ? 200 : 0;
+        return Math.sqrt(dx * dx + dy * dy) + floorPenalty;
+      }
+
+      var openSet = [startNodeId];
+      var cameFrom = {};
+      var gScore = {};
+      var fScore = {};
+      gScore[startNodeId] = 0;
+      fScore[startNodeId] = heuristic(startNode, goalNode);
+
+      while (openSet.length > 0) {
+        openSet.sort(function(a, b) { return (fScore[a] || Infinity) - (fScore[b] || Infinity); });
+        var currentId = openSet.shift();
+
+        if (currentId === goalNodeId) {
+          var path = [nodes[currentId]];
+          while (cameFrom[currentId]) {
+            currentId = cameFrom[currentId];
+            path.unshift(nodes[currentId]);
+          }
+          return path;
+        }
+
+        var neighbors = adjacency[currentId] || [];
+        for (var i = 0; i < neighbors.length; i++) {
+          var neighbor = neighbors[i];
+          var tentativeG = (gScore[currentId] || Infinity) + neighbor.distance;
+          if (tentativeG < (gScore[neighbor.nodeId] || Infinity)) {
+            cameFrom[neighbor.nodeId] = currentId;
+            gScore[neighbor.nodeId] = tentativeG;
+            fScore[neighbor.nodeId] = tentativeG + heuristic(nodes[neighbor.nodeId], goalNode);
+            if (openSet.indexOf(neighbor.nodeId) === -1) {
+              openSet.push(neighbor.nodeId);
+            }
+          }
+        }
+      }
+
+      return null; // No path found
+    }
+
+    function showFloorChangeInstructions(path) {
+      var instructions = [];
+      for (var i = 1; i < path.length; i++) {
+        if (path[i].floorId !== path[i - 1].floorId) {
+          var toFloor = APP.campusData.floors.find(function(f) { return f.id === path[i].floorId; });
+          var viaType = path[i - 1].type === 'elevator' ? 'elevator' : 'staircase';
+          instructions.push('Go to ' + (toFloor ? toFloor.label : 'next floor') + ' via ' + viaType);
+        }
+      }
+      if (instructions.length > 0) {
+        showError(instructions.join(' | '));
+      }
+    }
+
+    function clearNavigation() {
+      currentNavPath = null;
+      currentStartNode = null;
+      renderFloorPlan();
     }
 
     /* ==========================================================
