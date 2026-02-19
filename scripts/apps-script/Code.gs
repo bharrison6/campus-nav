@@ -37,6 +37,12 @@ function routeAction(action, params) {
   switch (action) {
     case 'ping':
       return 'pong';
+    case 'init':
+      return initSystem();
+    case 'getAllCampusData':
+      return getAllCampusData();
+    case 'getDataVersion':
+      return getDataVersion();
     default:
       throw new Error('Unknown action: ' + action);
   }
