@@ -459,7 +459,83 @@
     #nav-instructions.visible {
       display: block;
     }
+
+    /* ============================================================
+       QR SCANNER
+       ============================================================ */
+    #scan-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 16px;
+    }
+
+    #qr-viewfinder {
+      width: 100%;
+      max-width: 400px;
+      min-height: 300px;
+      background: #000;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    #scan-controls {
+      margin: 16px 0;
+    }
+
+    .btn-scan {
+      padding: 12px 32px;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      background: #002145;
+      color: #fff;
+      min-height: 44px;
+    }
+
+    .btn-scan-stop {
+      background: #d32f2f;
+    }
+
+    #scan-result {
+      width: 100%;
+      max-width: 400px;
+      text-align: center;
+      padding: 8px;
+      font-size: 0.875rem;
+      color: #333;
+    }
+
+    #scan-instructions {
+      margin-top: 16px;
+      padding: 16px;
+      background: #f5f5f5;
+      border-radius: 8px;
+      max-width: 400px;
+      width: 100%;
+    }
+
+    #scan-instructions p {
+      font-weight: 600;
+      color: #002145;
+      margin-bottom: 8px;
+    }
+
+    #scan-instructions ul {
+      padding-left: 20px;
+      color: #666;
+      font-size: 0.875rem;
+    }
+
+    #scan-instructions li {
+      margin-bottom: 4px;
+    }
   </style>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 </head>
 <body>
 
@@ -516,10 +592,20 @@
       </div>
 
       <div id="view-scan" class="view">
-        <div class="view-placeholder">
-          <svg viewBox="0 0 24 24"><path d="M9.5 6.5v3h-3v-3h3M11 5H5v6h6V5zm-1.5 9.5v3h-3v-3h3M11 13H5v6h6v-6zm6.5-6.5v3h-3v-3h3M19 5h-6v6h6V5zm-6 8h1.5v1.5H13V13zm1.5 1.5H16V16h-1.5v-1.5zM16 13h1.5v1.5H16V13zm-3 3h1.5v1.5H13V16zm1.5 1.5H16V19h-1.5v-1.5zM16 16h1.5v1.5H16V16zm1.5-1.5H19V16h-1.5v-1.5zm0 3H19V19h-1.5v-1.5z"/></svg>
-          <h2>QR Scanner</h2>
-          <p>Scan QR codes for indoor positioning</p>
+        <div id="scan-container">
+          <div id="qr-viewfinder"></div>
+          <div id="scan-controls">
+            <button id="btn-start-scan" class="btn-scan" onclick="startScan()">Start Scanner</button>
+            <button id="btn-stop-scan" class="btn-scan btn-scan-stop" onclick="stopScan()" style="display:none;">Stop Scanner</button>
+          </div>
+          <div id="scan-result"></div>
+          <div id="scan-instructions">
+            <p>Scan a QR code to:</p>
+            <ul>
+              <li>Set your indoor location</li>
+              <li>Add an event to your schedule</li>
+            </ul>
+          </div>
         </div>
       </div>
     </div>
@@ -747,13 +833,10 @@
     }
 
     function processQRPayload(payload) {
-      /* Placeholder: other tasks will implement QR processing logic.
-         Expected payload shape: { type: 'location'|'schedule', ... }
-         For now, just log it and switch to the appropriate view. */
       if (payload && payload.type === 'location') {
-        switchToView('indoor');
+        handleLocationQr(payload);
       } else if (payload && payload.type === 'schedule') {
-        switchToView('schedule');
+        handleScheduleQr(payload);
       }
     }
 
@@ -1343,6 +1426,146 @@
       currentNavPath = null;
       currentStartNode = null;
       renderFloorPlan();
+    }
+
+    /* ==========================================================
+       QR CODE SCANNER
+       ========================================================== */
+    var qrScanner = null;
+
+    function startScan() {
+      var viewfinder = document.getElementById('qr-viewfinder');
+      viewfinder.innerHTML = '';
+      document.getElementById('scan-result').textContent = '';
+
+      qrScanner = new Html5Qrcode('qr-viewfinder');
+
+      qrScanner.start(
+        { facingMode: 'environment' },
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        function onSuccess(decodedText) {
+          stopScan();
+          handleQrCode(decodedText);
+        },
+        function onFailure(err) {
+          // Scanning in progress, ignore frame errors
+        }
+      ).then(function() {
+        document.getElementById('btn-start-scan').style.display = 'none';
+        document.getElementById('btn-stop-scan').style.display = '';
+      }).catch(function(err) {
+        document.getElementById('scan-result').textContent = 'Camera error: ' + err;
+      });
+    }
+
+    function stopScan() {
+      if (qrScanner) {
+        qrScanner.stop().catch(function() {});
+        qrScanner = null;
+      }
+      document.getElementById('btn-start-scan').style.display = '';
+      document.getElementById('btn-stop-scan').style.display = 'none';
+    }
+
+    function handleQrCode(rawText) {
+      var payload = null;
+
+      try {
+        // Try URL format: https://...?qr=BASE64_JSON
+        if (rawText.includes('?qr=')) {
+          var qrParam = rawText.split('?qr=')[1].split('&')[0];
+          payload = JSON.parse(atob(qrParam));
+        } else {
+          // Try raw JSON
+          payload = JSON.parse(rawText);
+        }
+      } catch (e) {
+        document.getElementById('scan-result').textContent = 'Invalid QR code format.';
+        return;
+      }
+
+      if (!payload || !payload.type) {
+        document.getElementById('scan-result').textContent = 'Unrecognized QR code.';
+        return;
+      }
+
+      switch (payload.type) {
+        case 'location':
+          handleLocationQr(payload);
+          break;
+        case 'schedule':
+          handleScheduleQr(payload);
+          break;
+        default:
+          document.getElementById('scan-result').textContent = 'Unknown QR type: ' + payload.type;
+      }
+    }
+
+    function handleLocationQr(payload) {
+      // Check expiration
+      if (!payload.permanent && payload.expires) {
+        var expiryDate = new Date(payload.expires);
+        if (new Date() > expiryDate) {
+          showError('This QR code has expired.');
+          document.getElementById('scan-result').textContent = 'QR code expired.';
+          return;
+        }
+      }
+
+      // Find the nav node
+      var node = APP.campusData.navNodes.find(function(n) { return n.id === payload.nodeId; });
+      if (!node) {
+        showError('Location not found in navigation data.');
+        return;
+      }
+
+      currentStartNode = node;
+      document.getElementById('scan-result').textContent = 'Location set! Switching to indoor view...';
+
+      setTimeout(function() {
+        switchToView('indoor');
+        // Select the building and load the floor
+        var select = document.getElementById('building-select');
+        if (select) {
+          select.value = payload.building;
+          onBuildingSelect(payload.building);
+        }
+        if (payload.floor !== undefined) {
+          loadFloorPlan(payload.building, payload.floor);
+        }
+      }, 500);
+    }
+
+    function handleScheduleQr(payload) {
+      var event = {
+        id: String(Date.now()),
+        time: payload.time,
+        building: payload.building,
+        room: payload.room,
+        name: payload.name || '',
+        addedAt: new Date().toISOString()
+      };
+
+      addScheduleEvent(event);
+      document.getElementById('scan-result').textContent = 'Added to schedule: ' + (event.name || event.room) + ' at ' + event.time;
+
+      setTimeout(function() {
+        switchToView('schedule');
+      }, 1000);
+    }
+
+    function addScheduleEvent(event) {
+      var schedule = JSON.parse(localStorage.getItem('campusNavSchedule') || '[]');
+      var exists = schedule.some(function(e) {
+        return e.time === event.time && e.building === event.building && e.room === event.room;
+      });
+      if (exists) {
+        showError('Event already in schedule.');
+        return;
+      }
+      schedule.push(event);
+      schedule.sort(function(a, b) { return a.time.localeCompare(b.time); });
+      localStorage.setItem('campusNavSchedule', JSON.stringify(schedule));
     }
 
     /* ==========================================================
