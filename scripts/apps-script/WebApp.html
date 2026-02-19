@@ -1,16 +1,586 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="theme-color" content="#002145">
+  <meta name="spa-version" content="1.0.0">
   <title>Murray State Campus Nav</title>
+
   <style>
-    body { font-family: system-ui, sans-serif; margin: 0; padding: 20px; text-align: center; }
-    h1 { font-size: 1.4em; color: #002145; }
+    /* ============================================================
+       RESET & BASE
+       ============================================================ */
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      height: 100%;
+      width: 100%;
+      overflow: hidden;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 16px;
+      line-height: 1.5;
+      color: #333;
+      background: #f5f5f5;
+      -webkit-tap-highlight-color: transparent;
+      -webkit-text-size-adjust: 100%;
+    }
+
+    /* ============================================================
+       LOADING SCREEN
+       ============================================================ */
+    #loading-screen {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: #002145;
+      color: #fff;
+      z-index: 9999;
+      transition: opacity 0.3s ease;
+    }
+
+    #loading-screen.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .loading-logo {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #FDB515;
+      margin-bottom: 8px;
+      text-align: center;
+      padding: 0 20px;
+    }
+
+    .loading-subtitle {
+      font-size: 0.875rem;
+      color: rgba(255, 255, 255, 0.7);
+      margin-bottom: 32px;
+    }
+
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 4px solid rgba(255, 255, 255, 0.2);
+      border-top-color: #FDB515;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    #loading-status {
+      margin-top: 16px;
+      font-size: 0.8125rem;
+      color: rgba(255, 255, 255, 0.6);
+    }
+
+    /* ============================================================
+       APP CONTAINER
+       ============================================================ */
+    #app {
+      display: none;
+      flex-direction: column;
+      height: 100%;
+      width: 100%;
+    }
+
+    #app.ready {
+      display: flex;
+    }
+
+    /* ============================================================
+       HEADER BAR
+       ============================================================ */
+    #header {
+      height: 48px;
+      min-height: 48px;
+      background: #002145;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      font-size: 1rem;
+      font-weight: 600;
+      z-index: 100;
+    }
+
+    #header-title {
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* ============================================================
+       VIEW CONTAINER
+       ============================================================ */
+    #view-container {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .view {
+      display: none;
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .view.active {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .view-placeholder {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      color: #666;
+      text-align: center;
+    }
+
+    .view-placeholder svg {
+      width: 64px;
+      height: 64px;
+      margin-bottom: 16px;
+      opacity: 0.4;
+    }
+
+    .view-placeholder h2 {
+      font-size: 1.25rem;
+      color: #002145;
+      margin-bottom: 8px;
+    }
+
+    .view-placeholder p {
+      font-size: 0.875rem;
+      color: #999;
+    }
+
+    /* ============================================================
+       BOTTOM NAVIGATION
+       ============================================================ */
+    #bottom-nav {
+      height: 56px;
+      min-height: 56px;
+      background: #fff;
+      border-top: 1px solid #e0e0e0;
+      display: flex;
+      flex-direction: row;
+      align-items: stretch;
+      z-index: 100;
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    #bottom-nav button {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      border: none;
+      background: transparent;
+      color: #999;
+      font-size: 0.625rem;
+      font-family: inherit;
+      cursor: pointer;
+      min-height: 44px;
+      min-width: 44px;
+      padding: 4px 0;
+      transition: color 0.15s ease;
+      -webkit-tap-highlight-color: transparent;
+      outline: none;
+    }
+
+    #bottom-nav button svg {
+      width: 24px;
+      height: 24px;
+      margin-bottom: 2px;
+      fill: currentColor;
+    }
+
+    #bottom-nav button.active {
+      color: #002145;
+    }
+
+    #bottom-nav button:active {
+      opacity: 0.7;
+    }
+
+    #bottom-nav button span {
+      display: block;
+      font-weight: 500;
+      letter-spacing: 0.02em;
+    }
+
+    /* ============================================================
+       ERROR TOAST
+       ============================================================ */
+    #error-toast {
+      position: fixed;
+      bottom: 72px;
+      left: 16px;
+      right: 16px;
+      background: #d32f2f;
+      color: #fff;
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 0.875rem;
+      z-index: 10000;
+      display: none;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      text-align: center;
+    }
+
+    #error-toast.visible {
+      display: block;
+      animation: slideUp 0.3s ease;
+    }
+
+    @keyframes slideUp {
+      from { transform: translateY(20px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+
+    /* ============================================================
+       STALE DATA BANNER
+       ============================================================ */
+    #stale-banner {
+      display: none;
+      background: #FDB515;
+      color: #002145;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-align: center;
+      padding: 4px 12px;
+    }
+
+    #stale-banner.visible {
+      display: block;
+    }
   </style>
 </head>
 <body>
-  <h1>Murray State Campus Navigation</h1>
-  <p>Initial deployment successful. App shell coming soon.</p>
+
+  <!-- ============================================================
+       LOADING SCREEN
+       ============================================================ -->
+  <div id="loading-screen">
+    <div class="loading-logo">Murray State Campus Navigation</div>
+    <div class="loading-subtitle">School of Engineering</div>
+    <div class="spinner"></div>
+    <div id="loading-status">Loading campus data...</div>
+  </div>
+
+  <!-- ============================================================
+       MAIN APP (hidden until data loads)
+       ============================================================ -->
+  <div id="app">
+    <div id="header">
+      <span id="header-title">Campus Navigation</span>
+    </div>
+
+    <div id="stale-banner">Using cached data (offline mode)</div>
+
+    <div id="view-container">
+      <div id="view-map" class="view active">
+        <div class="view-placeholder">
+          <svg viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 010-5 2.5 2.5 0 010 5z"/></svg>
+          <h2>Campus Map</h2>
+          <p>Campus Map loading...</p>
+        </div>
+      </div>
+
+      <div id="view-indoor" class="view">
+        <div class="view-placeholder">
+          <svg viewBox="0 0 24 24"><path d="M11 17h2v-1h1c.55 0 1-.45 1-1v-3c0-.55-.45-1-1-1h-3v-1h4V8h-2V7h-2v1h-1c-.55 0-1 .45-1 1v3c0 .55.45 1 1 1h3v1H9v2h2v1zm1-15L2 6v2l2 1v11h16V9l2-1V6L12 2zm6 15H6V8.5l6-3 6 3V17z"/></svg>
+          <h2>Indoor Navigation</h2>
+          <p>Navigate inside buildings floor-by-floor</p>
+        </div>
+      </div>
+
+      <div id="view-schedule" class="view">
+        <div class="view-placeholder">
+          <svg viewBox="0 0 24 24"><path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM9 10H7v2h2v-2zm4 0h-2v2h2v-2zm4 0h-2v2h2v-2z"/></svg>
+          <h2>Schedule</h2>
+          <p>Build and manage your class schedule</p>
+        </div>
+      </div>
+
+      <div id="view-scan" class="view">
+        <div class="view-placeholder">
+          <svg viewBox="0 0 24 24"><path d="M9.5 6.5v3h-3v-3h3M11 5H5v6h6V5zm-1.5 9.5v3h-3v-3h3M11 13H5v6h6v-6zm6.5-6.5v3h-3v-3h3M19 5h-6v6h6V5zm-6 8h1.5v1.5H13V13zm1.5 1.5H16V16h-1.5v-1.5zM16 13h1.5v1.5H16V13zm-3 3h1.5v1.5H13V16zm1.5 1.5H16V19h-1.5v-1.5zM16 16h1.5v1.5H16V16zm1.5-1.5H19V16h-1.5v-1.5zm0 3H19V19h-1.5v-1.5z"/></svg>
+          <h2>QR Scanner</h2>
+          <p>Scan QR codes for indoor positioning</p>
+        </div>
+      </div>
+    </div>
+
+    <nav id="bottom-nav">
+      <button data-view="map" class="active" onclick="switchToView('map')">
+        <svg viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 010-5 2.5 2.5 0 010 5z"/></svg>
+        <span>Map</span>
+      </button>
+      <button data-view="indoor" onclick="switchToView('indoor')">
+        <svg viewBox="0 0 24 24"><path d="M11 17h2v-1h1c.55 0 1-.45 1-1v-3c0-.55-.45-1-1-1h-3v-1h4V8h-2V7h-2v1h-1c-.55 0-1 .45-1 1v3c0 .55.45 1 1 1h3v1H9v2h2v1zm1-15L2 6v2l2 1v11h16V9l2-1V6L12 2zm6 15H6V8.5l6-3 6 3V17z"/></svg>
+        <span>Indoor</span>
+      </button>
+      <button data-view="schedule" onclick="switchToView('schedule')">
+        <svg viewBox="0 0 24 24"><path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM9 10H7v2h2v-2zm4 0h-2v2h2v-2zm4 0h-2v2h2v-2z"/></svg>
+        <span>Schedule</span>
+      </button>
+      <button data-view="scan" onclick="switchToView('scan')">
+        <svg viewBox="0 0 24 24"><path d="M9.5 6.5v3h-3v-3h3M11 5H5v6h6V5zm-1.5 9.5v3h-3v-3h3M11 13H5v6h6v-6zm6.5-6.5v3h-3v-3h3M19 5h-6v6h6V5zm-6 8h1.5v1.5H13V13zm1.5 1.5H16V16h-1.5v-1.5zM16 13h1.5v1.5H16V13zm-3 3h1.5v1.5H13V16zm1.5 1.5H16V19h-1.5v-1.5zM16 16h1.5v1.5H16V16zm1.5-1.5H19V16h-1.5v-1.5zm0 3H19V19h-1.5v-1.5z"/></svg>
+        <span>Scan</span>
+      </button>
+    </nav>
+  </div>
+
+  <div id="error-toast"></div>
+
+  <!-- ============================================================
+       JAVASCRIPT
+       ============================================================ -->
+  <script>
+    /* ==========================================================
+       GLOBAL STATE
+       ========================================================== */
+    var APP = {
+      campusData: null,
+      dataVersion: null,
+      qrPayload: null,
+      currentView: 'map',
+      isUsingStaleCache: false
+    };
+
+    /* ==========================================================
+       TAB NAVIGATION
+       ========================================================== */
+    function switchToView(viewName) {
+      document.querySelectorAll('.view').forEach(function(v) { v.classList.remove('active'); });
+      document.querySelectorAll('#bottom-nav button').forEach(function(b) { b.classList.remove('active'); });
+      document.getElementById('view-' + viewName).classList.add('active');
+      document.querySelector('#bottom-nav button[data-view="' + viewName + '"]').classList.add('active');
+      APP.currentView = viewName;
+      updateHeaderTitle(viewName);
+    }
+
+    function updateHeaderTitle(viewName) {
+      var titles = {
+        map: 'Campus Map',
+        indoor: 'Indoor Navigation',
+        schedule: 'Schedule',
+        scan: 'QR Scanner'
+      };
+      document.getElementById('header-title').textContent = titles[viewName] || 'Campus Navigation';
+    }
+
+    /* ==========================================================
+       LOADING SCREEN
+       ========================================================== */
+    function setLoadingStatus(text) {
+      var el = document.getElementById('loading-status');
+      if (el) el.textContent = text;
+    }
+
+    function hideLoadingScreen() {
+      var screen = document.getElementById('loading-screen');
+      screen.classList.add('hidden');
+      document.getElementById('app').classList.add('ready');
+      setTimeout(function() {
+        screen.style.display = 'none';
+      }, 350);
+    }
+
+    /* ==========================================================
+       ERROR HANDLING
+       ========================================================== */
+    function showError(msg, duration) {
+      var toast = document.getElementById('error-toast');
+      toast.textContent = msg;
+      toast.classList.add('visible');
+      setTimeout(function() {
+        toast.classList.remove('visible');
+      }, duration || 4000);
+    }
+
+    /* ==========================================================
+       LOCAL STORAGE CACHE
+       ========================================================== */
+    function getCachedData() {
+      try {
+        var data = localStorage.getItem('campusData');
+        var version = localStorage.getItem('campusDataVersion');
+        if (data && version) {
+          return { data: JSON.parse(data), version: parseInt(version, 10) };
+        }
+      } catch (e) {
+        console.warn('Cache read error:', e);
+      }
+      return null;
+    }
+
+    function setCachedData(data, version) {
+      try {
+        localStorage.setItem('campusData', JSON.stringify(data));
+        localStorage.setItem('campusDataVersion', String(version));
+      } catch (e) {
+        console.warn('Cache write error:', e);
+      }
+    }
+
+    /* ==========================================================
+       DATA LOADING — google.script.run calls
+       ========================================================== */
+    function loadCampusData() {
+      var cached = getCachedData();
+
+      if (cached) {
+        setLoadingStatus('Checking for updates...');
+        google.script.run
+          .withSuccessHandler(function(serverVersion) {
+            if (serverVersion === cached.version) {
+              console.log('Cache is current (version ' + cached.version + ')');
+              onDataReady(cached.data, cached.version, false);
+            } else {
+              console.log('Cache outdated (local=' + cached.version + ', server=' + serverVersion + '), fetching fresh data...');
+              fetchFreshData(cached);
+            }
+          })
+          .withFailureHandler(function(err) {
+            console.warn('Version check failed, using stale cache:', err);
+            onDataReady(cached.data, cached.version, true);
+          })
+          .getDataVersion();
+      } else {
+        setLoadingStatus('Downloading campus data...');
+        fetchFreshData(null);
+      }
+    }
+
+    function fetchFreshData(fallbackCache) {
+      setLoadingStatus('Downloading campus data...');
+      google.script.run
+        .withSuccessHandler(function(result) {
+          if (result && result.config) {
+            var version = 0;
+            if (result.config && result.config.length > 0) {
+              for (var i = 0; i < result.config.length; i++) {
+                if (result.config[i].key === 'dataVersion') {
+                  version = parseInt(result.config[i].value, 10) || 0;
+                  break;
+                }
+              }
+            }
+            setCachedData(result, version);
+            onDataReady(result, version, false);
+          } else if (fallbackCache) {
+            console.warn('Unexpected data format, using stale cache');
+            onDataReady(fallbackCache.data, fallbackCache.version, true);
+          } else {
+            console.error('Unexpected data format and no cache');
+            showError('Failed to load campus data. Please try again.');
+            hideLoadingScreen();
+          }
+        })
+        .withFailureHandler(function(err) {
+          console.error('Data fetch failed:', err);
+          if (fallbackCache) {
+            console.warn('Using stale cache as offline fallback');
+            onDataReady(fallbackCache.data, fallbackCache.version, true);
+          } else {
+            showError('Unable to load campus data. Check your connection and try again.');
+            hideLoadingScreen();
+          }
+        })
+        .getAllCampusData();
+    }
+
+    /* ==========================================================
+       DATA READY — App initialization after data loads
+       ========================================================== */
+    function onDataReady(data, version, isStale) {
+      APP.campusData = data;
+      APP.dataVersion = version;
+      APP.isUsingStaleCache = isStale;
+
+      console.log('Campus data loaded (version ' + version + ', stale=' + isStale + ')');
+
+      if (isStale) {
+        document.getElementById('stale-banner').classList.add('visible');
+      }
+
+      checkQRDeepLink();
+      hideLoadingScreen();
+    }
+
+    /* ==========================================================
+       QR DEEP-LINK HANDLING
+       ========================================================== */
+    function checkQRDeepLink() {
+      try {
+        google.script.url.getLocation(function(location) {
+          if (location && location.parameter && location.parameter.qr) {
+            try {
+              var decoded = atob(location.parameter.qr);
+              APP.qrPayload = JSON.parse(decoded);
+              console.log('QR deep-link payload:', APP.qrPayload);
+              processQRPayload(APP.qrPayload);
+            } catch (e) {
+              console.warn('Invalid QR payload:', e);
+            }
+          }
+        });
+      } catch (e) {
+        console.warn('URL location API not available:', e);
+      }
+    }
+
+    function processQRPayload(payload) {
+      /* Placeholder: other tasks will implement QR processing logic.
+         Expected payload shape: { type: 'location'|'schedule', ... }
+         For now, just log it and switch to the appropriate view. */
+      if (payload && payload.type === 'location') {
+        switchToView('indoor');
+      } else if (payload && payload.type === 'schedule') {
+        switchToView('schedule');
+      }
+    }
+
+    /* ==========================================================
+       APP INITIALIZATION
+       ========================================================== */
+    function initApp() {
+      updateHeaderTitle('map');
+      loadCampusData();
+    }
+
+    initApp();
+  </script>
 </body>
 </html>
