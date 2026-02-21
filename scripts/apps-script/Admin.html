@@ -62,6 +62,9 @@
       gap: 0;
       border-bottom: 2px solid var(--border);
       margin-bottom: 24px;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      white-space: nowrap;
     }
     .tab-btn {
       padding: 10px 20px;
@@ -314,6 +317,179 @@
       }
     }
 
+    /* Canvas editor styles */
+    .editor-toolbar {
+      display: flex;
+      gap: 8px;
+      padding: 10px 0;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .editor-toolbar .tool-btn {
+      padding: 6px 14px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: #fff;
+      font-size: 13px;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .editor-toolbar .tool-btn:hover {
+      background: var(--light-gray);
+    }
+    .editor-toolbar .tool-btn.active {
+      background: var(--navy);
+      color: #fff;
+      border-color: var(--navy);
+    }
+
+    .canvas-wrap {
+      position: relative;
+      width: 100%;
+      height: 500px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      background: #e5e7eb;
+      touch-action: none;
+      cursor: grab;
+    }
+    .canvas-wrap:active {
+      cursor: grabbing;
+    }
+    .canvas-wrap canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    .editor-side-panel {
+      margin-top: 12px;
+      padding: 16px;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      display: none;
+    }
+    .editor-side-panel.visible {
+      display: block;
+    }
+
+    /* Building/Floor selector bar (used by multiple editor tabs) */
+    .editor-selector-bar {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .editor-selector-bar select {
+      padding: 8px 12px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 14px;
+      background: #fff;
+      min-width: 180px;
+    }
+
+    /* Floor button strip */
+    .floor-buttons {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+    .floor-btn {
+      padding: 6px 14px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: #fff;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .floor-btn.active {
+      background: var(--navy);
+      color: #fff;
+      border-color: var(--navy);
+    }
+
+    /* JSON import/export modal */
+    .json-modal-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+    }
+    .json-modal {
+      background: #fff;
+      border-radius: 12px;
+      padding: 24px;
+      width: 90%;
+      max-width: 600px;
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+    .json-modal h3 {
+      margin-bottom: 12px;
+      color: var(--navy);
+    }
+    .json-modal textarea {
+      width: 100%;
+      min-height: 200px;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      resize: vertical;
+    }
+    .json-modal .btn-row {
+      margin-top: 12px;
+    }
+
+    /* Item list (for floor list, room list, etc.) */
+    .item-list {
+      list-style: none;
+      padding: 0;
+    }
+    .item-list li {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--light-gray);
+    }
+    .item-list li:last-child {
+      border-bottom: none;
+    }
+    .item-list .item-name {
+      font-weight: 500;
+    }
+    .item-list .item-actions {
+      display: flex;
+      gap: 6px;
+    }
+    .item-list .item-actions button {
+      padding: 4px 10px;
+      font-size: 12px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: #fff;
+      cursor: pointer;
+    }
+    .item-list .item-actions button:hover {
+      background: var(--light-gray);
+    }
+    .item-list .item-actions button.delete-btn {
+      color: var(--error);
+      border-color: var(--error);
+    }
+    .item-list .item-actions button.delete-btn:hover {
+      background: #fef2f2;
+    }
+
     /* Responsive */
     @media (max-width: 600px) {
       .header h1 { font-size: 17px; }
@@ -361,6 +537,10 @@
         <button class="tab-btn active" data-tab="location" onclick="switchTab('location')">Location QR</button>
         <button class="tab-btn" data-tab="schedule" onclick="switchTab('schedule')">Schedule QR</button>
         <button class="tab-btn" data-tab="batch" onclick="switchTab('batch')">Batch Generate</button>
+        <button class="tab-btn" data-tab="buildings" onclick="switchTab('buildings')">Buildings</button>
+        <button class="tab-btn" data-tab="floors" onclick="switchTab('floors')">Floor Plans</button>
+        <button class="tab-btn" data-tab="rooms" onclick="switchTab('rooms')">Room Editor</button>
+        <button class="tab-btn" data-tab="navgraph" onclick="switchTab('navgraph')">Nav Graph</button>
       </div>
 
       <!-- ===================== LOCATION QR TAB ===================== -->
@@ -484,6 +664,250 @@
         </div>
 
         <div id="batch-output" class="batch-grid"></div>
+      </div>
+
+      <!-- ===================== BUILDINGS TAB ===================== -->
+      <div id="tab-buildings" class="tab-panel">
+        <div class="card">
+          <h2>Buildings & Entrances</h2>
+          <p style="color:var(--text-light);">Manage buildings on the campus map. Click a marker or select from dropdown. Click the map to add entrances.</p>
+
+          <!-- Building selector + Add -->
+          <div class="editor-selector-bar">
+            <select id="buildings-select" onchange="onBuildingsSelectChange()">
+              <option value="">All buildings (overview)</option>
+            </select>
+            <button class="btn btn-gold" onclick="showAddBuildingForm2()">+ Add Building</button>
+          </div>
+
+          <!-- Add Building Form (hidden) -->
+          <div id="buildings-add-form" class="card" style="display:none;margin-bottom:16px;background:#f9fafb;">
+            <h3 style="font-size:14px;margin-bottom:12px;color:var(--navy);">Add Building</h3>
+            <div class="form-group">
+              <label for="buildings-new-name">Building Name</label>
+              <input type="text" id="buildings-new-name" placeholder="e.g. Blackburn Science Building">
+            </div>
+            <p style="font-size:12px;color:var(--text-light);margin-bottom:12px;">After saving, click the map to set the building's GPS location.</p>
+            <div class="btn-row">
+              <button class="btn btn-primary" onclick="saveNewBuilding2()">Save Building</button>
+              <button class="btn btn-outline" onclick="hideBuildingAddForm2()">Cancel</button>
+            </div>
+          </div>
+
+          <!-- Google Map -->
+          <div id="buildings-map-wrap" style="width:100%;height:400px;border-radius:8px;overflow:hidden;margin-bottom:16px;background:#e5e7eb;"></div>
+
+          <!-- Building Detail Section (shown when building selected) -->
+          <div id="buildings-detail" style="display:none;">
+            <!-- Building name/GPS edit -->
+            <div class="card" style="margin-bottom:16px;background:#f9fafb;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                <h3 id="buildings-detail-title" style="font-size:14px;color:var(--navy);margin:0;">Building Details</h3>
+                <button class="btn btn-outline delete-btn" onclick="deleteBuildingConfirm()" style="padding:4px 12px;font-size:12px;">Delete Building</button>
+              </div>
+              <div class="form-group">
+                <label for="buildings-edit-name">Name</label>
+                <input type="text" id="buildings-edit-name">
+              </div>
+              <div style="display:flex;gap:10px;">
+                <div class="form-group" style="flex:1;">
+                  <label for="buildings-edit-lat">Latitude</label>
+                  <input type="text" id="buildings-edit-lat">
+                </div>
+                <div class="form-group" style="flex:1;">
+                  <label for="buildings-edit-lng">Longitude</label>
+                  <input type="text" id="buildings-edit-lng">
+                </div>
+              </div>
+              <div class="btn-row">
+                <button class="btn btn-primary" onclick="saveBuildingDetails()">Save Building</button>
+                <button class="btn btn-outline" onclick="pickBuildingGps()">Pick GPS on Map</button>
+              </div>
+            </div>
+
+            <!-- Entrances Section -->
+            <div class="card" style="background:#f9fafb;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                <h3 style="font-size:14px;color:var(--navy);margin:0;">Entrances</h3>
+                <span style="font-size:13px;color:var(--text-light);" id="buildings-entrance-count"></span>
+              </div>
+              <p style="font-size:12px;color:var(--text-light);margin-bottom:8px;">Click the map to add entrances. Drag markers to reposition.</p>
+              <ul id="buildings-entrance-list" class="item-list"></ul>
+              <div class="btn-row">
+                <button class="btn btn-primary" onclick="saveAllEntrances2()">Save Entrances</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===================== FLOOR PLANS TAB ===================== -->
+      <div id="tab-floors" class="tab-panel">
+        <div class="card">
+          <h2>Floor Plans</h2>
+          <p style="color:var(--text-light);">Manage floor plans for buildings. Add buildings in the Buildings tab first.</p>
+
+          <div class="editor-selector-bar">
+            <select id="floors-building-select" onchange="onFloorsBuildingChange()">
+              <option value="">Select building...</option>
+            </select>
+          </div>
+
+          <!-- Floor List -->
+          <div id="floors-list-section" style="display:none;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+              <h3 style="font-size:14px;color:var(--navy);">Floors</h3>
+              <button class="btn btn-gold" onclick="showFloorForm()">+ Add Floor</button>
+            </div>
+            <ul id="floors-list" class="item-list"></ul>
+          </div>
+
+          <!-- Add/Edit Floor Form (hidden by default) -->
+          <div id="floors-form" class="card" style="display:none;margin-top:16px;background:#f9fafb;">
+            <h3 id="floors-form-title" style="font-size:14px;margin-bottom:12px;color:var(--navy);">Add Floor</h3>
+            <input type="hidden" id="floors-form-id">
+            <div style="display:flex;gap:10px;">
+              <div class="form-group" style="flex:1;">
+                <label for="floors-level">Level</label>
+                <input type="text" id="floors-level" placeholder="e.g. 1">
+              </div>
+              <div class="form-group" style="flex:2;">
+                <label for="floors-label">Label</label>
+                <input type="text" id="floors-label" placeholder="e.g. First Floor">
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="floors-imageUrl">Plan Image URL (Google Drive link)</label>
+              <input type="text" id="floors-imageUrl" placeholder="https://drive.google.com/file/d/...">
+            </div>
+            <div style="display:flex;gap:10px;">
+              <div class="form-group" style="flex:1;">
+                <label for="floors-widthPx">Width (px)</label>
+                <input type="text" id="floors-widthPx" placeholder="e.g. 2000">
+              </div>
+              <div class="form-group" style="flex:1;">
+                <label for="floors-heightPx">Height (px)</label>
+                <input type="text" id="floors-heightPx" placeholder="e.g. 1500">
+              </div>
+              <div class="form-group" style="flex:1;">
+                <label for="floors-metersPerPixel">Meters/Pixel</label>
+                <input type="text" id="floors-metersPerPixel" placeholder="e.g. 0.05">
+              </div>
+            </div>
+            <!-- Image preview -->
+            <div id="floors-image-preview" style="margin-top:12px;display:none;">
+              <p style="font-size:13px;color:var(--text-light);margin-bottom:6px;">Preview:</p>
+              <img id="floors-preview-img" style="max-width:100%;max-height:300px;border:1px solid var(--border);border-radius:6px;">
+            </div>
+            <div class="btn-row">
+              <button class="btn btn-primary" onclick="saveFloorForm()">Save Floor</button>
+              <button class="btn btn-outline" onclick="hideFloorForm()">Cancel</button>
+              <button class="btn btn-outline" onclick="previewFloorImage()">Preview Image</button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ===================== ROOM EDITOR TAB ===================== -->
+      <div id="tab-rooms" class="tab-panel">
+        <div class="card">
+          <h2>Room Polygon Editor</h2>
+          <p style="color:var(--text-light);">Draw and edit room polygons on floor plans.</p>
+
+          <!-- Building/Floor selector -->
+          <div class="editor-selector-bar">
+            <select id="rooms-building-select" onchange="onRoomsBuildingChange()">
+              <option value="">Select building...</option>
+            </select>
+            <div id="rooms-floor-buttons" class="floor-buttons"></div>
+          </div>
+
+          <!-- Toolbar -->
+          <div id="rooms-toolbar" class="editor-toolbar">
+            <button class="tool-btn active" data-tool="select" onclick="setRoomTool('select')">Select</button>
+            <button class="tool-btn" data-tool="draw" onclick="setRoomTool('draw')">Draw Polygon</button>
+            <span style="flex:1;"></span>
+            <button class="btn btn-outline" onclick="showRoomsJsonImport()">Import JSON</button>
+            <button class="btn btn-outline" onclick="showRoomsJsonExport()">Export JSON</button>
+          </div>
+
+          <!-- Canvas -->
+          <div id="rooms-canvas-wrap" class="canvas-wrap">
+            <canvas id="rooms-canvas"></canvas>
+          </div>
+
+          <!-- Room edit panel (below canvas, hidden by default) -->
+          <div id="rooms-panel" class="editor-side-panel">
+            <h3 style="font-size:14px;margin-bottom:12px;color:var(--navy);">Room Details</h3>
+            <input type="hidden" id="rooms-edit-id">
+            <div style="display:flex;gap:10px;">
+              <div class="form-group" style="flex:1;">
+                <label for="rooms-edit-number">Room Number</label>
+                <input type="text" id="rooms-edit-number" placeholder="e.g. 101">
+              </div>
+              <div class="form-group" style="flex:2;">
+                <label for="rooms-edit-label">Room Label</label>
+                <input type="text" id="rooms-edit-label" placeholder="e.g. Physics Lab">
+              </div>
+            </div>
+            <div class="btn-row">
+              <button class="btn btn-primary" onclick="saveRoomEdit()">Save Room</button>
+              <button class="btn btn-outline" onclick="deleteRoomConfirm()">Delete Room</button>
+              <button class="btn btn-outline" onclick="redrawRoom()">Redraw Polygon</button>
+              <button class="btn btn-outline" onclick="closeRoomPanel()">Close</button>
+            </div>
+          </div>
+
+          <!-- Room list -->
+          <div id="rooms-content" style="margin-top:12px;">
+            <div id="rooms-list-header" style="display:none;margin-bottom:8px;">
+              <span style="font-size:13px;color:var(--text-light);" id="rooms-count"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===================== NAV GRAPH TAB ===================== -->
+      <div id="tab-navgraph" class="tab-panel">
+        <div class="card">
+          <h2>Nav Graph Editor</h2>
+          <p style="color:var(--text-light);">Place navigation nodes and connect them with edges.</p>
+
+          <!-- Building/Floor selector -->
+          <div class="editor-selector-bar">
+            <select id="navgraph-building-select" onchange="onNavBuildingChange()">
+              <option value="">Select building...</option>
+            </select>
+            <div id="navgraph-floor-buttons" class="floor-buttons"></div>
+          </div>
+
+          <!-- Toolbar -->
+          <div id="navgraph-toolbar" class="editor-toolbar">
+            <button class="tool-btn active" data-navtool="select" onclick="setNavTool('select')">Select</button>
+            <button class="tool-btn" data-navtool="addnode" onclick="setNavTool('addnode')">Add Node</button>
+            <button class="tool-btn" data-navtool="addedge" onclick="setNavTool('addedge')">Add Edge</button>
+            <span style="flex:1;"></span>
+            <button class="btn btn-outline" onclick="showNavCrossFloor()">Cross-Floor Edge</button>
+            <button class="btn btn-outline" onclick="showNavJsonImport()">Import JSON</button>
+            <button class="btn btn-outline" onclick="showNavJsonExport()">Export JSON</button>
+          </div>
+
+          <!-- Canvas -->
+          <div id="navgraph-canvas-wrap" class="canvas-wrap">
+            <canvas id="navgraph-canvas"></canvas>
+          </div>
+
+          <!-- Node/Edge edit panel -->
+          <div id="navgraph-panel" class="editor-side-panel">
+            <!-- Content populated dynamically -->
+          </div>
+
+          <!-- Status bar -->
+          <div id="navgraph-content" style="margin-top:8px;">
+            <span style="font-size:13px;color:var(--text-light);" id="navgraph-count"></span>
+          </div>
+        </div>
       </div>
 
     </div><!-- /main-content -->
@@ -620,6 +1044,11 @@
       for (var j = 0; j < panels.length; j++) {
         panels[j].classList.toggle('active', panels[j].id === 'tab-' + tabName);
       }
+      // Tab activation hooks
+      if (tabName === 'buildings' && campusData) initBuildingsTab();
+      if (tabName === 'floors' && campusData) initFloorsTab();
+      if (tabName === 'rooms' && campusData) initRoomsTab();
+      if (tabName === 'navgraph' && campusData) initNavTab();
     }
 
     /* ========================================================
@@ -830,6 +1259,3210 @@
       div.appendChild(document.createTextNode(str));
       return div.innerHTML;
     }
+
+    /* ========================================================
+       SHARED HELPERS
+       ======================================================== */
+
+    /**
+     * Compute the centroid of a polygon defined as an array of [x, y] pairs.
+     * Returns {x: avgX, y: avgY}. Handles empty/null input.
+     */
+    function computePolygonCenter(polygon) {
+      if (!polygon || !Array.isArray(polygon) || polygon.length === 0) {
+        return { x: 0, y: 0 };
+      }
+      var sumX = 0, sumY = 0;
+      for (var i = 0; i < polygon.length; i++) {
+        sumX += polygon[i][0];
+        sumY += polygon[i][1];
+      }
+      return { x: sumX / polygon.length, y: sumY / polygon.length };
+    }
+
+    /**
+     * Ray-casting point-in-polygon test.
+     * Takes x, y and array of [x, y] pairs. Returns boolean.
+     */
+    function isPointInPolygon(x, y, polygon) {
+      if (!polygon || !Array.isArray(polygon) || polygon.length < 3) return false;
+      var inside = false;
+      for (var i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+        var xi = polygon[i][0], yi = polygon[i][1];
+        var xj = polygon[j][0], yj = polygon[j][1];
+        if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) {
+          inside = !inside;
+        }
+      }
+      return inside;
+    }
+
+    /**
+     * Convert Google Drive sharing URLs to direct download URLs.
+     * If URL contains drive.google.com/file/d/, extracts file ID and returns
+     * direct download URL. Otherwise returns url unchanged.
+     */
+    function getDriveDirectUrl(url) {
+      if (!url) return '';
+      var match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+      if (match) return 'https://drive.google.com/uc?export=view&id=' + match[1];
+      return url;
+    }
+
+    /**
+     * Refresh campus data from the server.
+     * Calls getAllCampusData(), updates global campusData, refreshes dropdowns,
+     * then calls callback() if provided.
+     */
+    function refreshCampusData(callback) {
+      google.script.run
+        .withSuccessHandler(function(data) {
+          campusData = data;
+          populateDropdowns();
+          showMessage('Data refreshed', 'success');
+          if (typeof callback === 'function') callback();
+        })
+        .withFailureHandler(function(err) {
+          showMessage('Failed to refresh data: ' + (err.message || String(err)), 'error');
+        })
+        .getAllCampusData();
+    }
+
+    /* ========================================================
+       FLOOR PLAN MANAGER
+       ======================================================== */
+
+    /**
+     * Initialize the floors tab. Populates the building selector dropdown
+     * from campusData.buildings. Selects the first building if any exist.
+     */
+    function initFloorsTab() {
+      if (!campusData || !campusData.buildings) return;
+      var sel = document.getElementById('floors-building-select');
+      var currentVal = sel.value;
+      sel.innerHTML = '<option value="">Select building...</option>';
+      var buildings = campusData.buildings;
+      for (var i = 0; i < buildings.length; i++) {
+        var b = buildings[i];
+        var opt = document.createElement('option');
+        opt.value = b.id;
+        opt.textContent = b.name || b.id;
+        sel.appendChild(opt);
+      }
+      // Restore previous selection or select first building
+      if (currentVal) {
+        sel.value = currentVal;
+      } else if (buildings.length > 0) {
+        sel.value = buildings[0].id;
+      }
+      onFloorsBuildingChange();
+    }
+
+    /**
+     * When building is selected in floors tab:
+     * Shows/hides the floor list for this building.
+     */
+    function onFloorsBuildingChange() {
+      var buildingId = document.getElementById('floors-building-select').value;
+      var listSection = document.getElementById('floors-list-section');
+
+      if (!buildingId) {
+        listSection.style.display = 'none';
+        hideFloorForm();
+        return;
+      }
+
+      // Render the floor list
+      renderFloorsList(buildingId);
+      listSection.style.display = '';
+    }
+
+    /**
+     * Render the list of floors for a given building, sorted by level.
+     * Each floor shows label, level, and Edit/Delete action buttons.
+     */
+    function renderFloorsList(buildingId) {
+      var listEl = document.getElementById('floors-list');
+      listEl.innerHTML = '';
+
+      if (!campusData || !campusData.floors) {
+        listEl.innerHTML = '<li style="color:var(--text-light);padding:12px;">No floors yet. Click "+ Add Floor" to create one.</li>';
+        return;
+      }
+
+      // Filter floors for this building and sort by level
+      var floors = [];
+      for (var i = 0; i < campusData.floors.length; i++) {
+        if (campusData.floors[i].buildingId === buildingId) {
+          floors.push(campusData.floors[i]);
+        }
+      }
+      floors.sort(function(a, b) { return (a.level || 0) - (b.level || 0); });
+
+      if (floors.length === 0) {
+        listEl.innerHTML = '<li style="color:var(--text-light);padding:12px;">No floors yet. Click "+ Add Floor" to create one.</li>';
+        return;
+      }
+
+      for (var j = 0; j < floors.length; j++) {
+        var f = floors[j];
+        var li = document.createElement('li');
+
+        var nameSpan = document.createElement('span');
+        nameSpan.className = 'item-name';
+        nameSpan.textContent = (f.label || 'Floor ' + f.level) + ' (Level ' + f.level + ')';
+        li.appendChild(nameSpan);
+
+        var actionsDiv = document.createElement('div');
+        actionsDiv.className = 'item-actions';
+
+        var editBtn = document.createElement('button');
+        editBtn.textContent = 'Edit';
+        editBtn.setAttribute('data-floor-id', f.id);
+        editBtn.onclick = (function(floorId) {
+          return function() { editFloor(floorId); };
+        })(f.id);
+        actionsDiv.appendChild(editBtn);
+
+        var deleteBtn = document.createElement('button');
+        deleteBtn.textContent = 'Delete';
+        deleteBtn.className = 'delete-btn';
+        deleteBtn.setAttribute('data-floor-id', f.id);
+        deleteBtn.onclick = (function(floorId) {
+          return function() { deleteFloorConfirm(floorId); };
+        })(f.id);
+        actionsDiv.appendChild(deleteBtn);
+
+        li.appendChild(actionsDiv);
+        listEl.appendChild(li);
+      }
+    }
+
+    /**
+     * Show the floor add/edit form.
+     * If floorId is provided, populate for editing; otherwise clear for new floor.
+     */
+    function showFloorForm(floorId) {
+      var formTitle = document.getElementById('floors-form-title');
+      var formIdField = document.getElementById('floors-form-id');
+      var levelInput = document.getElementById('floors-level');
+      var labelInput = document.getElementById('floors-label');
+      var imageUrlInput = document.getElementById('floors-imageUrl');
+      var widthInput = document.getElementById('floors-widthPx');
+      var heightInput = document.getElementById('floors-heightPx');
+      var mppInput = document.getElementById('floors-metersPerPixel');
+      var previewDiv = document.getElementById('floors-image-preview');
+
+      // Hide preview
+      previewDiv.style.display = 'none';
+
+      if (floorId) {
+        // Editing existing floor
+        formTitle.textContent = 'Edit Floor';
+        formIdField.value = floorId;
+
+        var floor = null;
+        var floors = (campusData && campusData.floors) || [];
+        for (var i = 0; i < floors.length; i++) {
+          if (floors[i].id === floorId) {
+            floor = floors[i];
+            break;
+          }
+        }
+
+        if (floor) {
+          levelInput.value = floor.level || '';
+          labelInput.value = floor.label || '';
+          imageUrlInput.value = floor.planImageUrl || '';
+          widthInput.value = floor.widthPx || '';
+          heightInput.value = floor.heightPx || '';
+          mppInput.value = floor.metersPerPixel || '';
+        }
+      } else {
+        // Adding new floor
+        formTitle.textContent = 'Add Floor';
+        formIdField.value = '';
+        levelInput.value = '';
+        labelInput.value = '';
+        imageUrlInput.value = '';
+        widthInput.value = '';
+        heightInput.value = '';
+        mppInput.value = '';
+      }
+
+      document.getElementById('floors-form').style.display = '';
+    }
+
+    /**
+     * Hide the floor form and clear the hidden id field.
+     */
+    function hideFloorForm() {
+      document.getElementById('floors-form').style.display = 'none';
+      document.getElementById('floors-form-id').value = '';
+    }
+
+    /**
+     * Edit a floor — delegates to showFloorForm with the floor ID.
+     */
+    function editFloor(floorId) {
+      showFloorForm(floorId);
+    }
+
+    /**
+     * Confirm and delete a floor.
+     * Shows confirm() dialog, then calls deleteFloor on the server.
+     */
+    function deleteFloorConfirm(floorId) {
+      // Find floor label for the confirm message
+      var floorLabel = floorId;
+      var floors = (campusData && campusData.floors) || [];
+      for (var i = 0; i < floors.length; i++) {
+        if (floors[i].id === floorId) {
+          floorLabel = floors[i].label || ('Level ' + floors[i].level);
+          break;
+        }
+      }
+
+      if (!confirm('Delete floor "' + floorLabel + '"? This cannot be undone.')) return;
+
+      google.script.run
+        .withSuccessHandler(function() {
+          var buildingId = document.getElementById('floors-building-select').value;
+          refreshCampusData(function() {
+            renderFloorsList(buildingId);
+          });
+          showMessage('Floor deleted successfully.', 'success');
+          hideFloorForm();
+        })
+        .withFailureHandler(function(err) {
+          showMessage('Failed to delete floor: ' + (err.message || String(err)), 'error');
+        })
+        .deleteFloor({ pin: adminPin, id: floorId });
+    }
+
+    /**
+     * Save the floor form (create or update).
+     * If the hidden id field has a value, updates; otherwise creates new.
+     */
+    function saveFloorForm() {
+      var id = document.getElementById('floors-form-id').value;
+      var buildingId = document.getElementById('floors-building-select').value;
+      var level = document.getElementById('floors-level').value.trim();
+      var label = document.getElementById('floors-label').value.trim();
+      var imageUrl = document.getElementById('floors-imageUrl').value.trim();
+      var widthPx = document.getElementById('floors-widthPx').value.trim();
+      var heightPx = document.getElementById('floors-heightPx').value.trim();
+      var metersPerPixel = document.getElementById('floors-metersPerPixel').value.trim();
+
+      if (!buildingId) { showMessage('No building selected.', 'error'); return; }
+      if (!level) { showMessage('Level is required.', 'error'); return; }
+      if (!label) { showMessage('Label is required.', 'error'); return; }
+
+      var data = {
+        pin: adminPin,
+        buildingId: buildingId,
+        level: level,
+        label: label,
+        planImageUrl: imageUrl,
+        widthPx: parseInt(widthPx, 10) || 0,
+        heightPx: parseInt(heightPx, 10) || 0,
+        metersPerPixel: parseFloat(metersPerPixel) || 0
+      };
+
+      if (id) {
+        // Update existing floor
+        data.id = id;
+        google.script.run
+          .withSuccessHandler(function() {
+            refreshCampusData(function() {
+              renderFloorsList(buildingId);
+            });
+            hideFloorForm();
+            showMessage('Floor updated successfully.', 'success');
+          })
+          .withFailureHandler(function(err) {
+            showMessage('Failed to update floor: ' + (err.message || String(err)), 'error');
+          })
+          .updateFloor(data);
+      } else {
+        // Create new floor
+        google.script.run
+          .withSuccessHandler(function() {
+            refreshCampusData(function() {
+              renderFloorsList(buildingId);
+            });
+            hideFloorForm();
+            showMessage('Floor created successfully.', 'success');
+          })
+          .withFailureHandler(function(err) {
+            showMessage('Failed to create floor: ' + (err.message || String(err)), 'error');
+          })
+          .saveFloor(data);
+      }
+    }
+
+    /**
+     * Preview a floor plan image by converting the URL and showing it
+     * in the preview area below the form.
+     */
+    function previewFloorImage() {
+      var url = document.getElementById('floors-imageUrl').value.trim();
+      if (!url) { showMessage('Please enter an image URL first.', 'error'); return; }
+
+      var directUrl = getDriveDirectUrl(url);
+      var img = document.getElementById('floors-preview-img');
+      var previewDiv = document.getElementById('floors-image-preview');
+
+      img.onerror = function() {
+        previewDiv.style.display = 'none';
+        showMessage('Failed to load image. Check the URL and sharing permissions.', 'error');
+      };
+      img.onload = function() {
+        previewDiv.style.display = '';
+      };
+      img.src = directUrl;
+    }
+
+    /* ========================================================
+       ROOM POLYGON EDITOR
+       ======================================================== */
+
+    var roomsCanvas = null;          // AdminCanvasController instance
+    var roomsCurrentFloor = null;    // currently selected floor object
+    var roomsCurrentBuilding = null; // currently selected building ID
+    var roomsTool = 'select';        // 'select' or 'draw'
+    var roomsDrawingPoly = [];       // points being drawn [[x,y], ...]
+    var roomsSelectedRoom = null;    // currently selected room object (from campusData)
+    var roomsRedrawingId = null;     // room ID being redrawn (null if not redrawing)
+
+    /**
+     * Initialize the rooms tab. Populates the building selector dropdown
+     * from campusData.buildings. Re-selects previous building if still valid,
+     * otherwise selects the first building.
+     */
+    function initRoomsTab() {
+      if (!campusData || !campusData.buildings) return;
+
+      var sel = document.getElementById('rooms-building-select');
+      var currentVal = sel.value;
+      sel.innerHTML = '<option value="">Select building...</option>';
+
+      var buildings = campusData.buildings;
+      for (var i = 0; i < buildings.length; i++) {
+        var b = buildings[i];
+        var opt = document.createElement('option');
+        opt.value = b.id;
+        opt.textContent = b.name || b.id;
+        sel.appendChild(opt);
+      }
+
+      // Restore previous selection or select first building
+      if (roomsCurrentBuilding) {
+        // Verify it still exists
+        var found = false;
+        for (var j = 0; j < buildings.length; j++) {
+          if (buildings[j].id === roomsCurrentBuilding) { found = true; break; }
+        }
+        if (found) {
+          sel.value = roomsCurrentBuilding;
+        } else if (buildings.length > 0) {
+          sel.value = buildings[0].id;
+        }
+      } else if (currentVal) {
+        sel.value = currentVal;
+      } else if (buildings.length > 0) {
+        sel.value = buildings[0].id;
+      }
+
+      onRoomsBuildingChange();
+    }
+
+    /**
+     * When building selection changes in the rooms tab:
+     * Builds floor buttons, auto-selects first floor.
+     */
+    function onRoomsBuildingChange() {
+      var buildingId = document.getElementById('rooms-building-select').value;
+      roomsCurrentBuilding = buildingId;
+
+      var floorBtnsDiv = document.getElementById('rooms-floor-buttons');
+      floorBtnsDiv.innerHTML = '';
+
+      if (!buildingId || !campusData || !campusData.floors) {
+        roomsCurrentFloor = null;
+        updateRoomsCount();
+        return;
+      }
+
+      // Filter and sort floors for this building
+      var floors = [];
+      for (var i = 0; i < campusData.floors.length; i++) {
+        if (campusData.floors[i].buildingId === buildingId) {
+          floors.push(campusData.floors[i]);
+        }
+      }
+      floors.sort(function(a, b) { return (a.level || 0) - (b.level || 0); });
+
+      if (floors.length === 0) {
+        roomsCurrentFloor = null;
+        updateRoomsCount();
+        return;
+      }
+
+      // Build floor buttons
+      for (var j = 0; j < floors.length; j++) {
+        var f = floors[j];
+        var btn = document.createElement('button');
+        btn.className = 'floor-btn' + (j === 0 ? ' active' : '');
+        btn.textContent = f.label || ('Floor ' + f.level);
+        btn.setAttribute('data-floor-id', f.id);
+        btn.onclick = (function(floorId) {
+          return function() { selectRoomsFloor(floorId); };
+        })(f.id);
+        floorBtnsDiv.appendChild(btn);
+      }
+
+      // Auto-select first floor
+      selectRoomsFloor(floors[0].id);
+    }
+
+    /**
+     * Select a floor in the rooms tab. Loads the floor plan image
+     * into the canvas controller, clears selection and drawing state.
+     */
+    function selectRoomsFloor(floorId) {
+      // Find the floor object
+      var floor = null;
+      var floors = (campusData && campusData.floors) || [];
+      for (var i = 0; i < floors.length; i++) {
+        if (floors[i].id === floorId) {
+          floor = floors[i];
+          break;
+        }
+      }
+
+      roomsCurrentFloor = floor;
+
+      // Update floor button active states
+      var btns = document.getElementById('rooms-floor-buttons').querySelectorAll('.floor-btn');
+      for (var j = 0; j < btns.length; j++) {
+        btns[j].classList.toggle('active', btns[j].getAttribute('data-floor-id') === floorId);
+      }
+
+      // Clear selection and drawing state
+      roomsSelectedRoom = null;
+      roomsDrawingPoly = [];
+      roomsRedrawingId = null;
+      closeRoomPanel();
+
+      // Initialize or re-use the canvas controller
+      if (!roomsCanvas) {
+        roomsCanvas = new AdminCanvasController('rooms-canvas', {
+          onTap: onRoomsCanvasTap,
+          onRender: renderRoomsOverlay
+        });
+      }
+
+      // Load floor plan image
+      if (floor && floor.planImageUrl) {
+        roomsCanvas.loadImage(floor.planImageUrl, function() {
+          roomsCanvas.fitImage();
+        });
+      } else {
+        // No image — clear and render empty
+        roomsCanvas.image = null;
+        roomsCanvas.imageLoaded = false;
+        roomsCanvas.resetView();
+      }
+
+      updateRoomsCount();
+    }
+
+    /**
+     * Update the rooms count display for the current floor.
+     */
+    function updateRoomsCount() {
+      var headerEl = document.getElementById('rooms-list-header');
+      var countEl = document.getElementById('rooms-count');
+
+      if (!roomsCurrentFloor) {
+        headerEl.style.display = 'none';
+        return;
+      }
+
+      var rooms = getRoomsForCurrentFloor();
+      headerEl.style.display = '';
+      countEl.textContent = rooms.length + ' room' + (rooms.length !== 1 ? 's' : '') + ' on this floor';
+    }
+
+    /**
+     * Get rooms from campusData that belong to the current floor.
+     */
+    function getRoomsForCurrentFloor() {
+      if (!campusData || !campusData.rooms || !roomsCurrentFloor) return [];
+      var result = [];
+      for (var i = 0; i < campusData.rooms.length; i++) {
+        if (campusData.rooms[i].floorId === roomsCurrentFloor.id) {
+          result.push(campusData.rooms[i]);
+        }
+      }
+      return result;
+    }
+
+    /**
+     * Set the active room tool ('select' or 'draw').
+     * Updates toolbar button states and clears drawing if switching away from draw.
+     */
+    function setRoomTool(tool) {
+      roomsTool = tool;
+
+      // Update toolbar button active states
+      var toolBtns = document.getElementById('rooms-toolbar').querySelectorAll('.tool-btn');
+      for (var i = 0; i < toolBtns.length; i++) {
+        toolBtns[i].classList.toggle('active', toolBtns[i].getAttribute('data-tool') === tool);
+      }
+
+      if (tool !== 'draw') {
+        // Clear drawing state when switching away from draw
+        roomsDrawingPoly = [];
+        roomsRedrawingId = null;
+        if (roomsCanvas) roomsCanvas.render();
+      }
+
+      if (tool === 'draw') {
+        // Close any open room panel when entering draw mode
+        closeRoomPanel();
+      }
+    }
+
+    /**
+     * Canvas tap handler for the rooms editor.
+     * In 'draw' mode: adds points to the drawing polygon, closes polygon when
+     * tapping near the first point with >= 3 points.
+     * In 'select' mode: hit-tests existing room polygons for selection.
+     */
+    function onRoomsCanvasTap(canvasX, canvasY, event) {
+      if (!roomsCurrentFloor) return;
+
+      if (roomsTool === 'draw') {
+        // Check if closing the polygon (tap near first point, >= 3 points)
+        if (roomsDrawingPoly.length >= 3) {
+          var firstPt = roomsDrawingPoly[0];
+          var dx = canvasX - firstPt[0];
+          var dy = canvasY - firstPt[1];
+          var dist = Math.sqrt(dx * dx + dy * dy);
+          // Use 15px threshold adjusted for scale
+          var threshold = 15 / (roomsCanvas ? roomsCanvas.scale : 1);
+          if (dist < threshold) {
+            // Close the polygon
+            finishRoomPolygon();
+            return;
+          }
+        }
+
+        // Add point to drawing polygon
+        roomsDrawingPoly.push([canvasX, canvasY]);
+        if (roomsCanvas) roomsCanvas.render();
+
+      } else if (roomsTool === 'select') {
+        // Hit-test existing room polygons, then fall back to label proximity
+        var rooms = getRoomsForCurrentFloor();
+        var hitRoom = null;
+
+        // First pass: check polygon containment
+        for (var i = 0; i < rooms.length; i++) {
+          var room = rooms[i];
+          if (room.polygon && Array.isArray(room.polygon) && room.polygon.length >= 3) {
+            if (isPointInPolygon(canvasX, canvasY, room.polygon)) {
+              hitRoom = room;
+              break;
+            }
+          }
+        }
+
+        // Second pass: if no polygon hit, check proximity to room labels
+        if (!hitRoom) {
+          var labelThreshold = 20 / (roomsCanvas ? roomsCanvas.scale : 1);
+          var bestDist = labelThreshold;
+          for (var j = 0; j < rooms.length; j++) {
+            var rm = rooms[j];
+            if (rm.centerX && rm.centerY) {
+              var ldx = canvasX - Number(rm.centerX);
+              var ldy = canvasY - Number(rm.centerY);
+              var ldist = Math.sqrt(ldx * ldx + ldy * ldy);
+              if (ldist < bestDist) {
+                bestDist = ldist;
+                hitRoom = rm;
+              }
+            }
+          }
+        }
+
+        if (hitRoom) {
+          roomsSelectedRoom = hitRoom;
+          openRoomPanel(hitRoom);
+        } else {
+          roomsSelectedRoom = null;
+          closeRoomPanel();
+        }
+
+        if (roomsCanvas) roomsCanvas.render();
+      }
+    }
+
+    /**
+     * Finish drawing a room polygon. Either creates a new room or updates
+     * an existing room (if redrawing).
+     */
+    function finishRoomPolygon() {
+      var polygon = roomsDrawingPoly.slice(); // copy
+      var center = computePolygonCenter(polygon);
+
+      if (roomsRedrawingId) {
+        // Redrawing an existing room — update with new polygon
+        var existingRoom = null;
+        var rooms = (campusData && campusData.rooms) || [];
+        for (var i = 0; i < rooms.length; i++) {
+          if (rooms[i].id === roomsRedrawingId) {
+            existingRoom = rooms[i];
+            break;
+          }
+        }
+
+        var updateData = {
+          pin: adminPin,
+          id: roomsRedrawingId,
+          floorId: roomsCurrentFloor.id,
+          number: existingRoom ? (existingRoom.number || '') : '',
+          label: existingRoom ? (existingRoom.label || '') : '',
+          polygon: polygon,
+          centerX: center.x,
+          centerY: center.y
+        };
+
+        google.script.run
+          .withSuccessHandler(function() {
+            refreshCampusData(function() {
+              updateRoomsCount();
+              if (roomsCanvas) roomsCanvas.render();
+            });
+            showMessage('Room polygon updated successfully.', 'success');
+          })
+          .withFailureHandler(function(err) {
+            showMessage('Failed to update room polygon: ' + (err.message || String(err)), 'error');
+          })
+          .updateRoom(updateData);
+
+        roomsRedrawingId = null;
+      } else {
+        // Creating a new room
+        var number = prompt('Enter room number:');
+        if (number === null) {
+          // User cancelled — discard polygon
+          roomsDrawingPoly = [];
+          if (roomsCanvas) roomsCanvas.render();
+          return;
+        }
+        var label = prompt('Enter room label (optional):');
+        if (label === null) label = '';
+
+        var saveData = {
+          pin: adminPin,
+          floorId: roomsCurrentFloor.id,
+          number: number,
+          label: label,
+          polygon: polygon,
+          centerX: center.x,
+          centerY: center.y
+        };
+
+        google.script.run
+          .withSuccessHandler(function() {
+            refreshCampusData(function() {
+              updateRoomsCount();
+              if (roomsCanvas) roomsCanvas.render();
+            });
+            showMessage('Room "' + number + '" created successfully.', 'success');
+          })
+          .withFailureHandler(function(err) {
+            showMessage('Failed to save room: ' + (err.message || String(err)), 'error');
+          })
+          .saveRoom(saveData);
+      }
+
+      // Clear drawing state
+      roomsDrawingPoly = [];
+      setRoomTool('select');
+    }
+
+    /**
+     * Render overlay for the rooms canvas. Draws existing room polygons,
+     * selected room highlight, and in-progress drawing polygon.
+     * Called by AdminCanvasController after drawing the floor plan image.
+     */
+    function renderRoomsOverlay(ctx, scale, offsetX, offsetY) {
+      var rooms = getRoomsForCurrentFloor();
+
+      // 1. Draw existing rooms (blue fill for rooms with polygons, label-only for others)
+      for (var i = 0; i < rooms.length; i++) {
+        var room = rooms[i];
+        var hasPoly = room.polygon && Array.isArray(room.polygon) && room.polygon.length >= 3;
+
+        // Skip selected room here — draw it separately with gold highlight
+        if (roomsSelectedRoom && roomsSelectedRoom.id === room.id) continue;
+
+        if (hasPoly) {
+          ctx.fillStyle = 'rgba(0, 100, 255, 0.2)';
+          ctx.strokeStyle = 'rgba(0, 100, 255, 0.6)';
+          ctx.lineWidth = 2 / scale;
+
+          ctx.beginPath();
+          ctx.moveTo(room.polygon[0][0], room.polygon[0][1]);
+          for (var p = 1; p < room.polygon.length; p++) {
+            ctx.lineTo(room.polygon[p][0], room.polygon[p][1]);
+          }
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+        }
+
+        // Draw room number label at center (works with or without polygon)
+        if ((room.number || room.label) && (hasPoly || (room.centerX && room.centerY))) {
+          var cx = hasPoly ? (room.centerX || computePolygonCenter(room.polygon).x) : Number(room.centerX);
+          var cy = hasPoly ? (room.centerY || computePolygonCenter(room.polygon).y) : Number(room.centerY);
+          // Draw background pill for label-only rooms (no polygon)
+          if (!hasPoly) {
+            var labelText = room.number || room.label;
+            ctx.font = (10 / scale) + 'px sans-serif';
+            var tw = ctx.measureText(labelText).width;
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+            ctx.fillRect(cx - tw / 2 - 3 / scale, cy - 6 / scale, tw + 6 / scale, 12 / scale);
+            ctx.strokeStyle = 'rgba(0, 100, 255, 0.5)';
+            ctx.lineWidth = 1 / scale;
+            ctx.strokeRect(cx - tw / 2 - 3 / scale, cy - 6 / scale, tw + 6 / scale, 12 / scale);
+          }
+          ctx.fillStyle = '#003';
+          ctx.font = (hasPoly ? 12 : 10) / scale + 'px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(room.number || room.label, cx, cy);
+        }
+      }
+
+      // 2. Draw selected room (gold highlight)
+      if (roomsSelectedRoom) {
+        var selHasPoly = roomsSelectedRoom.polygon && Array.isArray(roomsSelectedRoom.polygon) && roomsSelectedRoom.polygon.length >= 3;
+        if (selHasPoly) {
+          ctx.fillStyle = 'rgba(253, 181, 21, 0.3)';
+          ctx.strokeStyle = '#FDB515';
+          ctx.lineWidth = 3 / scale;
+
+          ctx.beginPath();
+          ctx.moveTo(roomsSelectedRoom.polygon[0][0], roomsSelectedRoom.polygon[0][1]);
+          for (var s = 1; s < roomsSelectedRoom.polygon.length; s++) {
+            ctx.lineTo(roomsSelectedRoom.polygon[s][0], roomsSelectedRoom.polygon[s][1]);
+          }
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+        }
+
+        // Draw selected room label
+        if ((roomsSelectedRoom.number || roomsSelectedRoom.label) && (selHasPoly || (roomsSelectedRoom.centerX && roomsSelectedRoom.centerY))) {
+          var scx = selHasPoly ? (roomsSelectedRoom.centerX || computePolygonCenter(roomsSelectedRoom.polygon).x) : Number(roomsSelectedRoom.centerX);
+          var scy = selHasPoly ? (roomsSelectedRoom.centerY || computePolygonCenter(roomsSelectedRoom.polygon).y) : Number(roomsSelectedRoom.centerY);
+          // Gold highlight pill for label-only selected rooms
+          if (!selHasPoly) {
+            var selLabel = roomsSelectedRoom.number || roomsSelectedRoom.label;
+            ctx.font = 'bold ' + (11 / scale) + 'px sans-serif';
+            var stw = ctx.measureText(selLabel).width;
+            ctx.fillStyle = 'rgba(253, 181, 21, 0.4)';
+            ctx.fillRect(scx - stw / 2 - 4 / scale, scy - 7 / scale, stw + 8 / scale, 14 / scale);
+            ctx.strokeStyle = '#FDB515';
+            ctx.lineWidth = 2 / scale;
+            ctx.strokeRect(scx - stw / 2 - 4 / scale, scy - 7 / scale, stw + 8 / scale, 14 / scale);
+          }
+          ctx.fillStyle = '#003';
+          ctx.font = 'bold ' + ((selHasPoly ? 12 : 11) / scale) + 'px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(roomsSelectedRoom.number || roomsSelectedRoom.label, scx, scy);
+        }
+      }
+
+      // 3. Draw in-progress polygon (green dashed)
+      if (roomsDrawingPoly.length > 0) {
+        ctx.strokeStyle = '#059669';
+        ctx.lineWidth = 2 / scale;
+        ctx.setLineDash([6 / scale, 4 / scale]);
+
+        if (roomsDrawingPoly.length === 1) {
+          // Just one point — draw a circle
+          ctx.fillStyle = '#059669';
+          ctx.beginPath();
+          ctx.arc(roomsDrawingPoly[0][0], roomsDrawingPoly[0][1], 3 / scale, 0, 2 * Math.PI);
+          ctx.fill();
+        } else {
+          // Draw lines connecting all points
+          ctx.beginPath();
+          ctx.moveTo(roomsDrawingPoly[0][0], roomsDrawingPoly[0][1]);
+          for (var d = 1; d < roomsDrawingPoly.length; d++) {
+            ctx.lineTo(roomsDrawingPoly[d][0], roomsDrawingPoly[d][1]);
+          }
+          ctx.stroke();
+
+          // Draw circles at each vertex
+          ctx.fillStyle = '#059669';
+          for (var v = 0; v < roomsDrawingPoly.length; v++) {
+            ctx.beginPath();
+            ctx.arc(roomsDrawingPoly[v][0], roomsDrawingPoly[v][1], 3 / scale, 0, 2 * Math.PI);
+            ctx.fill();
+          }
+        }
+
+        ctx.setLineDash([]);
+      }
+    }
+
+    /**
+     * Open the room edit panel and populate fields with room data.
+     */
+    function openRoomPanel(room) {
+      document.getElementById('rooms-edit-id').value = room.id || '';
+      document.getElementById('rooms-edit-number').value = room.number || '';
+      document.getElementById('rooms-edit-label').value = room.label || '';
+      document.getElementById('rooms-panel').classList.add('visible');
+    }
+
+    /**
+     * Save edits to the selected room (number, label) without changing the polygon.
+     */
+    function saveRoomEdit() {
+      var id = document.getElementById('rooms-edit-id').value;
+      var number = document.getElementById('rooms-edit-number').value.trim();
+      var label = document.getElementById('rooms-edit-label').value.trim();
+
+      if (!id) { showMessage('No room selected.', 'error'); return; }
+      if (!number) { showMessage('Room number is required.', 'error'); return; }
+
+      // Find the current room to preserve polygon data
+      var room = null;
+      var rooms = (campusData && campusData.rooms) || [];
+      for (var i = 0; i < rooms.length; i++) {
+        if (rooms[i].id === id) {
+          room = rooms[i];
+          break;
+        }
+      }
+
+      if (!room) { showMessage('Room not found in data.', 'error'); return; }
+
+      var data = {
+        pin: adminPin,
+        id: id,
+        floorId: roomsCurrentFloor.id,
+        number: number,
+        label: label,
+        polygon: room.polygon,
+        centerX: room.centerX,
+        centerY: room.centerY
+      };
+
+      google.script.run
+        .withSuccessHandler(function() {
+          refreshCampusData(function() {
+            updateRoomsCount();
+            if (roomsCanvas) roomsCanvas.render();
+          });
+          closeRoomPanel();
+          showMessage('Room updated successfully.', 'success');
+        })
+        .withFailureHandler(function(err) {
+          showMessage('Failed to update room: ' + (err.message || String(err)), 'error');
+        })
+        .updateRoom(data);
+    }
+
+    /**
+     * Confirm and delete the selected room.
+     */
+    function deleteRoomConfirm() {
+      if (!roomsSelectedRoom) { showMessage('No room selected.', 'error'); return; }
+
+      var roomLabel = roomsSelectedRoom.number || roomsSelectedRoom.label || roomsSelectedRoom.id;
+      if (!confirm('Delete room "' + roomLabel + '"? This cannot be undone.')) return;
+
+      google.script.run
+        .withSuccessHandler(function() {
+          refreshCampusData(function() {
+            updateRoomsCount();
+            if (roomsCanvas) roomsCanvas.render();
+          });
+          roomsSelectedRoom = null;
+          closeRoomPanel();
+          showMessage('Room deleted successfully.', 'success');
+        })
+        .withFailureHandler(function(err) {
+          showMessage('Failed to delete room: ' + (err.message || String(err)), 'error');
+        })
+        .deleteRoom({ pin: adminPin, id: roomsSelectedRoom.id });
+    }
+
+    /**
+     * Enter redraw mode for the selected room. Stores the room ID,
+     * switches to draw tool, and when the new polygon is finished,
+     * updates the existing room with the new polygon.
+     */
+    function redrawRoom() {
+      if (!roomsSelectedRoom) { showMessage('No room selected.', 'error'); return; }
+
+      var roomName = roomsSelectedRoom.number || roomsSelectedRoom.label || '';
+      roomsRedrawingId = roomsSelectedRoom.id;
+      roomsDrawingPoly = [];
+      closeRoomPanel();
+      setRoomTool('draw');
+      showMessage('Draw the new polygon for room "' + roomName + '". Click near the first point to close.', 'info');
+    }
+
+    /**
+     * Close the room edit panel, clear selection, and re-render.
+     */
+    function closeRoomPanel() {
+      document.getElementById('rooms-panel').classList.remove('visible');
+      roomsSelectedRoom = null;
+      if (roomsCanvas) roomsCanvas.render();
+    }
+
+    /**
+     * Show JSON import modal for bulk room import.
+     */
+    function showRoomsJsonImport() {
+      if (!roomsCurrentFloor) {
+        showMessage('Please select a building and floor first.', 'error');
+        return;
+      }
+
+      var overlay = document.createElement('div');
+      overlay.className = 'json-modal-overlay';
+      overlay.id = 'rooms-json-modal';
+
+      var modal = document.createElement('div');
+      modal.className = 'json-modal';
+
+      var h3 = document.createElement('h3');
+      h3.textContent = 'Import Rooms JSON';
+      modal.appendChild(h3);
+
+      var desc = document.createElement('p');
+      desc.style.cssText = 'font-size:13px;color:var(--text-light);margin-bottom:8px;';
+      desc.textContent = 'Paste JSON array: [{number, label, polygon: [[x,y],...]}]';
+      modal.appendChild(desc);
+
+      var ta = document.createElement('textarea');
+      ta.id = 'rooms-json-input';
+      ta.placeholder = '[{"number":"101","label":"Lab","polygon":[[100,100],[200,100],[200,200],[100,200]]}]';
+      modal.appendChild(ta);
+
+      var btnRow = document.createElement('div');
+      btnRow.className = 'btn-row';
+
+      var importBtn = document.createElement('button');
+      importBtn.className = 'btn btn-primary';
+      importBtn.textContent = 'Import';
+      importBtn.onclick = function() { importRoomsJson(); };
+      btnRow.appendChild(importBtn);
+
+      var cancelBtn = document.createElement('button');
+      cancelBtn.className = 'btn btn-outline';
+      cancelBtn.textContent = 'Cancel';
+      cancelBtn.onclick = function() { closeJsonModal(); };
+      btnRow.appendChild(cancelBtn);
+
+      modal.appendChild(btnRow);
+      overlay.appendChild(modal);
+
+      // Close on overlay click (not modal click)
+      overlay.onclick = function(e) {
+        if (e.target === overlay) closeJsonModal();
+      };
+
+      document.body.appendChild(overlay);
+    }
+
+    /**
+     * Import rooms from the JSON textarea. Validates format, computes centers,
+     * and calls saveBatchRooms on the server.
+     */
+    function importRoomsJson() {
+      var ta = document.getElementById('rooms-json-input');
+      if (!ta) return;
+
+      var text = ta.value.trim();
+      if (!text) { showMessage('Please paste JSON data.', 'error'); return; }
+
+      var parsed;
+      try {
+        parsed = JSON.parse(text);
+      } catch (e) {
+        showMessage('Invalid JSON: ' + e.message, 'error');
+        return;
+      }
+
+      if (!Array.isArray(parsed)) {
+        showMessage('JSON must be an array of room objects.', 'error');
+        return;
+      }
+
+      // Validate and prepare rooms
+      var rooms = [];
+      for (var i = 0; i < parsed.length; i++) {
+        var r = parsed[i];
+        if (!r.number && !r.label) {
+          showMessage('Room at index ' + i + ' must have at least a number or label.', 'error');
+          return;
+        }
+        if (!r.polygon || !Array.isArray(r.polygon) || r.polygon.length < 3) {
+          showMessage('Room at index ' + i + ' must have a polygon with at least 3 points.', 'error');
+          return;
+        }
+        var center = computePolygonCenter(r.polygon);
+        rooms.push({
+          number: r.number || '',
+          label: r.label || '',
+          polygon: r.polygon,
+          centerX: center.x,
+          centerY: center.y
+        });
+      }
+
+      var data = {
+        pin: adminPin,
+        floorId: roomsCurrentFloor.id,
+        rooms: rooms
+      };
+
+      google.script.run
+        .withSuccessHandler(function() {
+          refreshCampusData(function() {
+            updateRoomsCount();
+            if (roomsCanvas) roomsCanvas.render();
+          });
+          closeJsonModal();
+          showMessage('Imported ' + rooms.length + ' room' + (rooms.length !== 1 ? 's' : '') + ' successfully.', 'success');
+        })
+        .withFailureHandler(function(err) {
+          showMessage('Failed to import rooms: ' + (err.message || String(err)), 'error');
+        })
+        .saveBatchRooms(data);
+    }
+
+    /**
+     * Show JSON export modal with rooms for the current floor.
+     */
+    function showRoomsJsonExport() {
+      if (!roomsCurrentFloor) {
+        showMessage('Please select a building and floor first.', 'error');
+        return;
+      }
+
+      var rooms = getRoomsForCurrentFloor();
+      var exportData = [];
+      for (var i = 0; i < rooms.length; i++) {
+        exportData.push({
+          number: rooms[i].number || '',
+          label: rooms[i].label || '',
+          polygon: rooms[i].polygon || []
+        });
+      }
+
+      var jsonText = JSON.stringify(exportData, null, 2);
+
+      var overlay = document.createElement('div');
+      overlay.className = 'json-modal-overlay';
+      overlay.id = 'rooms-json-modal';
+
+      var modal = document.createElement('div');
+      modal.className = 'json-modal';
+
+      var h3 = document.createElement('h3');
+      h3.textContent = 'Export Rooms JSON';
+      modal.appendChild(h3);
+
+      var desc = document.createElement('p');
+      desc.style.cssText = 'font-size:13px;color:var(--text-light);margin-bottom:8px;';
+      desc.textContent = rooms.length + ' room' + (rooms.length !== 1 ? 's' : '') + ' on this floor';
+      modal.appendChild(desc);
+
+      var ta = document.createElement('textarea');
+      ta.id = 'rooms-json-output';
+      ta.readOnly = true;
+      ta.value = jsonText;
+      modal.appendChild(ta);
+
+      var btnRow = document.createElement('div');
+      btnRow.className = 'btn-row';
+
+      var copyBtn = document.createElement('button');
+      copyBtn.className = 'btn btn-primary';
+      copyBtn.textContent = 'Copy to Clipboard';
+      copyBtn.onclick = function() {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(jsonText).then(function() {
+            showMessage('Copied to clipboard.', 'success');
+          }, function() {
+            // Fallback
+            ta.select();
+            document.execCommand('copy');
+            showMessage('Copied to clipboard.', 'success');
+          });
+        } else {
+          // Fallback for older browsers
+          ta.select();
+          document.execCommand('copy');
+          showMessage('Copied to clipboard.', 'success');
+        }
+      };
+      btnRow.appendChild(copyBtn);
+
+      var closeBtn = document.createElement('button');
+      closeBtn.className = 'btn btn-outline';
+      closeBtn.textContent = 'Close';
+      closeBtn.onclick = function() { closeJsonModal(); };
+      btnRow.appendChild(closeBtn);
+
+      modal.appendChild(btnRow);
+      overlay.appendChild(modal);
+
+      // Close on overlay click (not modal click)
+      overlay.onclick = function(e) {
+        if (e.target === overlay) closeJsonModal();
+      };
+
+      document.body.appendChild(overlay);
+    }
+
+    /**
+     * Close and remove the JSON modal overlay from the DOM.
+     */
+    function closeJsonModal() {
+      var overlays = document.querySelectorAll('.json-modal-overlay');
+      for (var i = 0; i < overlays.length; i++) {
+        if (overlays[i].parentNode) {
+          overlays[i].parentNode.removeChild(overlays[i]);
+        }
+      }
+    }
+
+    /* ========================================================
+       NAV GRAPH EDITOR
+       ======================================================== */
+
+    var navCanvas = null;              // AdminCanvasController instance
+    var navCurrentFloor = null;        // current floor object
+    var navCurrentBuilding = null;     // current building ID
+    var navTool = 'select';            // 'select', 'addnode', 'addedge'
+    var navSelectedNode = null;        // currently selected node object
+    var navSelectedEdge = null;        // currently selected edge object
+    var navEdgeFirstNode = null;       // first node when adding edge
+    var navDraggingNode = null;        // node being dragged (repositioned)
+    var navDragStartX = 0;             // drag start position
+    var navDragStartY = 0;
+
+    /**
+     * Initialize the Nav Graph tab. Populates the building selector
+     * from campusData.buildings. Restores previous selection or auto-selects first.
+     */
+    function initNavTab() {
+      if (!campusData || !campusData.buildings) return;
+
+      var sel = document.getElementById('navgraph-building-select');
+      var currentVal = sel.value;
+      sel.innerHTML = '<option value="">Select building...</option>';
+
+      var buildings = campusData.buildings;
+      for (var i = 0; i < buildings.length; i++) {
+        var b = buildings[i];
+        var opt = document.createElement('option');
+        opt.value = b.id;
+        opt.textContent = b.name || b.id;
+        sel.appendChild(opt);
+      }
+
+      // Restore previous selection or select first building
+      if (navCurrentBuilding) {
+        var found = false;
+        for (var j = 0; j < buildings.length; j++) {
+          if (buildings[j].id === navCurrentBuilding) { found = true; break; }
+        }
+        if (found) {
+          sel.value = navCurrentBuilding;
+        } else if (buildings.length > 0) {
+          sel.value = buildings[0].id;
+        }
+      } else if (currentVal) {
+        sel.value = currentVal;
+      } else if (buildings.length > 0) {
+        sel.value = buildings[0].id;
+      }
+
+      onNavBuildingChange();
+    }
+
+    /**
+     * When building selection changes in nav graph tab.
+     * Builds floor buttons, auto-selects first floor.
+     */
+    function onNavBuildingChange() {
+      var buildingId = document.getElementById('navgraph-building-select').value;
+      navCurrentBuilding = buildingId;
+
+      var floorBtnsDiv = document.getElementById('navgraph-floor-buttons');
+      floorBtnsDiv.innerHTML = '';
+
+      if (!buildingId || !campusData || !campusData.floors) {
+        navCurrentFloor = null;
+        updateNavCount();
+        return;
+      }
+
+      // Filter and sort floors for this building
+      var floors = [];
+      for (var i = 0; i < campusData.floors.length; i++) {
+        if (campusData.floors[i].buildingId === buildingId) {
+          floors.push(campusData.floors[i]);
+        }
+      }
+      floors.sort(function(a, b) { return (a.level || 0) - (b.level || 0); });
+
+      if (floors.length === 0) {
+        navCurrentFloor = null;
+        updateNavCount();
+        return;
+      }
+
+      // Build floor buttons
+      for (var j = 0; j < floors.length; j++) {
+        var f = floors[j];
+        var btn = document.createElement('button');
+        btn.className = 'floor-btn' + (j === 0 ? ' active' : '');
+        btn.textContent = f.label || ('Floor ' + f.level);
+        btn.setAttribute('data-floor-id', f.id);
+        btn.onclick = (function(floorId) {
+          return function() { selectNavFloor(floorId); };
+        })(f.id);
+        floorBtnsDiv.appendChild(btn);
+      }
+
+      // Auto-select first floor
+      selectNavFloor(floors[0].id);
+    }
+
+    /**
+     * Select a floor in the nav graph tab. Loads floor plan image,
+     * initializes canvas controller, clears selections.
+     */
+    function selectNavFloor(floorId) {
+      // Find floor object
+      var floor = null;
+      var floors = (campusData && campusData.floors) || [];
+      for (var i = 0; i < floors.length; i++) {
+        if (floors[i].id === floorId) {
+          floor = floors[i];
+          break;
+        }
+      }
+
+      navCurrentFloor = floor;
+
+      // Update floor button active states
+      var btns = document.getElementById('navgraph-floor-buttons').querySelectorAll('.floor-btn');
+      for (var j = 0; j < btns.length; j++) {
+        btns[j].classList.toggle('active', btns[j].getAttribute('data-floor-id') === floorId);
+      }
+
+      // Clear selections
+      navSelectedNode = null;
+      navSelectedEdge = null;
+      navEdgeFirstNode = null;
+      navDraggingNode = null;
+      closeNavPanel();
+
+      // Initialize or reuse canvas controller
+      if (!navCanvas) {
+        navCanvas = new AdminCanvasController('navgraph-canvas', {
+          onTap: onNavCanvasTap,
+          onRender: renderNavOverlay
+        });
+      }
+
+      // Load floor plan image
+      if (floor && floor.planImageUrl) {
+        navCanvas.loadImage(floor.planImageUrl, function() {
+          navCanvas.fitImage();
+        });
+      } else {
+        navCanvas.image = null;
+        navCanvas.imageLoaded = false;
+        navCanvas.resetView();
+      }
+
+      updateNavCount();
+    }
+
+    /**
+     * Set the active nav tool ('select', 'addnode', 'addedge').
+     * Updates toolbar button states, clears edge first node when switching away from addedge.
+     */
+    function setNavTool(tool) {
+      navTool = tool;
+
+      // Update toolbar button active states
+      var toolBtns = document.getElementById('navgraph-toolbar').querySelectorAll('.tool-btn');
+      for (var i = 0; i < toolBtns.length; i++) {
+        toolBtns[i].classList.toggle('active', toolBtns[i].getAttribute('data-navtool') === tool);
+      }
+
+      // Clear edge first node if switching away from addedge
+      if (tool !== 'addedge') {
+        navEdgeFirstNode = null;
+      }
+
+      // Clear dragging node if switching tools
+      navDraggingNode = null;
+
+      // Close panel if switching tools
+      closeNavPanel();
+
+      if (navCanvas) navCanvas.render();
+    }
+
+    /**
+     * Canvas tap handler for the nav graph editor.
+     * Handles addnode, addedge, and select tools.
+     */
+    function onNavCanvasTap(canvasX, canvasY, event) {
+      if (!navCurrentFloor) return;
+
+      // If dragging a node (repositioning), place it at tap location
+      if (navDraggingNode) {
+        var dragData = {
+          pin: adminPin,
+          id: navDraggingNode.id,
+          floorId: navCurrentFloor.id,
+          x: Math.round(canvasX),
+          y: Math.round(canvasY),
+          type: navDraggingNode.type || 'waypoint',
+          roomId: navDraggingNode.roomId || ''
+        };
+        google.script.run
+          .withSuccessHandler(function() {
+            navDraggingNode = null;
+            refreshCampusData(function() {
+              updateNavCount();
+              if (navCanvas) navCanvas.render();
+            });
+            showMessage('Node repositioned.', 'success');
+          })
+          .withFailureHandler(function(err) {
+            navDraggingNode = null;
+            showMessage('Failed to reposition node: ' + (err.message || String(err)), 'error');
+          })
+          .updateNavNode(dragData);
+        return;
+      }
+
+      if (navTool === 'addnode') {
+        // Prompt for node type
+        var type = prompt('Node type: waypoint, elevator, staircase, entrance', 'waypoint');
+        if (!type) return;
+        type = type.toLowerCase().trim();
+        var validTypes = ['waypoint', 'elevator', 'staircase', 'entrance'];
+        var typeValid = false;
+        for (var t = 0; t < validTypes.length; t++) {
+          if (validTypes[t] === type) { typeValid = true; break; }
+        }
+        if (!typeValid) {
+          showMessage('Invalid node type. Use: waypoint, elevator, staircase, entrance.', 'error');
+          return;
+        }
+
+        // Check if tap is inside a room polygon
+        var roomId = '';
+        var rooms = (campusData && campusData.rooms) || [];
+        for (var r = 0; r < rooms.length; r++) {
+          if (rooms[r].floorId === navCurrentFloor.id && rooms[r].polygon &&
+              Array.isArray(rooms[r].polygon) && rooms[r].polygon.length >= 3) {
+            if (isPointInPolygon(canvasX, canvasY, rooms[r].polygon)) {
+              roomId = rooms[r].id;
+              break;
+            }
+          }
+        }
+
+        var nodeData = {
+          pin: adminPin,
+          floorId: navCurrentFloor.id,
+          x: Math.round(canvasX),
+          y: Math.round(canvasY),
+          type: type,
+          roomId: roomId
+        };
+
+        google.script.run
+          .withSuccessHandler(function() {
+            refreshCampusData(function() {
+              updateNavCount();
+              if (navCanvas) navCanvas.render();
+            });
+            showMessage('Node added' + (roomId ? ' (in room ' + roomId + ')' : '') + '.', 'success');
+          })
+          .withFailureHandler(function(err) {
+            showMessage('Failed to add node: ' + (err.message || String(err)), 'error');
+          })
+          .saveNavNode(nodeData);
+
+      } else if (navTool === 'addedge') {
+        // Find nearest node within 15px
+        var nearNode = findNearestNavNode(canvasX, canvasY, 15);
+        if (!nearNode) return;
+
+        if (!navEdgeFirstNode) {
+          // First node selected
+          navEdgeFirstNode = nearNode;
+          showMessage('First node selected. Now click the second node to create an edge.', 'info');
+          if (navCanvas) navCanvas.render();
+        } else {
+          // Second node selected — create edge
+          if (navEdgeFirstNode.id === nearNode.id) {
+            showMessage('Cannot connect a node to itself.', 'error');
+            return;
+          }
+          var n1 = navEdgeFirstNode;
+          var n2 = nearNode;
+          var metersPerPixel = (navCurrentFloor && navCurrentFloor.metersPerPixel) ? navCurrentFloor.metersPerPixel : 1;
+          var pixelDist = Math.sqrt((n2.x - n1.x) * (n2.x - n1.x) + (n2.y - n1.y) * (n2.y - n1.y));
+          var distance = Math.round(pixelDist * metersPerPixel * 100) / 100;
+
+          var edgeData = {
+            pin: adminPin,
+            fromNodeId: n1.id,
+            toNodeId: n2.id,
+            distance: distance,
+            floorChange: false
+          };
+
+          google.script.run
+            .withSuccessHandler(function() {
+              navEdgeFirstNode = null;
+              refreshCampusData(function() {
+                updateNavCount();
+                if (navCanvas) navCanvas.render();
+              });
+              showMessage('Edge created (' + distance + 'm).', 'success');
+            })
+            .withFailureHandler(function(err) {
+              showMessage('Failed to create edge: ' + (err.message || String(err)), 'error');
+            })
+            .saveNavEdge(edgeData);
+        }
+
+      } else if (navTool === 'select') {
+        // Try to find nearest node within 15px
+        var hitNode = findNearestNavNode(canvasX, canvasY, 15);
+        if (hitNode) {
+          navSelectedNode = hitNode;
+          navSelectedEdge = null;
+          showNavNodePanel(hitNode);
+          if (navCanvas) navCanvas.render();
+          return;
+        }
+
+        // Try to find nearest edge within 10px
+        var hitEdge = findNearestNavEdge(canvasX, canvasY, 10);
+        if (hitEdge) {
+          navSelectedEdge = hitEdge;
+          navSelectedNode = null;
+          showNavEdgePanel(hitEdge);
+          if (navCanvas) navCanvas.render();
+          return;
+        }
+
+        // Nothing hit — clear selection
+        navSelectedNode = null;
+        navSelectedEdge = null;
+        closeNavPanel();
+        if (navCanvas) navCanvas.render();
+      }
+    }
+
+    /**
+     * Find the nearest nav node to a point within maxDist pixels (canvas coords).
+     * Only considers nodes on the current floor.
+     */
+    function findNearestNavNode(cx, cy, maxDist) {
+      if (!campusData || !campusData.navNodes || !navCurrentFloor) return null;
+      var threshold = maxDist / (navCanvas ? navCanvas.scale : 1);
+      var best = null;
+      var bestDist = threshold;
+
+      for (var i = 0; i < campusData.navNodes.length; i++) {
+        var n = campusData.navNodes[i];
+        if (n.floorId !== navCurrentFloor.id) continue;
+        var dx = cx - n.x;
+        var dy = cy - n.y;
+        var d = Math.sqrt(dx * dx + dy * dy);
+        if (d < bestDist) {
+          bestDist = d;
+          best = n;
+        }
+      }
+      return best;
+    }
+
+    /**
+     * Find the nearest nav edge to a point within maxDist pixels (canvas coords).
+     * Only considers edges where both nodes are on the current floor.
+     */
+    function findNearestNavEdge(cx, cy, maxDist) {
+      if (!campusData || !campusData.navEdges || !campusData.navNodes || !navCurrentFloor) return null;
+      var threshold = maxDist / (navCanvas ? navCanvas.scale : 1);
+      var best = null;
+      var bestDist = threshold;
+
+      // Build node lookup for current floor
+      var nodeMap = {};
+      for (var n = 0; n < campusData.navNodes.length; n++) {
+        var node = campusData.navNodes[n];
+        if (node.floorId === navCurrentFloor.id) {
+          nodeMap[node.id] = node;
+        }
+      }
+
+      for (var i = 0; i < campusData.navEdges.length; i++) {
+        var edge = campusData.navEdges[i];
+        var fromNode = nodeMap[edge.fromNodeId];
+        var toNode = nodeMap[edge.toNodeId];
+        if (!fromNode || !toNode) continue;
+
+        var d = distToSegment(cx, cy, fromNode.x, fromNode.y, toNode.x, toNode.y);
+        if (d < bestDist) {
+          bestDist = d;
+          best = edge;
+        }
+      }
+      return best;
+    }
+
+    /**
+     * Minimum distance from point (px, py) to line segment (x1, y1)-(x2, y2).
+     */
+    function distToSegment(px, py, x1, y1, x2, y2) {
+      var dx = x2 - x1;
+      var dy = y2 - y1;
+      var lenSq = dx * dx + dy * dy;
+      if (lenSq === 0) {
+        // Segment is a point
+        var ddx = px - x1;
+        var ddy = py - y1;
+        return Math.sqrt(ddx * ddx + ddy * ddy);
+      }
+      var t = ((px - x1) * dx + (py - y1) * dy) / lenSq;
+      if (t < 0) t = 0;
+      if (t > 1) t = 1;
+      var projX = x1 + t * dx;
+      var projY = y1 + t * dy;
+      var distX = px - projX;
+      var distY = py - projY;
+      return Math.sqrt(distX * distX + distY * distY);
+    }
+
+    /**
+     * Render overlay for the nav graph canvas. Draws room polygons (dim),
+     * edges, nodes (colored by type), selection highlights.
+     */
+    function renderNavOverlay(ctx, scale, offsetX, offsetY) {
+      // 1. Room polygons (dim overlay)
+      var rooms = (campusData && campusData.rooms) || [];
+      for (var ri = 0; ri < rooms.length; ri++) {
+        var room = rooms[ri];
+        if (room.floorId !== (navCurrentFloor && navCurrentFloor.id)) continue;
+        if (!room.polygon || !Array.isArray(room.polygon) || room.polygon.length < 3) continue;
+
+        ctx.fillStyle = 'rgba(0,100,255,0.08)';
+        ctx.strokeStyle = 'rgba(0,100,255,0.2)';
+        ctx.lineWidth = 1 / scale;
+
+        ctx.beginPath();
+        ctx.moveTo(room.polygon[0][0], room.polygon[0][1]);
+        for (var rp = 1; rp < room.polygon.length; rp++) {
+          ctx.lineTo(room.polygon[rp][0], room.polygon[rp][1]);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      }
+
+      // Build node lookup for current floor
+      var floorNodes = [];
+      var nodeMap = {};
+      var navNodes = (campusData && campusData.navNodes) || [];
+      for (var ni = 0; ni < navNodes.length; ni++) {
+        if (navNodes[ni].floorId === (navCurrentFloor && navCurrentFloor.id)) {
+          floorNodes.push(navNodes[ni]);
+          nodeMap[navNodes[ni].id] = navNodes[ni];
+        }
+      }
+
+      // 2. Edges
+      var navEdges = (campusData && campusData.navEdges) || [];
+      for (var ei = 0; ei < navEdges.length; ei++) {
+        var edge = navEdges[ei];
+        var fromNode = nodeMap[edge.fromNodeId];
+        var toNode = nodeMap[edge.toNodeId];
+        if (!fromNode || !toNode) continue;
+
+        var isSelected = navSelectedEdge && navSelectedEdge.id === edge.id;
+        ctx.strokeStyle = isSelected ? '#FDB515' : '#666';
+        ctx.lineWidth = (isSelected ? 3 : 2) / scale;
+
+        ctx.beginPath();
+        ctx.moveTo(fromNode.x, fromNode.y);
+        ctx.lineTo(toNode.x, toNode.y);
+        ctx.stroke();
+      }
+
+      // 3. Edge first node highlight (pulsing ring)
+      if (navEdgeFirstNode && nodeMap[navEdgeFirstNode.id]) {
+        ctx.strokeStyle = '#FDB515';
+        ctx.lineWidth = 3 / scale;
+        ctx.beginPath();
+        ctx.arc(navEdgeFirstNode.x, navEdgeFirstNode.y, 12 / scale, 0, 2 * Math.PI);
+        ctx.stroke();
+      }
+
+      // 4. Nodes (colored by type)
+      var nodeColors = {
+        waypoint: '#9CA3AF',
+        elevator: '#7C3AED',
+        staircase: '#059669',
+        entrance: '#DC2626'
+      };
+      var nodeRadius = 6 / scale;
+
+      for (var ndi = 0; ndi < floorNodes.length; ndi++) {
+        var nd = floorNodes[ndi];
+        var color = nodeColors[nd.type] || nodeColors.waypoint;
+        var isNodeSelected = navSelectedNode && navSelectedNode.id === nd.id;
+        var isDragging = navDraggingNode && navDraggingNode.id === nd.id;
+        var drawRadius = isDragging ? (9 / scale) : nodeRadius;
+
+        // Filled circle
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(nd.x, nd.y, drawRadius, 0, 2 * Math.PI);
+        ctx.fill();
+
+        // White stroke border
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 1 / scale;
+        ctx.beginPath();
+        ctx.arc(nd.x, nd.y, drawRadius, 0, 2 * Math.PI);
+        ctx.stroke();
+
+        // Gold ring for selected node
+        if (isNodeSelected) {
+          ctx.strokeStyle = '#FDB515';
+          ctx.lineWidth = 3 / scale;
+          ctx.beginPath();
+          ctx.arc(nd.x, nd.y, 10 / scale, 0, 2 * Math.PI);
+          ctx.stroke();
+        }
+      }
+
+      // 5. Dragging node message
+      if (navDraggingNode) {
+        ctx.fillStyle = '#FDB515';
+        ctx.font = 'bold ' + (14 / scale) + 'px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText('Click to place node', navDraggingNode.x, navDraggingNode.y - 14 / scale);
+      }
+    }
+
+    /**
+     * Show the node edit panel for a selected node.
+     */
+    function showNavNodePanel(node) {
+      var panel = document.getElementById('navgraph-panel');
+      var typeOptions = [
+        { value: 'waypoint', label: 'Waypoint' },
+        { value: 'elevator', label: 'Elevator' },
+        { value: 'staircase', label: 'Staircase' },
+        { value: 'entrance', label: 'Entrance' }
+      ];
+
+      var optionsHtml = '';
+      for (var i = 0; i < typeOptions.length; i++) {
+        var selected = (node.type === typeOptions[i].value) ? ' selected' : '';
+        optionsHtml += '<option value="' + typeOptions[i].value + '"' + selected + '>' + typeOptions[i].label + '</option>';
+      }
+
+      panel.innerHTML =
+        '<h3 style="font-size:14px;margin-bottom:12px;color:var(--navy);">Node: ' + escapeHtml(node.type || 'waypoint') + '</h3>' +
+        '<p style="font-size:12px;color:var(--text-light);margin-bottom:8px;">ID: ' + escapeHtml(node.id) + '</p>' +
+        '<p style="font-size:12px;color:var(--text-light);margin-bottom:12px;">Position: (' + Math.round(node.x) + ', ' + Math.round(node.y) + ')</p>' +
+        '<div class="form-group">' +
+          '<label>Type</label>' +
+          '<select id="nav-edit-type">' + optionsHtml + '</select>' +
+        '</div>' +
+        '<div class="form-group">' +
+          '<label>Room ID</label>' +
+          '<input type="text" id="nav-edit-roomId" value="' + escapeHtml(node.roomId || '') + '">' +
+        '</div>' +
+        '<div class="btn-row">' +
+          '<button class="btn btn-primary" onclick="saveNavNodeEdit()">Save</button>' +
+          '<button class="btn btn-outline" onclick="startNavNodeDrag()">Move</button>' +
+          '<button class="btn btn-outline delete-btn" style="color:var(--error);border-color:var(--error);" onclick="deleteNavNodeConfirm()">Delete Node</button>' +
+          '<button class="btn btn-outline" onclick="closeNavPanel()">Close</button>' +
+        '</div>';
+
+      panel.classList.add('visible');
+    }
+
+    /**
+     * Show the edge edit panel for a selected edge.
+     */
+    function showNavEdgePanel(edge) {
+      var panel = document.getElementById('navgraph-panel');
+      var dist = (edge.distance !== undefined && edge.distance !== null) ? edge.distance : '?';
+      var floorChange = edge.floorChange ? 'Yes' : 'No';
+
+      panel.innerHTML =
+        '<h3 style="font-size:14px;margin-bottom:12px;color:var(--navy);">Edge</h3>' +
+        '<p style="font-size:12px;color:var(--text-light);margin-bottom:4px;">From: ' + escapeHtml(edge.fromNodeId) + '</p>' +
+        '<p style="font-size:12px;color:var(--text-light);margin-bottom:4px;">To: ' + escapeHtml(edge.toNodeId) + '</p>' +
+        '<p style="font-size:12px;color:var(--text-light);margin-bottom:4px;">Distance: ' + dist + 'm</p>' +
+        '<p style="font-size:12px;color:var(--text-light);margin-bottom:12px;">Floor change: ' + floorChange + '</p>' +
+        '<div class="btn-row">' +
+          '<button class="btn btn-outline delete-btn" style="color:var(--error);border-color:var(--error);" onclick="deleteNavEdgeConfirm()">Delete Edge</button>' +
+          '<button class="btn btn-outline" onclick="closeNavPanel()">Close</button>' +
+        '</div>';
+
+      panel.classList.add('visible');
+    }
+
+    /**
+     * Save edits to the selected nav node (type, roomId).
+     */
+    function saveNavNodeEdit() {
+      if (!navSelectedNode) { showMessage('No node selected.', 'error'); return; }
+
+      var type = document.getElementById('nav-edit-type').value;
+      var roomId = document.getElementById('nav-edit-roomId').value.trim();
+
+      var data = {
+        pin: adminPin,
+        id: navSelectedNode.id,
+        floorId: navCurrentFloor.id,
+        x: navSelectedNode.x,
+        y: navSelectedNode.y,
+        type: type,
+        roomId: roomId
+      };
+
+      google.script.run
+        .withSuccessHandler(function() {
+          refreshCampusData(function() {
+            updateNavCount();
+            if (navCanvas) navCanvas.render();
+          });
+          closeNavPanel();
+          showMessage('Node updated.', 'success');
+        })
+        .withFailureHandler(function(err) {
+          showMessage('Failed to update node: ' + (err.message || String(err)), 'error');
+        })
+        .updateNavNode(data);
+    }
+
+    /**
+     * Start dragging (repositioning) the selected node.
+     * Sets navDraggingNode and instructs user to click the new position.
+     */
+    function startNavNodeDrag() {
+      if (!navSelectedNode) { showMessage('No node selected.', 'error'); return; }
+      navDraggingNode = navSelectedNode;
+      closeNavPanel();
+      showMessage('Click the new position for this node.', 'info');
+      if (navCanvas) navCanvas.render();
+    }
+
+    /**
+     * Confirm and delete the selected nav node.
+     * Server-side deleteNavNode cascades to delete connected edges.
+     */
+    function deleteNavNodeConfirm() {
+      if (!navSelectedNode) { showMessage('No node selected.', 'error'); return; }
+
+      // Count connected edges for the confirm message
+      var edgeCount = 0;
+      var edges = (campusData && campusData.navEdges) || [];
+      for (var i = 0; i < edges.length; i++) {
+        if (edges[i].fromNodeId === navSelectedNode.id || edges[i].toNodeId === navSelectedNode.id) {
+          edgeCount++;
+        }
+      }
+
+      var msg = 'Delete this ' + (navSelectedNode.type || 'waypoint') + ' node?';
+      if (edgeCount > 0) {
+        msg += ' (' + edgeCount + ' connected edge' + (edgeCount !== 1 ? 's' : '') + ' will also be deleted)';
+      }
+      if (!confirm(msg)) return;
+
+      google.script.run
+        .withSuccessHandler(function() {
+          navSelectedNode = null;
+          closeNavPanel();
+          refreshCampusData(function() {
+            updateNavCount();
+            if (navCanvas) navCanvas.render();
+          });
+          showMessage('Node deleted' + (edgeCount > 0 ? ' (with ' + edgeCount + ' edge' + (edgeCount !== 1 ? 's' : '') + ')' : '') + '.', 'success');
+        })
+        .withFailureHandler(function(err) {
+          showMessage('Failed to delete node: ' + (err.message || String(err)), 'error');
+        })
+        .deleteNavNode({ pin: adminPin, id: navSelectedNode.id });
+    }
+
+    /**
+     * Confirm and delete the selected nav edge.
+     */
+    function deleteNavEdgeConfirm() {
+      if (!navSelectedEdge) { showMessage('No edge selected.', 'error'); return; }
+
+      if (!confirm('Delete this edge?')) return;
+
+      google.script.run
+        .withSuccessHandler(function() {
+          navSelectedEdge = null;
+          closeNavPanel();
+          refreshCampusData(function() {
+            updateNavCount();
+            if (navCanvas) navCanvas.render();
+          });
+          showMessage('Edge deleted.', 'success');
+        })
+        .withFailureHandler(function(err) {
+          showMessage('Failed to delete edge: ' + (err.message || String(err)), 'error');
+        })
+        .deleteNavEdge({ pin: adminPin, id: navSelectedEdge.id });
+    }
+
+    /**
+     * Close the nav graph panel, clear selections, re-render.
+     */
+    function closeNavPanel() {
+      var panel = document.getElementById('navgraph-panel');
+      panel.classList.remove('visible');
+      navSelectedNode = null;
+      navSelectedEdge = null;
+      if (navCanvas) navCanvas.render();
+    }
+
+    /**
+     * Show cross-floor edge creation modal.
+     * Populates dropdowns with elevator/staircase nodes.
+     */
+    function showNavCrossFloor() {
+      if (!navCurrentFloor || !navCurrentBuilding) {
+        showMessage('Please select a building and floor first.', 'error');
+        return;
+      }
+
+      // Gather elevator/staircase nodes on current floor
+      var currentFloorNodes = [];
+      var navNodes = (campusData && campusData.navNodes) || [];
+      for (var i = 0; i < navNodes.length; i++) {
+        var n = navNodes[i];
+        if (n.floorId === navCurrentFloor.id && (n.type === 'elevator' || n.type === 'staircase')) {
+          currentFloorNodes.push(n);
+        }
+      }
+
+      if (currentFloorNodes.length === 0) {
+        showMessage('No elevator or staircase nodes on the current floor. Add some first.', 'error');
+        return;
+      }
+
+      // Gather other floors for this building
+      var otherFloors = [];
+      var allFloors = (campusData && campusData.floors) || [];
+      for (var fi = 0; fi < allFloors.length; fi++) {
+        if (allFloors[fi].buildingId === navCurrentBuilding && allFloors[fi].id !== navCurrentFloor.id) {
+          otherFloors.push(allFloors[fi]);
+        }
+      }
+      otherFloors.sort(function(a, b) { return (a.level || 0) - (b.level || 0); });
+
+      if (otherFloors.length === 0) {
+        showMessage('No other floors in this building. Add more floors first.', 'error');
+        return;
+      }
+
+      // Build from-node options
+      var fromOptions = '';
+      for (var fn = 0; fn < currentFloorNodes.length; fn++) {
+        var cfn = currentFloorNodes[fn];
+        fromOptions += '<option value="' + cfn.id + '">' + cfn.type + ' (' + Math.round(cfn.x) + ',' + Math.round(cfn.y) + ') ' + cfn.id + '</option>';
+      }
+
+      // Build target floor options
+      var floorOptions = '';
+      for (var tfi = 0; tfi < otherFloors.length; tfi++) {
+        var tf = otherFloors[tfi];
+        floorOptions += '<option value="' + tf.id + '">' + (tf.label || 'Floor ' + tf.level) + '</option>';
+      }
+
+      var overlay = document.createElement('div');
+      overlay.className = 'json-modal-overlay';
+      overlay.id = 'rooms-json-modal';
+
+      var modal = document.createElement('div');
+      modal.className = 'json-modal';
+      modal.innerHTML =
+        '<h3>Cross-Floor Edge</h3>' +
+        '<p style="font-size:13px;color:var(--text-light);margin-bottom:12px;">Connect elevator/staircase nodes across floors.</p>' +
+        '<div class="form-group">' +
+          '<label>From Node (current floor)</label>' +
+          '<select id="cross-from-node">' + fromOptions + '</select>' +
+        '</div>' +
+        '<div class="form-group">' +
+          '<label>Target Floor</label>' +
+          '<select id="cross-target-floor" onchange="onCrossFloorChange()">' + floorOptions + '</select>' +
+        '</div>' +
+        '<div class="form-group">' +
+          '<label>To Node (target floor)</label>' +
+          '<select id="cross-to-node"><option value="">Loading...</option></select>' +
+        '</div>' +
+        '<div class="btn-row">' +
+          '<button class="btn btn-primary" onclick="saveCrossFloorEdge()">Create Edge</button>' +
+          '<button class="btn btn-outline" onclick="closeJsonModal()">Cancel</button>' +
+        '</div>';
+
+      overlay.appendChild(modal);
+
+      overlay.onclick = function(e) {
+        if (e.target === overlay) closeJsonModal();
+      };
+
+      document.body.appendChild(overlay);
+
+      // Trigger initial population of to-node dropdown
+      onCrossFloorChange();
+    }
+
+    /**
+     * Update the "To Node" dropdown when target floor changes.
+     * Only shows elevator/staircase nodes on the selected target floor.
+     */
+    function onCrossFloorChange() {
+      var targetFloorId = document.getElementById('cross-target-floor').value;
+      var toNodeSel = document.getElementById('cross-to-node');
+      toNodeSel.innerHTML = '';
+
+      if (!targetFloorId) {
+        toNodeSel.innerHTML = '<option value="">Select target floor first</option>';
+        return;
+      }
+
+      var navNodes = (campusData && campusData.navNodes) || [];
+      var targetNodes = [];
+      for (var i = 0; i < navNodes.length; i++) {
+        var n = navNodes[i];
+        if (n.floorId === targetFloorId && (n.type === 'elevator' || n.type === 'staircase')) {
+          targetNodes.push(n);
+        }
+      }
+
+      if (targetNodes.length === 0) {
+        toNodeSel.innerHTML = '<option value="">No elevator/staircase nodes on this floor</option>';
+        return;
+      }
+
+      for (var j = 0; j < targetNodes.length; j++) {
+        var tn = targetNodes[j];
+        var opt = document.createElement('option');
+        opt.value = tn.id;
+        opt.textContent = tn.type + ' (' + Math.round(tn.x) + ',' + Math.round(tn.y) + ') ' + tn.id;
+        toNodeSel.appendChild(opt);
+      }
+    }
+
+    /**
+     * Save a cross-floor edge from the modal form.
+     */
+    function saveCrossFloorEdge() {
+      var fromId = document.getElementById('cross-from-node').value;
+      var toId = document.getElementById('cross-to-node').value;
+
+      if (!fromId || !toId) {
+        showMessage('Please select both from and to nodes.', 'error');
+        return;
+      }
+
+      var edgeData = {
+        pin: adminPin,
+        fromNodeId: fromId,
+        toNodeId: toId,
+        distance: 0,
+        floorChange: true
+      };
+
+      google.script.run
+        .withSuccessHandler(function() {
+          closeJsonModal();
+          refreshCampusData(function() {
+            updateNavCount();
+            if (navCanvas) navCanvas.render();
+          });
+          showMessage('Cross-floor edge created.', 'success');
+        })
+        .withFailureHandler(function(err) {
+          showMessage('Failed to create cross-floor edge: ' + (err.message || String(err)), 'error');
+        })
+        .saveNavEdge(edgeData);
+    }
+
+    /**
+     * Show JSON import modal for bulk nav node/edge import.
+     */
+    function showNavJsonImport() {
+      if (!navCurrentFloor) {
+        showMessage('Please select a building and floor first.', 'error');
+        return;
+      }
+
+      var overlay = document.createElement('div');
+      overlay.className = 'json-modal-overlay';
+      overlay.id = 'rooms-json-modal';
+
+      var modal = document.createElement('div');
+      modal.className = 'json-modal';
+
+      modal.innerHTML =
+        '<h3>Import Nav Graph JSON</h3>' +
+        '<p style="font-size:13px;color:var(--text-light);margin-bottom:8px;">' +
+          'Paste JSON with nodes and edges. Edges use 0-based array indices referencing the nodes array.' +
+        '</p>' +
+        '<textarea id="nav-json-input" placeholder=\'{"nodes":[{"x":100,"y":200,"type":"waypoint","roomId":""}],"edges":[{"from":0,"to":1}]}\'></textarea>' +
+        '<div class="btn-row">' +
+          '<button class="btn btn-primary" onclick="importNavJson()">Import</button>' +
+          '<button class="btn btn-outline" onclick="closeJsonModal()">Cancel</button>' +
+        '</div>';
+
+      overlay.appendChild(modal);
+
+      overlay.onclick = function(e) {
+        if (e.target === overlay) closeJsonModal();
+      };
+
+      document.body.appendChild(overlay);
+    }
+
+    /**
+     * Import nav graph JSON from the textarea.
+     * Creates nodes first via saveBatchNavNodes, then maps indices to IDs for edges.
+     */
+    function importNavJson() {
+      var ta = document.getElementById('nav-json-input');
+      if (!ta) return;
+
+      var text = ta.value.trim();
+      if (!text) { showMessage('Please paste JSON data.', 'error'); return; }
+
+      var parsed;
+      try {
+        parsed = JSON.parse(text);
+      } catch (e) {
+        showMessage('Invalid JSON: ' + e.message, 'error');
+        return;
+      }
+
+      if (!parsed.nodes || !Array.isArray(parsed.nodes) || parsed.nodes.length === 0) {
+        showMessage('JSON must contain a "nodes" array with at least one node.', 'error');
+        return;
+      }
+
+      // Validate nodes
+      for (var i = 0; i < parsed.nodes.length; i++) {
+        var n = parsed.nodes[i];
+        if (n.x === undefined || n.y === undefined) {
+          showMessage('Node at index ' + i + ' must have x and y coordinates.', 'error');
+          return;
+        }
+      }
+
+      // Prepare nodes for batch save
+      var batchNodes = [];
+      for (var ni = 0; ni < parsed.nodes.length; ni++) {
+        var nd = parsed.nodes[ni];
+        batchNodes.push({
+          x: Math.round(nd.x),
+          y: Math.round(nd.y),
+          type: nd.type || 'waypoint',
+          roomId: nd.roomId || ''
+        });
+      }
+
+      var nodeData = {
+        pin: adminPin,
+        floorId: navCurrentFloor.id,
+        nodes: batchNodes
+      };
+
+      // Save nodes first, then create edges with real IDs
+      google.script.run
+        .withSuccessHandler(function(result) {
+          var nodeIds = result.ids || [];
+          showMessage('Imported ' + nodeIds.length + ' node' + (nodeIds.length !== 1 ? 's' : '') + '.', 'success');
+
+          // Now create edges if provided
+          var parsedEdges = (parsed.edges && Array.isArray(parsed.edges)) ? parsed.edges : [];
+          if (parsedEdges.length > 0 && nodeIds.length > 0) {
+            var mappedEdges = [];
+            var valid = true;
+            for (var ei = 0; ei < parsedEdges.length; ei++) {
+              var e = parsedEdges[ei];
+              var fromIdx = e.from;
+              var toIdx = e.to;
+              if (fromIdx === undefined || toIdx === undefined || fromIdx < 0 || toIdx < 0 ||
+                  fromIdx >= nodeIds.length || toIdx >= nodeIds.length) {
+                showMessage('Edge at index ' + ei + ' has invalid node indices.', 'error');
+                valid = false;
+                break;
+              }
+              mappedEdges.push({
+                fromNodeId: nodeIds[fromIdx],
+                toNodeId: nodeIds[toIdx],
+                distance: e.distance || 0,
+                floorChange: false
+              });
+            }
+
+            if (valid && mappedEdges.length > 0) {
+              google.script.run
+                .withSuccessHandler(function() {
+                  closeJsonModal();
+                  refreshCampusData(function() {
+                    updateNavCount();
+                    if (navCanvas) navCanvas.render();
+                  });
+                  showMessage('Imported ' + nodeIds.length + ' node' + (nodeIds.length !== 1 ? 's' : '') +
+                    ' and ' + mappedEdges.length + ' edge' + (mappedEdges.length !== 1 ? 's' : '') + '.', 'success');
+                })
+                .withFailureHandler(function(err) {
+                  showMessage('Nodes imported but edge import failed: ' + (err.message || String(err)), 'error');
+                })
+                .saveBatchNavEdges({ pin: adminPin, edges: mappedEdges });
+            } else {
+              closeJsonModal();
+              refreshCampusData(function() {
+                updateNavCount();
+                if (navCanvas) navCanvas.render();
+              });
+            }
+          } else {
+            closeJsonModal();
+            refreshCampusData(function() {
+              updateNavCount();
+              if (navCanvas) navCanvas.render();
+            });
+          }
+        })
+        .withFailureHandler(function(err) {
+          showMessage('Failed to import nodes: ' + (err.message || String(err)), 'error');
+        })
+        .saveBatchNavNodes(nodeData);
+    }
+
+    /**
+     * Show JSON export modal for the current floor's nav nodes and edges.
+     * Maps node IDs to array indices for edges.
+     */
+    function showNavJsonExport() {
+      if (!navCurrentFloor) {
+        showMessage('Please select a building and floor first.', 'error');
+        return;
+      }
+
+      // Gather nodes on current floor
+      var navNodes = (campusData && campusData.navNodes) || [];
+      var floorNodes = [];
+      var nodeIdToIndex = {};
+      for (var i = 0; i < navNodes.length; i++) {
+        if (navNodes[i].floorId === navCurrentFloor.id) {
+          nodeIdToIndex[navNodes[i].id] = floorNodes.length;
+          floorNodes.push(navNodes[i]);
+        }
+      }
+
+      // Build export nodes
+      var exportNodes = [];
+      for (var ni = 0; ni < floorNodes.length; ni++) {
+        var n = floorNodes[ni];
+        exportNodes.push({
+          x: n.x,
+          y: n.y,
+          type: n.type || 'waypoint',
+          roomId: n.roomId || ''
+        });
+      }
+
+      // Build export edges (only edges where both nodes are on this floor)
+      var navEdges = (campusData && campusData.navEdges) || [];
+      var exportEdges = [];
+      for (var ei = 0; ei < navEdges.length; ei++) {
+        var edge = navEdges[ei];
+        var fromIdx = nodeIdToIndex[edge.fromNodeId];
+        var toIdx = nodeIdToIndex[edge.toNodeId];
+        if (fromIdx !== undefined && toIdx !== undefined) {
+          var edgeObj = { from: fromIdx, to: toIdx };
+          if (edge.distance) edgeObj.distance = edge.distance;
+          exportEdges.push(edgeObj);
+        }
+      }
+
+      var exportData = {
+        nodes: exportNodes,
+        edges: exportEdges
+      };
+
+      var jsonText = JSON.stringify(exportData, null, 2);
+
+      var overlay = document.createElement('div');
+      overlay.className = 'json-modal-overlay';
+      overlay.id = 'rooms-json-modal';
+
+      var modal = document.createElement('div');
+      modal.className = 'json-modal';
+
+      modal.innerHTML =
+        '<h3>Export Nav Graph JSON</h3>' +
+        '<p style="font-size:13px;color:var(--text-light);margin-bottom:8px;">' +
+          floorNodes.length + ' node' + (floorNodes.length !== 1 ? 's' : '') + ', ' +
+          exportEdges.length + ' edge' + (exportEdges.length !== 1 ? 's' : '') + ' on this floor' +
+        '</p>' +
+        '<textarea id="nav-json-output" readonly></textarea>' +
+        '<div class="btn-row">' +
+          '<button class="btn btn-primary" onclick="copyNavJsonExport()">Copy to Clipboard</button>' +
+          '<button class="btn btn-outline" onclick="closeJsonModal()">Close</button>' +
+        '</div>';
+
+      overlay.appendChild(modal);
+
+      overlay.onclick = function(e) {
+        if (e.target === overlay) closeJsonModal();
+      };
+
+      document.body.appendChild(overlay);
+
+      // Set textarea value after appending to DOM
+      document.getElementById('nav-json-output').value = jsonText;
+    }
+
+    /**
+     * Copy the nav graph JSON export to clipboard.
+     */
+    function copyNavJsonExport() {
+      var ta = document.getElementById('nav-json-output');
+      if (!ta) return;
+
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(ta.value).then(function() {
+          showMessage('Copied to clipboard.', 'success');
+        }, function() {
+          ta.select();
+          document.execCommand('copy');
+          showMessage('Copied to clipboard.', 'success');
+        });
+      } else {
+        ta.select();
+        document.execCommand('copy');
+        showMessage('Copied to clipboard.', 'success');
+      }
+    }
+
+    /**
+     * Update the nav graph count display for the current floor.
+     * Shows "N nodes, M edges on this floor".
+     */
+    function updateNavCount() {
+      var countEl = document.getElementById('navgraph-count');
+      if (!navCurrentFloor) {
+        countEl.textContent = '';
+        return;
+      }
+
+      var navNodes = (campusData && campusData.navNodes) || [];
+      var nodeCount = 0;
+      var nodeIdSet = {};
+      for (var i = 0; i < navNodes.length; i++) {
+        if (navNodes[i].floorId === navCurrentFloor.id) {
+          nodeCount++;
+          nodeIdSet[navNodes[i].id] = true;
+        }
+      }
+
+      var navEdges = (campusData && campusData.navEdges) || [];
+      var edgeCount = 0;
+      for (var j = 0; j < navEdges.length; j++) {
+        if (nodeIdSet[navEdges[j].fromNodeId] || nodeIdSet[navEdges[j].toNodeId]) {
+          edgeCount++;
+        }
+      }
+
+      countEl.textContent = nodeCount + ' node' + (nodeCount !== 1 ? 's' : '') + ', ' +
+        edgeCount + ' edge' + (edgeCount !== 1 ? 's' : '') + ' on this floor';
+    }
+
+    /* ========================================================
+       BUILDINGS & ENTRANCES
+       ======================================================== */
+    var buildingsMap = null;
+    var buildingsMapLoaded = false;
+    var buildingsMapLoading = false;
+    var buildingsSelectedBuilding = null;
+    var buildingsMarkers = [];           // building markers on overview map
+    var buildingsEntranceMarkers = [];   // entrance markers when building selected
+    var buildingsCenterMarker = null;
+    var buildingsPickingGps = false;
+
+    /**
+     * Initialize the Buildings tab. Populates dropdown from campusData.buildings,
+     * loads Google Maps API if needed, refreshes building markers.
+     */
+    function initBuildingsTab() {
+      if (!campusData || !campusData.buildings) return;
+
+      var sel = document.getElementById('buildings-select');
+      var currentVal = sel.value;
+      sel.innerHTML = '<option value="">All buildings (overview)</option>';
+      var buildings = campusData.buildings;
+      for (var i = 0; i < buildings.length; i++) {
+        var b = buildings[i];
+        var opt = document.createElement('option');
+        opt.value = b.id;
+        opt.textContent = b.name || b.id;
+        sel.appendChild(opt);
+      }
+      // Restore selection if possible
+      if (currentVal) {
+        sel.value = currentVal;
+      }
+
+      // Load Google Maps API if needed
+      if (typeof google !== 'undefined' && google.maps) {
+        buildingsMapLoaded = true;
+        if (!buildingsMap) {
+          onBuildingsMapsReady();
+        } else {
+          refreshBuildingMarkers();
+        }
+      } else {
+        // Find API key from config
+        var apiKey = '';
+        var config = (campusData && campusData.config) || [];
+        for (var j = 0; j < config.length; j++) {
+          if (config[j].key === 'mapsApiKey') {
+            apiKey = config[j].value;
+            break;
+          }
+        }
+        if (!apiKey) {
+          showMessage('Google Maps API key not found in Config sheet', 'error');
+          return;
+        }
+        if (buildingsMapLoading) return; // already loading
+        buildingsMapLoading = true;
+        var script = document.createElement('script');
+        script.src = 'https://maps.googleapis.com/maps/api/js?key=' + apiKey + '&callback=onBuildingsMapsReady';
+        script.async = true;
+        script.defer = true;
+        document.head.appendChild(script);
+      }
+    }
+
+    /**
+     * Callback when Google Maps API is loaded.
+     * Creates the map in buildings-map-wrap, adds click listener, loads markers.
+     */
+    function onBuildingsMapsReady() {
+      buildingsMapLoaded = true;
+
+      if (!buildingsMap) {
+        buildingsMap = new google.maps.Map(document.getElementById('buildings-map-wrap'), {
+          center: { lat: 36.6155, lng: -88.3215 },
+          zoom: 16,
+          mapTypeId: 'satellite',
+          clickableIcons: false
+        });
+
+        buildingsMap.addListener('click', onBuildingsMapClick);
+      }
+
+      refreshBuildingMarkers();
+    }
+
+    /**
+     * Clear and re-create building markers on the overview map.
+     * Each building with lat/lng gets a marker. Clicking a marker selects that building.
+     */
+    function refreshBuildingMarkers() {
+      // Clear existing building markers
+      for (var i = 0; i < buildingsMarkers.length; i++) {
+        buildingsMarkers[i].setMap(null);
+      }
+      buildingsMarkers = [];
+
+      if (!buildingsMap || !campusData || !campusData.buildings) return;
+
+      var buildings = campusData.buildings;
+      for (var j = 0; j < buildings.length; j++) {
+        var b = buildings[j];
+        var lat = parseFloat(b.lat);
+        var lng = parseFloat(b.lng);
+        if (isNaN(lat) || isNaN(lng)) continue;
+
+        var marker = new google.maps.Marker({
+          position: { lat: lat, lng: lng },
+          map: buildingsMap,
+          draggable: false,
+          title: b.name || b.id
+        });
+
+        // Click marker to select that building
+        (function(buildingId) {
+          marker.addListener('click', function() {
+            document.getElementById('buildings-select').value = buildingId;
+            onBuildingsSelectChange();
+          });
+        })(b.id);
+
+        buildingsMarkers.push(marker);
+      }
+    }
+
+    /**
+     * Handle building dropdown selection change.
+     * Overview mode: hide detail, zoom out, clear entrance markers.
+     * Building selected: show detail, populate form, zoom to building, load entrances.
+     */
+    function onBuildingsSelectChange() {
+      var sel = document.getElementById('buildings-select');
+      var buildingId = sel.value;
+      var detailDiv = document.getElementById('buildings-detail');
+
+      if (!buildingId) {
+        // Overview mode
+        buildingsSelectedBuilding = null;
+        detailDiv.style.display = 'none';
+
+        // Clear entrance markers
+        for (var i = 0; i < buildingsEntranceMarkers.length; i++) {
+          buildingsEntranceMarkers[i].marker.setMap(null);
+        }
+        buildingsEntranceMarkers = [];
+        if (buildingsCenterMarker) {
+          buildingsCenterMarker.setMap(null);
+          buildingsCenterMarker = null;
+        }
+
+        // Zoom out to show all buildings
+        if (buildingsMap) {
+          buildingsMap.setCenter({ lat: 36.6155, lng: -88.3215 });
+          buildingsMap.setZoom(16);
+        }
+        return;
+      }
+
+      // Find building object
+      var buildings = (campusData && campusData.buildings) || [];
+      var building = null;
+      for (var j = 0; j < buildings.length; j++) {
+        if (buildings[j].id === buildingId) {
+          building = buildings[j];
+          break;
+        }
+      }
+
+      if (!building) {
+        showMessage('Building not found.', 'error');
+        return;
+      }
+
+      buildingsSelectedBuilding = building;
+
+      // Show detail section
+      detailDiv.style.display = '';
+      document.getElementById('buildings-detail-title').textContent = building.name || building.id;
+      document.getElementById('buildings-edit-name').value = building.name || '';
+      document.getElementById('buildings-edit-lat').value = building.lat || '';
+      document.getElementById('buildings-edit-lng').value = building.lng || '';
+
+      // Zoom map to building
+      if (buildingsMap) {
+        var centerLat = parseFloat(building.lat) || 36.6155;
+        var centerLng = parseFloat(building.lng) || -88.3215;
+        buildingsMap.setCenter({ lat: centerLat, lng: centerLng });
+        buildingsMap.setZoom(18);
+      }
+
+      // Load entrance markers
+      loadBuildingEntranceMarkers(building);
+    }
+
+    /**
+     * Map click handler for the Buildings tab.
+     * If picking GPS: update lat/lng inputs and move/create center marker.
+     * If building selected: prompt for entrance name, add draggable marker.
+     * If no building: show guidance message.
+     */
+    function onBuildingsMapClick(event) {
+      var clickLat = event.latLng.lat();
+      var clickLng = event.latLng.lng();
+
+      if (buildingsPickingGps) {
+        // Set building center GPS
+        document.getElementById('buildings-edit-lat').value = clickLat.toFixed(6);
+        document.getElementById('buildings-edit-lng').value = clickLng.toFixed(6);
+
+        // Move or create building center marker
+        if (buildingsCenterMarker) {
+          buildingsCenterMarker.setPosition(event.latLng);
+        } else {
+          buildingsCenterMarker = new google.maps.Marker({
+            position: event.latLng,
+            map: buildingsMap,
+            draggable: false,
+            title: 'Building Center',
+            icon: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png'
+          });
+        }
+
+        buildingsPickingGps = false;
+        showMessage('Building GPS updated. Click Save Building to persist.', 'info');
+        return;
+      }
+
+      if (!buildingsSelectedBuilding) {
+        showMessage('Select a building first, or use + Add Building.', 'info');
+        return;
+      }
+
+      // Normal mode: add entrance
+      var name = prompt('Entrance name:', 'Main Entrance');
+      if (!name) return;
+
+      var marker = createBuildingEntranceMarker(clickLat, clickLng, name);
+      buildingsEntranceMarkers.push({ marker: marker, name: name, lat: clickLat, lng: clickLng });
+      renderBuildingEntrancesList();
+      showMessage('Entrance added. Click Save Entrances to persist.', 'info');
+    }
+
+    /**
+     * Show the Add Building form.
+     */
+    function showAddBuildingForm2() {
+      document.getElementById('buildings-add-form').style.display = '';
+      document.getElementById('buildings-new-name').value = '';
+      document.getElementById('buildings-new-name').focus();
+    }
+
+    /**
+     * Hide the Add Building form.
+     */
+    function hideBuildingAddForm2() {
+      document.getElementById('buildings-add-form').style.display = 'none';
+    }
+
+    /**
+     * Save a new building via saveBuilding server call.
+     * On success: refresh data, select new building.
+     */
+    function saveNewBuilding2() {
+      var name = document.getElementById('buildings-new-name').value.trim();
+      if (!name) {
+        showMessage('Building name is required.', 'error');
+        return;
+      }
+
+      var saveData = { pin: adminPin, name: name };
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          showMessage('Building created: ' + name, 'success');
+          hideBuildingAddForm2();
+          refreshCampusData(function() {
+            initBuildingsTab();
+            // Select the new building
+            document.getElementById('buildings-select').value = result.id;
+            onBuildingsSelectChange();
+          });
+        })
+        .withFailureHandler(function(err) {
+          showMessage('Failed to create building: ' + (err.message || String(err)), 'error');
+        })
+        .saveBuilding(saveData);
+    }
+
+    /**
+     * Save building details (name, lat, lng) via updateBuilding.
+     * Preserves existing entrances and photoUrl.
+     */
+    function saveBuildingDetails() {
+      if (!buildingsSelectedBuilding) {
+        showMessage('No building selected.', 'error');
+        return;
+      }
+
+      var name = document.getElementById('buildings-edit-name').value.trim();
+      var lat = document.getElementById('buildings-edit-lat').value.trim();
+      var lng = document.getElementById('buildings-edit-lng').value.trim();
+
+      if (!name) { showMessage('Building name is required.', 'error'); return; }
+
+      var data = {
+        pin: adminPin,
+        id: buildingsSelectedBuilding.id,
+        name: name,
+        lat: parseFloat(lat) || 0,
+        lng: parseFloat(lng) || 0,
+        entrances: buildingsSelectedBuilding.entrances || '',
+        photoUrl: buildingsSelectedBuilding.photoUrl || ''
+      };
+
+      google.script.run
+        .withSuccessHandler(function() {
+          refreshCampusData(function() {
+            initBuildingsTab();
+            // Re-select the building
+            document.getElementById('buildings-select').value = buildingsSelectedBuilding.id;
+            onBuildingsSelectChange();
+          });
+          showMessage('Building updated successfully.', 'success');
+        })
+        .withFailureHandler(function(err) {
+          showMessage('Failed to update building: ' + (err.message || String(err)), 'error');
+        })
+        .updateBuilding(data);
+    }
+
+    /**
+     * Confirm and delete the selected building.
+     */
+    function deleteBuildingConfirm() {
+      if (!buildingsSelectedBuilding) {
+        showMessage('No building selected.', 'error');
+        return;
+      }
+
+      var bldName = buildingsSelectedBuilding.name || buildingsSelectedBuilding.id;
+      if (!confirm('Delete building "' + bldName + '"? This cannot be undone.')) return;
+
+      google.script.run
+        .withSuccessHandler(function() {
+          buildingsSelectedBuilding = null;
+          refreshCampusData(function() {
+            initBuildingsTab();
+            // Clear selection
+            document.getElementById('buildings-select').value = '';
+            onBuildingsSelectChange();
+          });
+          showMessage('Building deleted.', 'success');
+        })
+        .withFailureHandler(function(err) {
+          showMessage('Failed to delete building: ' + (err.message || String(err)), 'error');
+        })
+        .deleteBuilding({ pin: adminPin, id: buildingsSelectedBuilding.id });
+    }
+
+    /**
+     * Enter GPS picking mode. Next map click sets building lat/lng.
+     */
+    function pickBuildingGps() {
+      if (!buildingsMap) {
+        showMessage('Map not loaded yet.', 'error');
+        return;
+      }
+      buildingsPickingGps = true;
+      showMessage('Click the map to set building GPS location.', 'info');
+    }
+
+    /**
+     * Load entrance markers and building center marker for a building.
+     * Clears existing entrance markers first.
+     */
+    function loadBuildingEntranceMarkers(building) {
+      // Clear existing entrance markers
+      for (var i = 0; i < buildingsEntranceMarkers.length; i++) {
+        buildingsEntranceMarkers[i].marker.setMap(null);
+      }
+      buildingsEntranceMarkers = [];
+
+      // Clear building center marker
+      if (buildingsCenterMarker) {
+        buildingsCenterMarker.setMap(null);
+        buildingsCenterMarker = null;
+      }
+
+      // Parse entrances
+      var existing = Array.isArray(building.entrances) ? building.entrances : [];
+
+      // Create markers for each entrance
+      for (var j = 0; j < existing.length; j++) {
+        var ent = existing[j];
+        var lat = parseFloat(ent.lat);
+        var lng = parseFloat(ent.lng);
+        if (isNaN(lat) || isNaN(lng)) continue;
+
+        var marker = createBuildingEntranceMarker(lat, lng, ent.name || 'Entrance');
+        buildingsEntranceMarkers.push({
+          marker: marker,
+          name: ent.name || 'Entrance',
+          lat: lat,
+          lng: lng
+        });
+      }
+
+      // Create building center marker if lat/lng available
+      var bldLat = parseFloat(building.lat);
+      var bldLng = parseFloat(building.lng);
+      if (!isNaN(bldLat) && !isNaN(bldLng)) {
+        buildingsCenterMarker = new google.maps.Marker({
+          position: { lat: bldLat, lng: bldLng },
+          map: buildingsMap,
+          draggable: false,
+          title: 'Building Center: ' + (building.name || building.id),
+          icon: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png'
+        });
+      }
+
+      renderBuildingEntrancesList();
+    }
+
+    /**
+     * Create a draggable entrance marker on the buildings map.
+     */
+    function createBuildingEntranceMarker(lat, lng, name) {
+      var marker = new google.maps.Marker({
+        position: { lat: lat, lng: lng },
+        map: buildingsMap,
+        draggable: true,
+        title: name,
+        label: name ? name[0].toUpperCase() : 'E',
+        icon: {
+          url: 'https://maps.google.com/mapfiles/ms/icons/red-dot.png'
+        }
+      });
+
+      marker.addListener('dragend', function() {
+        // Find this marker in buildingsEntranceMarkers and update its lat/lng
+        for (var k = 0; k < buildingsEntranceMarkers.length; k++) {
+          if (buildingsEntranceMarkers[k].marker === marker) {
+            buildingsEntranceMarkers[k].lat = marker.getPosition().lat();
+            buildingsEntranceMarkers[k].lng = marker.getPosition().lng();
+            break;
+          }
+        }
+        renderBuildingEntrancesList();
+      });
+
+      return marker;
+    }
+
+    /**
+     * Render the entrance list in the Buildings tab detail section.
+     * Shows each entrance with Rename/Delete buttons.
+     */
+    function renderBuildingEntrancesList() {
+      var list = document.getElementById('buildings-entrance-list');
+      var countEl = document.getElementById('buildings-entrance-count');
+
+      list.innerHTML = '';
+
+      for (var i = 0; i < buildingsEntranceMarkers.length; i++) {
+        (function(idx) {
+          var ent = buildingsEntranceMarkers[idx];
+          var currentLat = ent.marker.getPosition().lat().toFixed(6);
+          var currentLng = ent.marker.getPosition().lng().toFixed(6);
+
+          var li = document.createElement('li');
+
+          var nameSpan = document.createElement('span');
+          nameSpan.className = 'item-name';
+          nameSpan.textContent = ent.name + '  (' + currentLat + ', ' + currentLng + ')';
+          li.appendChild(nameSpan);
+
+          var actions = document.createElement('span');
+          actions.className = 'item-actions';
+
+          var renameBtn = document.createElement('button');
+          renameBtn.textContent = 'Rename';
+          renameBtn.onclick = function() {
+            var newName = prompt('New entrance name:', ent.name);
+            if (newName) {
+              buildingsEntranceMarkers[idx].name = newName;
+              buildingsEntranceMarkers[idx].marker.setTitle(newName);
+              buildingsEntranceMarkers[idx].marker.setLabel(newName[0].toUpperCase());
+              renderBuildingEntrancesList();
+            }
+          };
+          actions.appendChild(renameBtn);
+
+          var deleteBtn = document.createElement('button');
+          deleteBtn.className = 'delete-btn';
+          deleteBtn.textContent = 'Delete';
+          deleteBtn.onclick = function() {
+            buildingsEntranceMarkers[idx].marker.setMap(null);
+            buildingsEntranceMarkers.splice(idx, 1);
+            renderBuildingEntrancesList();
+          };
+          actions.appendChild(deleteBtn);
+
+          li.appendChild(actions);
+          list.appendChild(li);
+        })(i);
+      }
+
+      countEl.textContent = buildingsEntranceMarkers.length + ' entrance' + (buildingsEntranceMarkers.length !== 1 ? 's' : '');
+    }
+
+    /**
+     * Save all entrances for the selected building.
+     * Collects positions from markers and calls updateBuildingEntrances.
+     */
+    function saveAllEntrances2() {
+      if (!buildingsSelectedBuilding) {
+        showMessage('No building selected.', 'error');
+        return;
+      }
+
+      var entrancesArray = [];
+      for (var i = 0; i < buildingsEntranceMarkers.length; i++) {
+        var m = buildingsEntranceMarkers[i];
+        entrancesArray.push({
+          name: m.name,
+          lat: m.marker.getPosition().lat(),
+          lng: m.marker.getPosition().lng()
+        });
+      }
+
+      showMessage('Saving entrances...', 'info');
+      google.script.run
+        .withSuccessHandler(function() {
+          refreshCampusData(function() {
+            // Re-select the building to update local state
+            var buildings = (campusData && campusData.buildings) || [];
+            for (var j = 0; j < buildings.length; j++) {
+              if (buildings[j].id === buildingsSelectedBuilding.id) {
+                buildingsSelectedBuilding = buildings[j];
+                break;
+              }
+            }
+            showMessage('Entrances saved successfully.', 'success');
+          });
+        })
+        .withFailureHandler(function(err) {
+          showMessage('Failed to save entrances: ' + (err.message || String(err)), 'error');
+        })
+        .updateBuildingEntrances({
+          pin: adminPin,
+          id: buildingsSelectedBuilding.id,
+          entrances: entrancesArray
+        });
+    }
+
+    /* ========================================================
+       ADMIN CANVAS CONTROLLER — Reusable pan/zoom/tap canvas controller
+       Ported from WebApp.html's setupCanvasInteraction pattern.
+
+       Usage:
+         var ctrl = new AdminCanvasController('rooms-canvas', {
+           onTap: function(canvasX, canvasY) { ... },
+           onRender: function(ctx, scale, offsetX, offsetY) { ... }
+         });
+         ctrl.loadImage(url, function() { ctrl.render(); });
+         ctrl.render();
+         ctrl.resetView();
+       ======================================================== */
+    function AdminCanvasController(canvasId, opts) {
+      this.canvas = document.getElementById(canvasId);
+      this.ctx = this.canvas.getContext('2d');
+      this.opts = opts || {};
+      this.scale = 1;
+      this.offsetX = 0;
+      this.offsetY = 0;
+      this.image = null;
+      this.imageLoaded = false;
+
+      // Internal drag state
+      this._isDragging = false;
+      this._lastX = 0;
+      this._lastY = 0;
+      this._lastDist = 0;
+      this._tapStartX = 0;
+      this._tapStartY = 0;
+      this._tapStartTime = 0;
+
+      this._setupEvents();
+    }
+
+    /**
+     * Attach touch (start/move/end) and mouse (down/move/up/click/wheel) events.
+     * Touch: single-finger pan, two-finger pinch zoom, tap detection (< 300ms, < 10px).
+     * Mouse: drag to pan, click tap detection, wheel zoom (0.9/1.1, clamped 0.3-5.0).
+     */
+    AdminCanvasController.prototype._setupEvents = function() {
+      var self = this;
+      var canvas = this.canvas;
+
+      // --- Helper: get distance between two touches ---
+      function getTouchDistance(touches) {
+        var dx = touches[0].clientX - touches[1].clientX;
+        var dy = touches[0].clientY - touches[1].clientY;
+        return Math.sqrt(dx * dx + dy * dy);
+      }
+
+      // --- Touch events ---
+      canvas.addEventListener('touchstart', function(e) {
+        if (e.touches.length === 1) {
+          self._isDragging = true;
+          self._lastX = e.touches[0].clientX;
+          self._lastY = e.touches[0].clientY;
+          self._tapStartX = self._lastX;
+          self._tapStartY = self._lastY;
+          self._tapStartTime = Date.now();
+        } else if (e.touches.length === 2) {
+          self._isDragging = false;
+          self._lastDist = getTouchDistance(e.touches);
+        }
+        e.preventDefault();
+      }, { passive: false });
+
+      canvas.addEventListener('touchmove', function(e) {
+        if (e.touches.length === 1 && self._isDragging) {
+          var dx = e.touches[0].clientX - self._lastX;
+          var dy = e.touches[0].clientY - self._lastY;
+          self.offsetX += dx;
+          self.offsetY += dy;
+          self._lastX = e.touches[0].clientX;
+          self._lastY = e.touches[0].clientY;
+          self.render();
+        } else if (e.touches.length === 2) {
+          var dist = getTouchDistance(e.touches);
+          if (self._lastDist > 0) {
+            var scaleDelta = dist / self._lastDist;
+            self.scale *= scaleDelta;
+            self.scale = Math.max(0.3, Math.min(5.0, self.scale));
+          }
+          self._lastDist = dist;
+          self.render();
+        }
+        e.preventDefault();
+      }, { passive: false });
+
+      canvas.addEventListener('touchend', function(e) {
+        if (e.touches.length === 0 && self._isDragging) {
+          var elapsed = Date.now() - self._tapStartTime;
+          var moveX = Math.abs(e.changedTouches[0].clientX - self._tapStartX);
+          var moveY = Math.abs(e.changedTouches[0].clientY - self._tapStartY);
+          if (elapsed < 300 && moveX < 10 && moveY < 10) {
+            var coords = self.toCanvasCoords(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+            if (self.opts.onTap) {
+              self.opts.onTap(coords.x, coords.y, e);
+            }
+          }
+        }
+        self._isDragging = false;
+        self._lastDist = 0;
+      });
+
+      // --- Mouse drag support for desktop panning ---
+      var mouseDragging = false;
+      var mouseStartX = 0, mouseStartY = 0;
+      var mouseTapStartX = 0, mouseTapStartY = 0;
+      var mouseTapStartTime = 0;
+
+      canvas.addEventListener('mousedown', function(e) {
+        if (e.button !== 0) return; // left button only
+        mouseDragging = true;
+        mouseStartX = e.clientX;
+        mouseStartY = e.clientY;
+        mouseTapStartX = e.clientX;
+        mouseTapStartY = e.clientY;
+        mouseTapStartTime = Date.now();
+        e.preventDefault();
+      });
+
+      canvas.addEventListener('mousemove', function(e) {
+        if (!mouseDragging) return;
+        var dx = e.clientX - mouseStartX;
+        var dy = e.clientY - mouseStartY;
+        self.offsetX += dx;
+        self.offsetY += dy;
+        mouseStartX = e.clientX;
+        mouseStartY = e.clientY;
+        self.render();
+        e.preventDefault();
+      });
+
+      canvas.addEventListener('mouseup', function(e) {
+        if (!mouseDragging) return;
+        mouseDragging = false;
+        // Detect tap: short duration, minimal movement
+        var elapsed = Date.now() - mouseTapStartTime;
+        var moveX = Math.abs(e.clientX - mouseTapStartX);
+        var moveY = Math.abs(e.clientY - mouseTapStartY);
+        if (elapsed < 300 && moveX < 10 && moveY < 10) {
+          var coords = self.toCanvasCoords(e.clientX, e.clientY);
+          if (self.opts.onTap) {
+            self.opts.onTap(coords.x, coords.y, e);
+          }
+        }
+        e.preventDefault();
+      });
+
+      canvas.addEventListener('mouseleave', function() {
+        mouseDragging = false;
+      });
+
+      // --- Mouse wheel zoom ---
+      canvas.addEventListener('wheel', function(e) {
+        e.preventDefault();
+        var delta = e.deltaY > 0 ? 0.9 : 1.1;
+        self.scale *= delta;
+        self.scale = Math.max(0.3, Math.min(5.0, self.scale));
+        self.render();
+      }, { passive: false });
+    };
+
+    /**
+     * Load an image from a URL (handles Google Drive conversion).
+     * On load, sizes canvas to match wrap dimensions and calls callback().
+     */
+    AdminCanvasController.prototype.loadImage = function(url, callback) {
+      var self = this;
+      function onImageReady(img) {
+        if (img) {
+          self.image = img;
+          self.imageLoaded = true;
+        } else {
+          self.image = null;
+          self.imageLoaded = false;
+        }
+        var wrap = self.canvas.parentElement;
+        if (wrap) {
+          self.canvas.width = wrap.clientWidth;
+          self.canvas.height = wrap.clientHeight;
+        }
+        if (typeof callback === 'function') callback();
+      }
+      var match = url ? url.match(/\/d\/([a-zA-Z0-9_-]+)/) : null;
+      if (match) {
+        // Fetch via server to bypass CORS
+        google.script.run
+          .withSuccessHandler(function(result) {
+            var img = new Image();
+            img.onload = function() { onImageReady(img); };
+            img.onerror = function() { onImageReady(null); };
+            img.src = 'data:' + result.mimeType + ';base64,' + result.base64;
+          })
+          .withFailureHandler(function() {
+            // Fallback to direct URL
+            var img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = function() { onImageReady(img); };
+            img.onerror = function() { onImageReady(null); };
+            img.src = getDriveDirectUrl(url);
+          })
+          .getFloorPlanFile(match[1]);
+      } else {
+        var img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = function() { onImageReady(img); };
+        img.onerror = function() { onImageReady(null); };
+        img.src = getDriveDirectUrl(url);
+      }
+    };
+
+    /**
+     * Render the canvas. Clears, draws image with pan/zoom transform,
+     * then calls onRender callback for overlay drawing.
+     */
+    AdminCanvasController.prototype.render = function() {
+      var ctx = this.ctx;
+      var canvas = this.canvas;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      if (this.imageLoaded && this.image) {
+        ctx.save();
+        ctx.translate(this.offsetX, this.offsetY);
+        ctx.scale(this.scale, this.scale);
+        ctx.drawImage(this.image, 0, 0);
+        if (this.opts.onRender) {
+          this.opts.onRender(ctx, this.scale, this.offsetX, this.offsetY);
+        }
+        ctx.restore();
+      } else {
+        // No image — call onRender with identity transform
+        if (this.opts.onRender) {
+          this.opts.onRender(ctx, 1, 0, 0);
+        }
+      }
+    };
+
+    /**
+     * Reset view to default scale and position, then re-render.
+     */
+    AdminCanvasController.prototype.resetView = function() {
+      this.scale = 1;
+      this.offsetX = 0;
+      this.offsetY = 0;
+      this.render();
+    };
+
+    /**
+     * Fit the loaded image within the canvas, centered, then render.
+     */
+    AdminCanvasController.prototype.fitImage = function() {
+      if (!this.imageLoaded || !this.image) return;
+      var canvas = this.canvas;
+      var imgW = this.image.width;
+      var imgH = this.image.height;
+      if (imgW === 0 || imgH === 0) return;
+
+      var scaleX = canvas.width / imgW;
+      var scaleY = canvas.height / imgH;
+      this.scale = Math.min(scaleX, scaleY);
+
+      // Center the image
+      this.offsetX = (canvas.width - imgW * this.scale) / 2;
+      this.offsetY = (canvas.height - imgH * this.scale) / 2;
+
+      this.render();
+    };
+
+    /**
+     * Convert client (screen) coordinates to canvas (image) coordinates.
+     * Returns {x: canvasX, y: canvasY}.
+     */
+    AdminCanvasController.prototype.toCanvasCoords = function(clientX, clientY) {
+      var rect = this.canvas.getBoundingClientRect();
+      var canvasX = (clientX - rect.left - this.offsetX) / this.scale;
+      var canvasY = (clientY - rect.top - this.offsetY) / this.scale;
+      return { x: canvasX, y: canvasY };
+    };
 
     /* ========================================================
        BOOT — PIN gate is shown by default; loadData() called after PIN verified

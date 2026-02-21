@@ -133,16 +133,6 @@ function _seedDemoData(ss) {
     configSheet.appendRow(['mapsApiKey', '***REMOVED-GOOGLE-MAPS-API-KEY***']);
   }
 
-  // Seed Buildings with one demo building
-  var buildingsSheet = ss.getSheetByName('Buildings');
-  if (buildingsSheet && buildingsSheet.getLastRow() <= 1) {
-    buildingsSheet.appendRow([
-      'bld-engphys',
-      'Engineering & Physics Building',
-      36.6622,
-      -88.3253,
-      '',   // entrances — to be filled later
-      ''    // photoUrl — to be filled later
-    ]);
-  }
+  // Seed all campus data (buildings, floors, rooms)
+  seedAllCampusData(ss);
 }

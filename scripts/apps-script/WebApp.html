@@ -1142,7 +1142,7 @@
 
     function onMapsLoaded() {
       map = new google.maps.Map(document.getElementById('map-container'), {
-        center: { lat: 36.6622, lng: -88.3253 },
+        center: { lat: 36.6155, lng: -88.3215 },
         zoom: 16,
         mapTypeControl: false,
         streetViewControl: false,
@@ -1351,20 +1351,50 @@
       resizeIndoorCanvas();
 
       if (currentFloor.planImageUrl) {
-        floorPlanImage = new Image();
-        floorPlanImage.crossOrigin = 'anonymous';
-        floorPlanImage.onload = function() {
-          fitImageToCanvas();
+        loadFloorPlanImage(currentFloor.planImageUrl, function(img) {
+          floorPlanImage = img;
+          if (img) {
+            fitImageToCanvas();
+          }
           renderFloorPlan();
-        };
-        floorPlanImage.onerror = function() {
-          floorPlanImage = null;
-          renderFloorPlan();
-        };
-        floorPlanImage.src = getDriveDirectUrl(currentFloor.planImageUrl);
+        });
       } else {
         floorPlanImage = null;
         renderFloorPlan();
+      }
+    }
+
+    /**
+     * Load a floor plan image, using server-side Drive fetch to bypass CORS.
+     * Falls back to direct URL loading for non-Drive images.
+     */
+    function loadFloorPlanImage(url, callback) {
+      if (!url) { callback(null); return; }
+      var match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+      if (match) {
+        // Fetch via server to bypass CORS
+        google.script.run
+          .withSuccessHandler(function(result) {
+            var img = new Image();
+            img.onload = function() { callback(img); };
+            img.onerror = function() { callback(null); };
+            img.src = 'data:' + result.mimeType + ';base64,' + result.base64;
+          })
+          .withFailureHandler(function() {
+            // Fallback to direct URL
+            var img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = function() { callback(img); };
+            img.onerror = function() { callback(null); };
+            img.src = getDriveDirectUrl(url);
+          })
+          .getFloorPlanFile(match[1]);
+      } else {
+        var img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = function() { callback(img); };
+        img.onerror = function() { callback(null); };
+        img.src = url;
       }
     }
 

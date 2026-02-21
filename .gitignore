@@ -29,3 +29,6 @@ logs/
 
 # Agent logs (operational, not config)
 .agent-log/
+
+# Map source files (large binaries — floor plans hosted on Google Drive)
+Maps/
