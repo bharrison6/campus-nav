@@ -1,0 +1,30 @@
+{
+  "name": "murray-state-campus-navigation",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "playwright test",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bharrison6/Murray-State-Campus-Navigation.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/bharrison6/Murray-State-Campus-Navigation/issues"
+  },
+  "homepage": "https://github.com/bharrison6/Murray-State-Campus-Navigation#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.58.2"
+  }
+}
