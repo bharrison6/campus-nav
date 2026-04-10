@@ -1,9 +1,11 @@
-# Codex Repo Instructions
+# Murray-State-Campus-Navigation - Codex Configuration
 
-This repository follows cross-agent protocol defined at `C:\GitHub\AGENTS.md`.
+**Read the shared protocol:** `PROTOCOL.md` (in this directory)
+**Read the technical standards:** `STANDARDS.md`
+**Read the root coordination protocol:** `C:\GitHub\PROTOCOL.md`
 
-## Repo-Specific Workflow
-1. Read `STANDARDS.md` before implementation.
-2. Check `.agent-log/changelog.md` and `.agent-log/handoffs.md` before starting.
-3. Log all completed work in `.agent-log/changelog.md`.
-4. If work is incomplete, add a handoff entry in `.agent-log/handoffs.md`.
+## Logging
+
+- **Tag:** `CODEX`
+- **Format:** `### [YYYY-MM-DD HH:MM] CODEX [ACTION_TYPE]`
+- **Other agents:** Claude (CLAUDE.md), Gemini (GEMINI.md)
