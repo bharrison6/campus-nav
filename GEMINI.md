@@ -1,11 +1,9 @@
 # Murray-State-Campus-Navigation - Gemini Configuration
 
-**Read the shared protocol:** `PROTOCOL.md` (in this directory)
-**Read the technical standards:** `STANDARDS.md`
-**Read the root coordination protocol:** `C:\GitHub\PROTOCOL.md`
+**Read the local protocol:** `.protocol.md`
 
-## Logging
+This repo must work on its own; use local repo docs first.
 
-- **Tag:** `GEMINI`
-- **Format:** `### [YYYY-MM-DD HH:MM] GEMINI [ACTION_TYPE]`
+- **Changelog tag:** `GEMINI`
+- **Log format:** `### [YYYY-MM-DD HH:MM] GEMINI [ACTION_TYPE]`
 - **Other agents:** Claude (CLAUDE.md), Codex (AGENTS.md)
