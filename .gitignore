@@ -32,9 +32,6 @@ __pycache__/
 logs/
 .tmp_*/
 
-# Agent logs (operational, not config)
-.agent-log/
-
 # Agent working directories
 .scratch/
 .research/
