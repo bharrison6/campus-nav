@@ -36,5 +36,8 @@ logs/
 .scratch/
 .research/
 
+# Git worktrees
+.worktrees/
+
 # Map source files (large binaries — floor plans hosted on Google Drive)
 Maps/
