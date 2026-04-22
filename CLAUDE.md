@@ -1,4 +1,4 @@
-# Murray-State-Campus-Navigation - Claude Configuration
+# MurrayStateCampusNavigation - Claude Configuration
 
 **Read the local protocol:** `.protocol.md`
 

@@ -1,4 +1,4 @@
-# Murray-State-Campus-Navigation - Codex Configuration
+# MurrayStateCampusNavigation - Codex Configuration
 
 **Read the local protocol:** `.protocol.md`
 

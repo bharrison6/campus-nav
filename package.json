@@ -14,16 +14,16 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/bharrison6/Murray-State-Campus-Navigation.git"
+    "url": "git+https://github.com/bharrison6/MurrayStateCampusNavigation.git"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "bugs": {
-    "url": "https://github.com/bharrison6/Murray-State-Campus-Navigation/issues"
+    "url": "https://github.com/bharrison6/MurrayStateCampusNavigation/issues"
   },
-  "homepage": "https://github.com/bharrison6/Murray-State-Campus-Navigation#readme",
+  "homepage": "https://github.com/bharrison6/MurrayStateCampusNavigation#readme",
   "devDependencies": {
     "@playwright/test": "^1.58.2"
   }

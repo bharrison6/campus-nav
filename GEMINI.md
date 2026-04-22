@@ -1,4 +1,4 @@
-# Murray-State-Campus-Navigation - Gemini Configuration
+# MurrayStateCampusNavigation - Gemini Configuration
 
 **Read the local protocol:** `.protocol.md`
 
