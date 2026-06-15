@@ -1,9 +1,7 @@
-# MurrayStateCampusNavigation - Codex Configuration
+# MurrayStateCampusNavigation - Codex
 
-**Read the local protocol:** `.protocol.md`
+Read `.changelog.md`, `.project-context.md`, `.standards.md`, `.protocol.md` at session start.
 
-This repo must work on its own; use local repo docs first.
+## Agent-Specific
 
-- **Changelog tag:** `CODEX`
-- **Log format:** `### [YYYY-MM-DD HH:MM] CODEX [ACTION_TYPE]`
-- **Other agents:** Claude (CLAUDE.md), Gemini (GEMINI.md)
+- Tag: CODEX

@@ -1,9 +1,7 @@
-# MurrayStateCampusNavigation - Gemini Configuration
+# MurrayStateCampusNavigation - Gemini
 
-**Read the local protocol:** `.protocol.md`
+Read `.changelog.md`, `.project-context.md`, `.standards.md`, `.protocol.md` at session start.
 
-This repo must work on its own; use local repo docs first.
+## Agent-Specific
 
-- **Changelog tag:** `GEMINI`
-- **Log format:** `### [YYYY-MM-DD HH:MM] GEMINI [ACTION_TYPE]`
-- **Other agents:** Claude (CLAUDE.md), Codex (AGENTS.md)
+- Tag: GEMINI
