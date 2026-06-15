@@ -1,16 +1,20 @@
 ---
 id: murray-state-campus-navigation-202606120642
 title: MurrayStateCampusNavigation — source entity
-type: reference
-schema_version: 1
+schema_version: 2
 created: 2026-06-12T06:42:00Z
 updated: 2026-06-12T06:42:00Z
 path: C:\GitHub\MurrayStateCampusNavigation
-status: dormant
+status: active
 account: school
 reachable_via: local
 tags: [gas, gcp, school, navigation, maps]
 aliases: [mscn, campus nav, msu campus nav, murray state campus navigation]
+lifecycle: paused
+artifact_kind: reference
+model: unattributed
+model_basis: unattributed
+author: claude
 ---
 
 # MurrayStateCampusNavigation — source entity

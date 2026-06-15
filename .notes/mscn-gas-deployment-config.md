@@ -1,8 +1,7 @@
 ---
 id: mscn-gas-deployment-config
 title: MSCN GAS deployment configuration
-type: reference
-schema_version: 1
+schema_version: 2
 created: 2026-06-14T12:31:00Z
 updated: 2026-06-14T12:31:00Z
 valid_until: null
@@ -24,6 +23,10 @@ provenance:
   recall-extract: claude-sonnet-4-6
   find-missing: claude-sonnet-4-6
   precision-judge: claude-sonnet-4-6
+lifecycle: active
+artifact_kind: memory
+memory_class: semantic
+semantic_kind: entity_profile
 ---
 
 # MSCN GAS deployment configuration

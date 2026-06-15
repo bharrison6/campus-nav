@@ -1,8 +1,7 @@
 ---
 id: mscn-floor-plan-pipeline-state-202606120642
 title: MSCN floor plan pipeline — current state and open decisions at dormancy
-type: note
-schema_version: 1
+schema_version: 2
 created: 2026-06-12T06:42:00Z
 updated: 2026-06-12T06:42:00Z
 valid_until: null
@@ -17,6 +16,10 @@ source_basis: conversation
 human_edited: false
 sensitivity: normal
 decisions: []
+artifact_kind: memory
+memory_class: semantic
+model: unattributed
+model_basis: unattributed
 ---
 
 # MSCN floor plan pipeline — current state and open decisions at dormancy
