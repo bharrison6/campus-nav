@@ -1,2 +1,13 @@
-# Auto detect text files and perform LF normalization
-* text=auto
+# Fleet standard. text=auto normalizes the index to LF; eol=lf pins the WORKING TREE to LF too.
+#
+# Why eol=lf and not bare text=auto: with core.autocrlf=true the checkout-canonical form is CRLF,
+# but every agent tool (Edit, WriteAllText, the generators) writes LF. Git cannot see the difference
+# (CRLF->LF on the way in collapses both), so files silently drift into MIXED endings inside a
+# single file - invisible to `git status`, and already the cause of byte-exact-compare ghost bugs
+# (2026-08-28 kernel triage) and a generator emitting mixed output (2026-08-29, checklist skills).
+# Pinning eol=lf makes the canonical form equal what the tools produce, so the drift cannot recur.
+* text=auto eol=lf
+
+# Windows batch files are the one real exception: cmd.exe can mis-parse LF-terminated labels/goto.
+*.bat text eol=crlf
+*.cmd text eol=crlf
