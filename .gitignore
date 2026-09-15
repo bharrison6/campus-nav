@@ -34,7 +34,6 @@ logs/
 
 # Agent working directories
 .scratch/
-.research/
 
 # Git worktrees
 .worktrees/
