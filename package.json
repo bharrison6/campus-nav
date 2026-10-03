@@ -10,7 +10,9 @@
     "test": "playwright test",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",
-    "test:e2e:ui": "playwright test --ui"
+    "test:e2e:ui": "playwright test --ui",
+    "pipeline": "node scripts/floorplan-pipeline/run.mjs --in data/dwg --out data/floorplans",
+    "test:pipeline": "node --test scripts/floorplan-pipeline/test/"
   },
   "repository": {
     "type": "git",
@@ -25,6 +27,7 @@
   },
   "homepage": "https://github.com/bharrison6/MurrayStateCampusNavigation#readme",
   "devDependencies": {
+    "@mlightcad/libredwg-web": "^0.7.14",
     "@playwright/test": "^1.58.2"
   }
 }
