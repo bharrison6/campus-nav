@@ -49,6 +49,16 @@ var MSCNSearch = (function () {
     return label;
   }
 
+  /*
+   * Room type for display and search words. The floor-plan pipeline types rooms only from geometric
+   * evidence and files the rest as 'other' (the drawings carry no use text), so 'other' shows as nothing.
+   */
+  function typeText(room) {
+    var t = String((room && room.type) || '').replace(/^\s+|\s+$/g, '');
+    if (!t || norm(t) === 'other') { return ''; }
+    return t.charAt(0).toUpperCase() + t.substring(1);
+  }
+
   function toBool(v, dflt) {
     if (v === true || v === false) { return v; }
     if (v === null || v === undefined || v === '') { return dflt; }
@@ -98,7 +108,7 @@ var MSCNSearch = (function () {
       var bb = buildings[f.buildingId] || { name: '', code: '' };
       var num = displayNumber(r.number);
       var use = useText(r);
-      var type = String(r.type || '');
+      var type = typeText(r);
       var sub = [];
       if (use) { sub.push(use); }
       if (type && norm(type) !== norm(use) && norm(use).indexOf(norm(type)) === -1) { sub.push(type); }
@@ -197,6 +207,7 @@ var MSCNSearch = (function () {
     tokens: tokens,
     displayNumber: displayNumber,
     useText: useText,
+    typeText: typeText,
     buildIndex: buildIndex,
     search: search,
     naturalCompare: naturalCompare

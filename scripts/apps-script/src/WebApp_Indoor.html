@@ -326,7 +326,7 @@ function showRoomSheet(room, moveFocus) {
   var sheet = $('room-sheet');
   var b = buildingOfFloor(room.floorId);
   var use = MSCNSearch.useText(room);
-  var type = String(room.type || '');
+  var type = MSCNSearch.typeText(room);
   var isStart = IND.start && IND.start.roomId === room.id;
   var chips = '';
   if (type && MSCNSearch.norm(type) !== MSCNSearch.norm(use)) { chips += '<span class="chip">' + escapeHtml(type) + '</span>'; }
@@ -507,9 +507,13 @@ function computeRoute() {
   var goals = roomNodeIds(destId);
   var st = resolveStart(destB);
   var route = { destRoomId: destId, destLabel: roomTitle(room), fromLabel: st.label, steps: [], meters: 0, error: null };
-  var noRouteMsg = IND.avoidStairs
-    ? 'No step-free route was found. Turn off "Avoid stairs" to include stairs.'
-    : 'No route was found between these points.';
+  /* Suggest turning off "Avoid stairs" only when stairs would actually connect the two points. */
+  function noRouteMsg(fromIds, toIds) {
+    if (IND.avoidStairs && MSCNPath.findPath(g, fromIds, toIds, { accessibleOnly: false })) {
+      return 'No step-free route was found. Turn off "Avoid stairs" to include stairs.';
+    }
+    return 'No route was found between these points.';
+  }
 
   if (!goals.length) {
     route.error = 'This room is not connected to the navigation map yet.';
@@ -521,7 +525,7 @@ function computeRoute() {
     var leg1 = exits.length ? MSCNPath.findPath(g, st.ids, exits, opts) : null;
     var leg2 = entries.length ? MSCNPath.findPath(g, entries, goals, opts) : null;
     if (!leg2) {
-      route.error = entries.length ? noRouteMsg : 'No entrance is mapped for ' + buildingName(destB) + ' yet.';
+      route.error = entries.length ? noRouteMsg(entries, goals) : 'No entrance is mapped for ' + buildingName(destB) + ' yet.';
     } else {
       if (leg1) {
         var exitNode = leg1.nodeIds[leg1.nodeIds.length - 1];
@@ -550,7 +554,7 @@ function computeRoute() {
       route.steps = walkStepsFor(r, roomTitle(room));
       route.meters = r.distance;
     } else {
-      route.error = noRouteMsg;
+      route.error = noRouteMsg(st.ids, goals);
     }
   }
 
