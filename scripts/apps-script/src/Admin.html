@@ -63,11 +63,12 @@
       border-bottom: 2px solid var(--border);
       margin-bottom: 24px;
       overflow-x: auto;
+      overflow-y: hidden;
       -webkit-overflow-scrolling: touch;
       white-space: nowrap;
     }
     .tab-btn {
-      padding: 10px 20px;
+      padding: 10px 12px;
       border: none;
       background: none;
       font-size: 14px;
@@ -75,7 +76,7 @@
       color: var(--text-light);
       cursor: pointer;
       border-bottom: 2px solid transparent;
-      margin-bottom: -2px;
+      margin-bottom: 0;
       transition: color 0.15s, border-color 0.15s;
     }
     .tab-btn:hover { color: var(--navy); }
@@ -490,6 +491,108 @@
       background: #fef2f2;
     }
 
+    /* Shared v2 form and state styles */
+    .form-group input[type="password"],
+    .form-group input[type="number"] {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 14px;
+      font-family: inherit;
+      background: #fff;
+      color: var(--text);
+    }
+    .form-group input.readonly-input,
+    .form-group input[readonly] {
+      background: var(--light-gray);
+      color: var(--text-light);
+    }
+    .field-help {
+      font-size: 12px;
+      color: var(--text-light);
+      margin-top: 4px;
+    }
+    .form-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .form-row .form-group { flex: 1; min-width: 140px; }
+
+    .btn-danger {
+      background: #fff;
+      color: var(--error);
+      border: 1px solid var(--error);
+    }
+    .btn-danger:hover { background: #fef2f2; }
+    .btn:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .tag {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 1px 7px;
+      border-radius: 10px;
+      margin-left: 8px;
+      vertical-align: middle;
+    }
+    .tag-muted { background: var(--light-gray); color: var(--text-light); border: 1px solid var(--border); }
+    .tag-warn { background: #fffbeb; color: #b45309; border: 1px solid #fde68a; }
+    .tag-ok { background: #ecfdf5; color: var(--success); border: 1px solid #a7f3d0; }
+    .tag-bad { background: #fef2f2; color: var(--error); border: 1px solid #fecaca; }
+
+    .empty-state {
+      padding: 24px 16px;
+      text-align: center;
+      color: var(--text-light);
+      font-size: 14px;
+      background: var(--light-gray);
+      border: 1px dashed var(--border);
+      border-radius: 8px;
+    }
+
+    .status-list {
+      list-style: none;
+      padding: 0;
+      margin: 0 0 8px 0;
+    }
+    .status-list li {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--light-gray);
+      font-size: 14px;
+    }
+    .status-list li:last-child { border-bottom: none; }
+
+    .preview-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      margin: 8px 0 4px 0;
+    }
+    .preview-table th,
+    .preview-table td {
+      text-align: left;
+      padding: 6px 8px;
+      border-bottom: 1px solid var(--light-gray);
+    }
+    .preview-table th { color: var(--text-light); font-weight: 500; }
+
+    /* Keep status messages in view while working lower on the page */
+    #status-msg {
+      position: sticky;
+      top: 8px;
+      z-index: 50;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+
     /* Responsive */
     @media (max-width: 600px) {
       .header h1 { font-size: 17px; }
@@ -506,6 +609,8 @@
     <h1>Murray State Campus Navigation</h1>
     <span class="badge">Admin</span>
   </div>
+
+  <div id="app-config" data-app-url="<?= ScriptApp.getService().getUrl() ?>" hidden></div>
 
   <div class="container">
 
@@ -536,11 +641,13 @@
       <div class="tab-bar no-print">
         <button class="tab-btn active" data-tab="location" onclick="switchTab('location')">Location QR</button>
         <button class="tab-btn" data-tab="schedule" onclick="switchTab('schedule')">Schedule QR</button>
-        <button class="tab-btn" data-tab="batch" onclick="switchTab('batch')">Batch Generate</button>
+        <button class="tab-btn" data-tab="batch" onclick="switchTab('batch')">Batch QR</button>
         <button class="tab-btn" data-tab="buildings" onclick="switchTab('buildings')">Buildings</button>
         <button class="tab-btn" data-tab="floors" onclick="switchTab('floors')">Floor Plans</button>
         <button class="tab-btn" data-tab="rooms" onclick="switchTab('rooms')">Room Editor</button>
         <button class="tab-btn" data-tab="navgraph" onclick="switchTab('navgraph')">Nav Graph</button>
+        <button class="tab-btn" data-tab="import" onclick="switchTab('import')">Import</button>
+        <button class="tab-btn" data-tab="settings" onclick="switchTab('settings')">Settings</button>
       </div>
 
       <!-- ===================== LOCATION QR TAB ===================== -->
@@ -564,7 +671,7 @@
 
           <div class="form-group">
             <label for="loc-nodeId">Node ID</label>
-            <input type="text" id="loc-nodeId" placeholder="e.g. nav-engphys-1-001">
+            <input type="text" id="loc-nodeId" placeholder="ID of a node in the Nav Graph tab">
           </div>
 
           <div class="form-group">
@@ -653,8 +760,8 @@
 
           <div class="form-group">
             <label for="batch-input">Locations (JSON, one per line)</label>
-            <textarea id="batch-input" placeholder='{"building":"bld-engphys","floor":"floor-engphys-1","nodeId":"nav-001","description":"Room 101"}
-{"building":"bld-engphys","floor":"floor-engphys-1","nodeId":"nav-002","description":"Room 102"}'></textarea>
+            <textarea id="batch-input" placeholder='{"building":"bld-ep","floor":"floor-ep-1","nodeId":"NODE-ID","description":"EP Room 101"}
+{"building":"bld-ep","floor":"floor-ep-1","nodeId":"NODE-ID","description":"EP Room 102"}'></textarea>
           </div>
 
           <div class="btn-row">
@@ -687,7 +794,7 @@
               <label for="buildings-new-name">Building Name</label>
               <input type="text" id="buildings-new-name" placeholder="e.g. Blackburn Science Building">
             </div>
-            <p style="font-size:12px;color:var(--text-light);margin-bottom:12px;">After saving, click the map to set the building's GPS location.</p>
+            <p class="field-help" style="margin-bottom:12px;">After saving, set the code, number and GPS location in the building details.</p>
             <div class="btn-row">
               <button class="btn btn-primary" onclick="saveNewBuilding2()">Save Building</button>
               <button class="btn btn-outline" onclick="hideBuildingAddForm2()">Cancel</button>
@@ -696,6 +803,11 @@
 
           <!-- Google Map -->
           <div id="buildings-map-wrap" style="width:100%;height:400px;border-radius:8px;overflow:hidden;margin-bottom:16px;background:#e5e7eb;"></div>
+          <div id="buildings-map-empty" class="empty-state" style="display:none;margin-bottom:16px;">
+            The campus map is unavailable because no Google Maps API key is configured.
+            An admin can set one in the <a href="#" onclick="switchTab('settings');return false;">Settings</a> tab.
+            Building details and coordinates can still be edited below.
+          </div>
 
           <!-- Building Detail Section (shown when building selected) -->
           <div id="buildings-detail" style="display:none;">
@@ -703,11 +815,30 @@
             <div class="card" style="margin-bottom:16px;background:#f9fafb;">
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
                 <h3 id="buildings-detail-title" style="font-size:14px;color:var(--navy);margin:0;">Building Details</h3>
-                <button class="btn btn-outline delete-btn" onclick="deleteBuildingConfirm()" style="padding:4px 12px;font-size:12px;">Delete Building</button>
+                <button class="btn btn-danger" onclick="deleteBuildingConfirm()" style="padding:4px 12px;font-size:12px;">Delete Building</button>
               </div>
+              <p class="field-help" id="buildings-edit-id-label" style="margin:-6px 0 10px 0;"></p>
               <div class="form-group">
                 <label for="buildings-edit-name">Name</label>
                 <input type="text" id="buildings-edit-name">
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="buildings-edit-code">Code</label>
+                  <input type="text" id="buildings-edit-code" placeholder="e.g. IT" maxlength="12">
+                  <p class="field-help">Short code used in room search ("IT 141").</p>
+                </div>
+                <div class="form-group">
+                  <label for="buildings-edit-number">Facilities Number</label>
+                  <input type="text" id="buildings-edit-number" placeholder="e.g. 0135" maxlength="12">
+                  <p class="field-help">The building number on the CAD drawings.</p>
+                </div>
+              </div>
+              <div class="form-group">
+                <div class="checkbox-group">
+                  <input type="checkbox" id="buildings-edit-hasIndoor">
+                  <label for="buildings-edit-hasIndoor">Has indoor maps (floor plans and room navigation)</label>
+                </div>
               </div>
               <div style="display:flex;gap:10px;">
                 <div class="form-group" style="flex:1;">
@@ -721,7 +852,7 @@
               </div>
               <div class="btn-row">
                 <button class="btn btn-primary" onclick="saveBuildingDetails()">Save Building</button>
-                <button class="btn btn-outline" onclick="pickBuildingGps()">Pick GPS on Map</button>
+                <button class="btn btn-outline" id="buildings-pick-gps-btn" onclick="pickBuildingGps()">Pick GPS on Map</button>
               </div>
             </div>
 
@@ -731,7 +862,7 @@
                 <h3 style="font-size:14px;color:var(--navy);margin:0;">Entrances</h3>
                 <span style="font-size:13px;color:var(--text-light);" id="buildings-entrance-count"></span>
               </div>
-              <p style="font-size:12px;color:var(--text-light);margin-bottom:8px;">Click the map to add entrances. Drag markers to reposition.</p>
+              <p class="field-help" id="buildings-entrance-help" style="margin-bottom:8px;">Click the map to add entrances. Drag markers to reposition.</p>
               <ul id="buildings-entrance-list" class="item-list"></ul>
               <div class="btn-row">
                 <button class="btn btn-primary" onclick="saveAllEntrances2()">Save Entrances</button>
@@ -777,32 +908,38 @@
               </div>
             </div>
             <div class="form-group">
-              <label for="floors-imageUrl">Plan Image URL (Google Drive link)</label>
-              <input type="text" id="floors-imageUrl" placeholder="https://drive.google.com/file/d/...">
+              <label for="floors-planAsset">Plan Asset</label>
+              <input type="text" id="floors-planAsset" readonly class="readonly-input" placeholder="Assigned by the floor-plan pipeline">
+              <p class="field-help">The floor-plan SVG is generated from the CAD drawings by the pipeline and embedded in the Apps Script project. It cannot be changed here.</p>
+            </div>
+            <div class="form-group">
+              <div class="checkbox-group">
+                <input type="checkbox" id="floors-public" checked>
+                <label for="floors-public">Public (shown in the campus navigation app)</label>
+              </div>
             </div>
             <div style="display:flex;gap:10px;">
               <div class="form-group" style="flex:1;">
-                <label for="floors-widthPx">Width (px)</label>
-                <input type="text" id="floors-widthPx" placeholder="e.g. 2000">
+                <label for="floors-widthPx">Width (plan units)</label>
+                <input type="text" id="floors-widthPx" placeholder="e.g. 5000">
               </div>
               <div class="form-group" style="flex:1;">
-                <label for="floors-heightPx">Height (px)</label>
-                <input type="text" id="floors-heightPx" placeholder="e.g. 1500">
+                <label for="floors-heightPx">Height (plan units)</label>
+                <input type="text" id="floors-heightPx" placeholder="e.g. 3350">
               </div>
               <div class="form-group" style="flex:1;">
-                <label for="floors-metersPerPixel">Meters/Pixel</label>
-                <input type="text" id="floors-metersPerPixel" placeholder="e.g. 0.05">
+                <label for="floors-metersPerPixel">Meters per unit</label>
+                <input type="text" id="floors-metersPerPixel" placeholder="e.g. 0.0254">
               </div>
             </div>
-            <!-- Image preview -->
             <div id="floors-image-preview" style="margin-top:12px;display:none;">
               <p style="font-size:13px;color:var(--text-light);margin-bottom:6px;">Preview:</p>
-              <img id="floors-preview-img" style="max-width:100%;max-height:300px;border:1px solid var(--border);border-radius:6px;">
+              <img id="floors-preview-img" alt="Floor plan preview" style="max-width:100%;max-height:360px;border:1px solid var(--border);border-radius:6px;background:#fff;">
             </div>
             <div class="btn-row">
               <button class="btn btn-primary" onclick="saveFloorForm()">Save Floor</button>
               <button class="btn btn-outline" onclick="hideFloorForm()">Cancel</button>
-              <button class="btn btn-outline" onclick="previewFloorImage()">Preview Image</button>
+              <button class="btn btn-outline" id="floors-preview-btn" onclick="previewFloorImage()">Preview Plan</button>
             </div>
           </div>
 
@@ -813,7 +950,7 @@
       <div id="tab-rooms" class="tab-panel">
         <div class="card">
           <h2>Room Polygon Editor</h2>
-          <p style="color:var(--text-light);">Draw and edit room polygons on floor plans.</p>
+          <p style="color:var(--text-light);">Draw and edit room polygons on floor plans. Blue rooms are searchable; grey rooms are hidden from search.</p>
 
           <!-- Building/Floor selector -->
           <div class="editor-selector-bar">
@@ -839,23 +976,36 @@
 
           <!-- Room edit panel (below canvas, hidden by default) -->
           <div id="rooms-panel" class="editor-side-panel">
-            <h3 style="font-size:14px;margin-bottom:12px;color:var(--navy);">Room Details</h3>
+            <h3 style="font-size:14px;margin-bottom:4px;color:var(--navy);">Room Details</h3>
+            <p class="field-help" id="rooms-edit-id-label" style="margin-bottom:12px;"></p>
             <input type="hidden" id="rooms-edit-id">
-            <div style="display:flex;gap:10px;">
+            <div class="form-row">
               <div class="form-group" style="flex:1;">
                 <label for="rooms-edit-number">Room Number</label>
-                <input type="text" id="rooms-edit-number" placeholder="e.g. 101">
+                <input type="text" id="rooms-edit-number" placeholder="e.g. 0141">
               </div>
               <div class="form-group" style="flex:2;">
                 <label for="rooms-edit-label">Room Label</label>
-                <input type="text" id="rooms-edit-label" placeholder="e.g. Physics Lab">
+                <input type="text" id="rooms-edit-label" placeholder="e.g. 141 Physics Lab">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group" style="flex:1;">
+                <label for="rooms-edit-type">Type</label>
+                <select id="rooms-edit-type"></select>
+              </div>
+              <div class="form-group" style="flex:2;align-self:flex-end;">
+                <div class="checkbox-group">
+                  <input type="checkbox" id="rooms-edit-searchable">
+                  <label for="rooms-edit-searchable">Searchable (appears in room search)</label>
+                </div>
               </div>
             </div>
             <div class="btn-row">
               <button class="btn btn-primary" onclick="saveRoomEdit()">Save Room</button>
-              <button class="btn btn-outline" onclick="deleteRoomConfirm()">Delete Room</button>
               <button class="btn btn-outline" onclick="redrawRoom()">Redraw Polygon</button>
               <button class="btn btn-outline" onclick="closeRoomPanel()">Close</button>
+              <button class="btn btn-danger" onclick="deleteRoomConfirm()">Delete Room</button>
             </div>
           </div>
 
@@ -873,6 +1023,12 @@
         <div class="card">
           <h2>Nav Graph Editor</h2>
           <p style="color:var(--text-light);">Place navigation nodes and connect them with edges.</p>
+          <p class="field-help" style="margin-bottom:8px;">
+            Node colors: <span style="color:#6b7280;">waypoint</span>, <span style="color:#2563EB;">door</span>,
+            <span style="color:#DC2626;">entrance</span>, <span style="color:#059669;">stair</span>,
+            <span style="color:#7C3AED;">elevator</span>, <span style="color:#D97706;">room</span>.
+            Dashed orange edges are not step-free.
+          </p>
 
           <!-- Building/Floor selector -->
           <div class="editor-selector-bar">
@@ -910,6 +1066,124 @@
         </div>
       </div>
 
+      <!-- ===================== IMPORT TAB ===================== -->
+      <div id="tab-import" class="tab-panel">
+        <div class="card">
+          <h2>Import Floor Data</h2>
+          <p style="color:var(--text-light);margin-bottom:16px;">
+            Load one floor's output from the floor-plan pipeline (<code>data/floorplans/&lt;floorId&gt;.json</code>).
+            Importing <strong>replaces</strong> that floor's rooms, nav nodes and nav edges. Buildings, floors and
+            QR codes are not changed. For small additions, use Import JSON in the Room Editor or Nav Graph tabs instead.
+          </p>
+
+          <div class="form-group">
+            <label for="import-floor-select">Target floor</label>
+            <select id="import-floor-select" onchange="onImportFloorChange()">
+              <option value="">Select floor...</option>
+            </select>
+            <p class="field-help">Chosen automatically when the file names a known floor.</p>
+          </div>
+
+          <div class="form-group">
+            <label for="import-file">Pipeline JSON file</label>
+            <input type="file" id="import-file" accept=".json,application/json" onchange="onImportFileChosen(this)">
+          </div>
+
+          <div class="form-group">
+            <label for="import-json">Or paste the JSON</label>
+            <textarea id="import-json" spellcheck="false" placeholder='{"floorId":"floor-it-1","rooms":[...],"navNodes":[...],"navEdges":[...]}'></textarea>
+          </div>
+
+          <div class="btn-row">
+            <button class="btn btn-primary" onclick="previewFloorImport()">Preview Import</button>
+            <button class="btn btn-outline" onclick="resetFloorImport()">Clear</button>
+          </div>
+
+          <div id="import-preview" class="card" style="display:none;margin-top:20px;background:#f9fafb;">
+            <h3 style="font-size:14px;margin-bottom:8px;color:var(--navy);">Preview</h3>
+            <div id="import-preview-body"></div>
+            <div class="btn-row">
+              <button class="btn btn-gold" id="import-confirm-btn" onclick="confirmFloorImport()">Replace Floor Data</button>
+              <button class="btn btn-outline" onclick="resetFloorImport()">Cancel</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===================== SETTINGS TAB ===================== -->
+      <div id="tab-settings" class="tab-panel">
+        <div class="card">
+          <h2>Settings</h2>
+          <p style="color:var(--text-light);margin-bottom:12px;">
+            The Google Maps API key and the admin PIN are stored only in the Apps Script project's
+            Script Properties. This page can replace them but never displays them, and they are not
+            kept in the spreadsheet or in the code repository.
+          </p>
+          <ul class="status-list" id="settings-status-list">
+            <li><span>Google Maps API key</span><span id="settings-key-status" class="tag tag-muted">Checking...</span></li>
+            <li><span>Admin PIN</span><span id="settings-pin-status" class="tag tag-muted">Checking...</span></li>
+          </ul>
+          <div class="btn-row" style="margin-top:4px;">
+            <button class="btn btn-outline" onclick="loadSettingsStatus()">Refresh Status</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Google Maps API Key</h2>
+          <p style="color:var(--text-light);font-size:14px;margin-bottom:12px;">
+            Used for the campus map in the navigation app and in the Buildings tab. Without a key the app
+            still works: it lists buildings with "Open in Google Maps" walking links. Use a browser key
+            restricted to this web app's address (HTTP referrer restriction) and to the Maps JavaScript API.
+          </p>
+          <form onsubmit="saveMapsApiKey();return false;" autocomplete="off">
+            <div class="form-group">
+              <label for="settings-maps-key">New key</label>
+              <input type="password" id="settings-maps-key" autocomplete="off" spellcheck="false" placeholder="Paste the new key">
+              <p class="field-help">Saving replaces the stored key. The field is cleared after saving.</p>
+            </div>
+            <div class="btn-row">
+              <button type="submit" class="btn btn-primary" id="settings-key-btn">Save Key</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="card">
+          <h2>Change Admin PIN</h2>
+          <form onsubmit="saveAdminPin();return false;" autocomplete="off">
+            <div class="form-group">
+              <label for="settings-pin-current">Current PIN</label>
+              <input type="password" id="settings-pin-current" autocomplete="off" maxlength="20">
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="settings-pin-new">New PIN</label>
+                <input type="password" id="settings-pin-new" autocomplete="new-password" maxlength="20">
+              </div>
+              <div class="form-group">
+                <label for="settings-pin-confirm">Confirm new PIN</label>
+                <input type="password" id="settings-pin-confirm" autocomplete="new-password" maxlength="20">
+              </div>
+            </div>
+            <p class="field-help" style="margin-bottom:8px;">6 to 20 characters, no spaces. Everyone who uses the admin page will need the new PIN.</p>
+            <div class="btn-row">
+              <button type="submit" class="btn btn-primary" id="settings-pin-btn">Change PIN</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="card">
+          <h2>Where these values live</h2>
+          <p style="font-size:14px;margin-bottom:8px;">
+            In the Apps Script editor, open <strong>Project Settings</strong> and scroll to <strong>Script Properties</strong>:
+            <code>mapsApiKey</code> holds the Maps key and <code>ADMIN_PIN</code> holds the PIN.
+          </p>
+          <p style="font-size:14px;color:var(--text-light);">
+            A new deployment generates a random PIN the first time it is initialized; the project owner reads it there.
+            If the PIN is forgotten, the project owner can read or replace <code>ADMIN_PIN</code> in the same place.
+          </p>
+        </div>
+      </div>
+
     </div><!-- /main-content -->
   </div><!-- /container -->
 
@@ -917,7 +1191,14 @@
     /* ========================================================
        GLOBALS
        ======================================================== */
-    var APP_URL = 'https://script.google.com/macros/s/AKfycbxM-sMOC8CQQf2ckPX6MgZHZsnWu-oAWKp0DeuqbEp3idjSKGZUY288zN_KhXlwbhy53Q/exec';
+    // The web app's own /exec URL, written into #app-config by the template
+    // (doGet evaluates Admin.html as a template). Empty when unavailable, so
+    // QR codes never point at a stale deployment.
+    var APP_URL = (function() {
+      var el = document.getElementById('app-config');
+      var url = el ? String(el.getAttribute('data-app-url') || '') : '';
+      return /^https:\/\/[^\s"']+$/.test(url) ? url : '';
+    })();
     var campusData = null;
     var adminPin = '';
 
@@ -925,13 +1206,16 @@
        PIN AUTHENTICATION
        ======================================================== */
     function verifyPin() {
-      var pin = document.getElementById('pin-input').value;
+      var input = document.getElementById('pin-input');
+      var pin = input.value;
       if (!pin) { showPinError('Please enter a PIN.'); return; }
 
       google.script.run
         .withSuccessHandler(function(valid) {
           if (valid) {
             adminPin = pin;
+            input.value = '';
+            document.getElementById('pin-error').style.display = 'none';
             document.getElementById('pin-gate').style.display = 'none';
             document.getElementById('loading-state').style.display = '';
             loadData();
@@ -1049,6 +1333,8 @@
       if (tabName === 'floors' && campusData) initFloorsTab();
       if (tabName === 'rooms' && campusData) initRoomsTab();
       if (tabName === 'navgraph' && campusData) initNavTab();
+      if (tabName === 'import' && campusData) initImportTab();
+      if (tabName === 'settings') loadSettingsStatus();
     }
 
     /* ========================================================
@@ -1058,6 +1344,16 @@
       var json = JSON.stringify(payload);
       var base64 = btoa(unescape(encodeURIComponent(json)));
       return APP_URL + '?qr=' + encodeURIComponent(base64);
+    }
+
+    /**
+     * QR codes embed the web app URL; refuse to generate them when the page
+     * could not learn it (instead of printing codes for a dead deployment).
+     */
+    function ensureAppUrl() {
+      if (APP_URL) return true;
+      showMessage('The web app address is unknown, so QR codes cannot be generated. Open the admin page from the deployed /exec URL.', 'error');
+      return false;
     }
 
     /* ========================================================
@@ -1074,6 +1370,7 @@
       if (!buildingId) { showMessage('Please select a building.', 'error'); return; }
       if (!nodeId) { showMessage('Please enter a Node ID.', 'error'); return; }
       if (!description) { showMessage('Please enter a description.', 'error'); return; }
+      if (!ensureAppUrl()) return;
 
       var payload = {
         type: 'location',
@@ -1137,6 +1434,7 @@
       if (!time) { showMessage('Please select an event time.', 'error'); return; }
       if (!building) { showMessage('Please select a building.', 'error'); return; }
       if (!room) { showMessage('Please enter a room number.', 'error'); return; }
+      if (!ensureAppUrl()) return;
 
       var payload = {
         type: 'schedule',
@@ -1175,6 +1473,7 @@
     function generateBatchQr() {
       var input = document.getElementById('batch-input').value.trim();
       if (!input) { showMessage('Please enter at least one location.', 'error'); return; }
+      if (!ensureAppUrl()) return;
 
       var lines = input.split('\n').filter(function(line) { return line.trim().length > 0; });
       var items = [];
@@ -1244,11 +1543,11 @@
       el.textContent = msg;
       el.className = 'status-msg visible ' + (type || 'info');
 
-      // Auto-hide after 5 seconds
+      // Auto-hide: errors stay longer so they can be read
       clearTimeout(showMessage._timer);
       showMessage._timer = setTimeout(function() {
         el.classList.remove('visible');
-      }, 5000);
+      }, type === 'error' ? 10000 : 5000);
     }
 
     /* ========================================================
@@ -1298,15 +1597,224 @@
     }
 
     /**
-     * Convert Google Drive sharing URLs to direct download URLs.
-     * If URL contains drive.google.com/file/d/, extracts file ID and returns
-     * direct download URL. Otherwise returns url unchanged.
+     * Call a server function through google.script.run. Reports a clear
+     * failure (instead of throwing) when the deployment lacks the function.
      */
-    function getDriveDirectUrl(url) {
-      if (!url) return '';
-      var match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
-      if (match) return 'https://drive.google.com/uc?export=view&id=' + match[1];
-      return url;
+    function runServer(fnName, args, onSuccess, onFailure) {
+      var fail = onFailure || function(err) {
+        showMessage((err && err.message) || String(err), 'error');
+      };
+      var runner = google.script.run
+        .withSuccessHandler(function(result) { if (onSuccess) onSuccess(result); })
+        .withFailureHandler(fail);
+      if (typeof runner[fnName] !== 'function') {
+        fail({ message: 'The server function ' + fnName + ' is not available in this deployment.' });
+        return;
+      }
+      runner[fnName].apply(runner, args || []);
+    }
+
+    /**
+     * Read a boolean from a sheet value (true/false, "TRUE"/"FALSE", 1/0, "yes"/"no").
+     * Blank values return defaultValue.
+     */
+    function toBool(value, defaultValue) {
+      if (value === true || value === false) return value;
+      if (value === undefined || value === null || value === '') return !!defaultValue;
+      var s = String(value).toLowerCase().trim();
+      if (s === 'true' || s === '1' || s === 'yes' || s === 'y') return true;
+      if (s === 'false' || s === '0' || s === 'no' || s === 'n') return false;
+      return !!defaultValue;
+    }
+
+    /**
+     * Look up a Config value from campusData.config, which may be an array of
+     * {key, value} rows or a plain object.
+     */
+    function getConfigValue(key) {
+      var config = campusData && campusData.config;
+      if (!config) return '';
+      if (Array.isArray(config)) {
+        for (var i = 0; i < config.length; i++) {
+          if (config[i] && config[i].key === key) return config[i].value;
+        }
+        return '';
+      }
+      return config[key] || '';
+    }
+
+    function findById(list, id) {
+      list = list || [];
+      for (var i = 0; i < list.length; i++) {
+        if (list[i] && list[i].id === id) return list[i];
+      }
+      return null;
+    }
+
+    function findFloor(floorId) {
+      return findById(campusData && campusData.floors, floorId);
+    }
+
+    function findBuilding(buildingId) {
+      return findById(campusData && campusData.buildings, buildingId);
+    }
+
+    /* Data contract v2 vocabularies */
+    var ROOM_TYPES = [
+      { value: 'office', label: 'Office' },
+      { value: 'classroom', label: 'Classroom' },
+      { value: 'lab', label: 'Lab' },
+      { value: 'restroom', label: 'Restroom' },
+      { value: 'corridor', label: 'Corridor' },
+      { value: 'stair', label: 'Stair' },
+      { value: 'elevator', label: 'Elevator' },
+      { value: 'mechanical', label: 'Mechanical' },
+      { value: 'storage', label: 'Storage' },
+      { value: 'other', label: 'Other' }
+    ];
+
+    var NODE_TYPES = [
+      { value: 'waypoint', label: 'Waypoint' },
+      { value: 'door', label: 'Door' },
+      { value: 'entrance', label: 'Entrance' },
+      { value: 'stair', label: 'Stair' },
+      { value: 'elevator', label: 'Elevator' },
+      { value: 'room', label: 'Room' }
+    ];
+
+    var NAV_NODE_COLORS = {
+      waypoint: '#9CA3AF',
+      door: '#2563EB',
+      entrance: '#DC2626',
+      stair: '#059669',
+      elevator: '#7C3AED',
+      room: '#D97706'
+    };
+
+    function vocabHas(vocab, value) {
+      for (var i = 0; i < vocab.length; i++) {
+        if (vocab[i].value === value) return true;
+      }
+      return false;
+    }
+
+    function normalizeRoomType(type) {
+      var t = String(type || '').toLowerCase().trim();
+      return vocabHas(ROOM_TYPES, t) ? t : 'other';
+    }
+
+    /** Map node types to v2 (v1 used "staircase"). */
+    function normalizeNodeType(type) {
+      var t = String(type || '').toLowerCase().trim();
+      if (t === 'staircase' || t === 'stairs') t = 'stair';
+      return vocabHas(NODE_TYPES, t) ? t : 'waypoint';
+    }
+
+    function isVerticalNode(node) {
+      var t = normalizeNodeType(node && node.type);
+      return t === 'stair' || t === 'elevator';
+    }
+
+    /** Replace a select's options with vocab entries and select value. */
+    function fillSelectOptions(select, vocab, value) {
+      select.innerHTML = '';
+      for (var i = 0; i < vocab.length; i++) {
+        var opt = document.createElement('option');
+        opt.value = vocab[i].value;
+        opt.textContent = vocab[i].label;
+        if (vocab[i].value === value) opt.selected = true;
+        select.appendChild(opt);
+      }
+    }
+
+    /* ========================================================
+       FLOOR PLAN SVG LOADING
+       Floor plans are SVG files embedded in the Apps Script project
+       (planAsset FP_<floorId>), served as a string by getFloorPlanSvg.
+       The canvas editors draw them as an Image from a data URL.
+       ======================================================== */
+    var floorPlanCache = {};   // floorId -> { dataUrl, width, height }
+
+    /**
+     * Make a raw SVG string safe to load as an image: keep only the svg
+     * element, ensure the SVG namespace (required outside inline HTML) and
+     * explicit width/height (so the image has an intrinsic size).
+     */
+    function normalizeSvgForImage(svg, widthPx, heightPx) {
+      var text = String(svg || '');
+      var start = text.search(/<svg[\s>]/i);
+      var end = text.toLowerCase().lastIndexOf('</svg>');
+      if (start === -1 || end === -1) return null;
+      text = text.substring(start, end + 6);
+
+      var openEnd = text.indexOf('>');
+      var openTag = text.substring(0, openEnd);
+      var rest = text.substring(openEnd);
+
+      if (!/\sxmlns\s*=/.test(openTag)) {
+        openTag += ' xmlns="http://www.w3.org/2000/svg"';
+      }
+      if (!/\sxmlns:xlink\s*=/.test(openTag) && /xlink:/.test(rest)) {
+        openTag += ' xmlns:xlink="http://www.w3.org/1999/xlink"';
+      }
+
+      var w = Number(widthPx) || 0;
+      var h = Number(heightPx) || 0;
+      if (!w || !h) {
+        var vb = openTag.match(/viewBox\s*=\s*["']\s*([-\d.eE]+)[\s,]+([-\d.eE]+)[\s,]+([-\d.eE]+)[\s,]+([-\d.eE]+)/);
+        if (vb) {
+          w = w || Number(vb[3]);
+          h = h || Number(vb[4]);
+        }
+      }
+      if (w && h) {
+        openTag = openTag.replace(/\s(width|height)\s*=\s*("[^"]*"|'[^']*')/g, '');
+        openTag += ' width="' + w + '" height="' + h + '"';
+      }
+      return { svg: openTag + rest, width: w, height: h };
+    }
+
+    /**
+     * Base64-encode a string as UTF-8 (btoa alone only accepts Latin-1).
+     */
+    function utf8ToBase64(str) {
+      return btoa(unescape(encodeURIComponent(str)));
+    }
+
+    /**
+     * Fetch a floor's SVG through getFloorPlanSvg and decode it into an Image.
+     * callback(img, info, errorMessage): img is null on failure; info carries
+     * {width, height} in SVG units (the floor's widthPx/heightPx when set).
+     */
+    function loadFloorPlanImage(floor, callback) {
+      if (!floor || !floor.id) { callback(null, null, 'No floor selected.'); return; }
+
+      function decode(entry) {
+        var img = new Image();
+        img.onload = function() { callback(img, entry, null); };
+        img.onerror = function() { callback(null, entry, 'The browser could not draw this floor plan SVG.'); };
+        img.src = entry.dataUrl;
+      }
+
+      var cached = floorPlanCache[floor.id];
+      if (cached) { decode(cached); return; }
+
+      runServer('getFloorPlanSvg', [floor.id], function(svg) {
+        var norm = normalizeSvgForImage(svg, floor.widthPx, floor.heightPx);
+        if (!norm) {
+          callback(null, null, 'The floor plan for ' + (floor.label || floor.id) + ' is not a valid SVG.');
+          return;
+        }
+        var entry = {
+          dataUrl: 'data:image/svg+xml;base64,' + utf8ToBase64(norm.svg),
+          width: norm.width,
+          height: norm.height
+        };
+        floorPlanCache[floor.id] = entry;
+        decode(entry);
+      }, function(err) {
+        callback(null, null, (err && err.message) || 'Floor plan unavailable.');
+      });
     }
 
     /**
@@ -1319,7 +1827,7 @@
         .withSuccessHandler(function(data) {
           campusData = data;
           populateDropdowns();
-          showMessage('Data refreshed', 'success');
+          // Silent: callers show their own success message
           if (typeof callback === 'function') callback();
         })
         .withFailureHandler(function(err) {
@@ -1411,6 +1919,18 @@
         var nameSpan = document.createElement('span');
         nameSpan.className = 'item-name';
         nameSpan.textContent = (f.label || 'Floor ' + f.level) + ' (Level ' + f.level + ')';
+        if (!toBool(f['public'], true)) {
+          var hiddenTag = document.createElement('span');
+          hiddenTag.className = 'tag tag-muted';
+          hiddenTag.textContent = 'Not public';
+          nameSpan.appendChild(hiddenTag);
+        }
+        if (!f.planAsset) {
+          var noPlanTag = document.createElement('span');
+          noPlanTag.className = 'tag tag-warn';
+          noPlanTag.textContent = 'No plan';
+          nameSpan.appendChild(noPlanTag);
+        }
         li.appendChild(nameSpan);
 
         var actionsDiv = document.createElement('div');
@@ -1443,52 +1963,22 @@
      * If floorId is provided, populate for editing; otherwise clear for new floor.
      */
     function showFloorForm(floorId) {
-      var formTitle = document.getElementById('floors-form-title');
-      var formIdField = document.getElementById('floors-form-id');
-      var levelInput = document.getElementById('floors-level');
-      var labelInput = document.getElementById('floors-label');
-      var imageUrlInput = document.getElementById('floors-imageUrl');
-      var widthInput = document.getElementById('floors-widthPx');
-      var heightInput = document.getElementById('floors-heightPx');
-      var mppInput = document.getElementById('floors-metersPerPixel');
-      var previewDiv = document.getElementById('floors-image-preview');
+      var floor = floorId ? findFloor(floorId) : null;
 
-      // Hide preview
-      previewDiv.style.display = 'none';
+      document.getElementById('floors-form-title').textContent = floor ? 'Edit Floor' : 'Add Floor';
+      document.getElementById('floors-form-id').value = floor ? floor.id : '';
+      document.getElementById('floors-level').value = floor ? (floor.level === 0 ? '0' : (floor.level || '')) : '';
+      document.getElementById('floors-label').value = floor ? (floor.label || '') : '';
+      document.getElementById('floors-planAsset').value = floor ? (floor.planAsset || '') : '';
+      document.getElementById('floors-public').checked = floor ? toBool(floor['public'], true) : true;
+      document.getElementById('floors-widthPx').value = floor ? (floor.widthPx || '') : '';
+      document.getElementById('floors-heightPx').value = floor ? (floor.heightPx || '') : '';
+      document.getElementById('floors-metersPerPixel').value = floor ? (floor.metersPerPixel || '') : '';
 
-      if (floorId) {
-        // Editing existing floor
-        formTitle.textContent = 'Edit Floor';
-        formIdField.value = floorId;
-
-        var floor = null;
-        var floors = (campusData && campusData.floors) || [];
-        for (var i = 0; i < floors.length; i++) {
-          if (floors[i].id === floorId) {
-            floor = floors[i];
-            break;
-          }
-        }
-
-        if (floor) {
-          levelInput.value = floor.level || '';
-          labelInput.value = floor.label || '';
-          imageUrlInput.value = floor.planImageUrl || '';
-          widthInput.value = floor.widthPx || '';
-          heightInput.value = floor.heightPx || '';
-          mppInput.value = floor.metersPerPixel || '';
-        }
-      } else {
-        // Adding new floor
-        formTitle.textContent = 'Add Floor';
-        formIdField.value = '';
-        levelInput.value = '';
-        labelInput.value = '';
-        imageUrlInput.value = '';
-        widthInput.value = '';
-        heightInput.value = '';
-        mppInput.value = '';
-      }
+      // Preview is only possible for a saved floor that has a plan asset
+      document.getElementById('floors-image-preview').style.display = 'none';
+      document.getElementById('floors-preview-img').removeAttribute('src');
+      document.getElementById('floors-preview-btn').style.display = (floor && floor.planAsset) ? '' : 'none';
 
       document.getElementById('floors-form').style.display = '';
     }
@@ -1513,21 +2003,15 @@
      * Shows confirm() dialog, then calls deleteFloor on the server.
      */
     function deleteFloorConfirm(floorId) {
-      // Find floor label for the confirm message
-      var floorLabel = floorId;
-      var floors = (campusData && campusData.floors) || [];
-      for (var i = 0; i < floors.length; i++) {
-        if (floors[i].id === floorId) {
-          floorLabel = floors[i].label || ('Level ' + floors[i].level);
-          break;
-        }
-      }
+      var floor = findFloor(floorId);
+      var floorLabel = floor ? (floor.label || ('Level ' + floor.level)) : floorId;
 
       if (!confirm('Delete floor "' + floorLabel + '"? This cannot be undone.')) return;
 
       google.script.run
         .withSuccessHandler(function() {
           var buildingId = document.getElementById('floors-building-select').value;
+          delete floorPlanCache[floorId];
           refreshCampusData(function() {
             renderFloorsList(buildingId);
           });
@@ -1543,13 +2027,14 @@
     /**
      * Save the floor form (create or update).
      * If the hidden id field has a value, updates; otherwise creates new.
+     * planAsset is never edited here; an update sends back the stored value.
      */
     function saveFloorForm() {
       var id = document.getElementById('floors-form-id').value;
       var buildingId = document.getElementById('floors-building-select').value;
       var level = document.getElementById('floors-level').value.trim();
       var label = document.getElementById('floors-label').value.trim();
-      var imageUrl = document.getElementById('floors-imageUrl').value.trim();
+      var isPublic = document.getElementById('floors-public').checked;
       var widthPx = document.getElementById('floors-widthPx').value.trim();
       var heightPx = document.getElementById('floors-heightPx').value.trim();
       var metersPerPixel = document.getElementById('floors-metersPerPixel').value.trim();
@@ -1558,15 +2043,18 @@
       if (!level) { showMessage('Level is required.', 'error'); return; }
       if (!label) { showMessage('Label is required.', 'error'); return; }
 
+      var existing = id ? findFloor(id) : null;
+
       var data = {
         pin: adminPin,
         buildingId: buildingId,
         level: level,
         label: label,
-        planImageUrl: imageUrl,
-        widthPx: parseInt(widthPx, 10) || 0,
-        heightPx: parseInt(heightPx, 10) || 0,
-        metersPerPixel: parseFloat(metersPerPixel) || 0
+        planAsset: existing ? (existing.planAsset || '') : '',
+        widthPx: parseFloat(widthPx) || 0,
+        heightPx: parseFloat(heightPx) || 0,
+        metersPerPixel: parseFloat(metersPerPixel) || 0,
+        'public': isPublic
       };
 
       if (id) {
@@ -1592,7 +2080,7 @@
               renderFloorsList(buildingId);
             });
             hideFloorForm();
-            showMessage('Floor created successfully.', 'success');
+            showMessage('Floor created. Its plan drawing comes from the floor-plan pipeline.', 'success');
           })
           .withFailureHandler(function(err) {
             showMessage('Failed to create floor: ' + (err.message || String(err)), 'error');
@@ -1602,25 +2090,30 @@
     }
 
     /**
-     * Preview a floor plan image by converting the URL and showing it
-     * in the preview area below the form.
+     * Preview the floor's plan SVG (served by getFloorPlanSvg) below the form.
      */
     function previewFloorImage() {
-      var url = document.getElementById('floors-imageUrl').value.trim();
-      if (!url) { showMessage('Please enter an image URL first.', 'error'); return; }
+      var id = document.getElementById('floors-form-id').value;
+      var floor = id ? findFloor(id) : null;
+      if (!floor) { showMessage('Save the floor first; previews load from the stored plan asset.', 'error'); return; }
 
-      var directUrl = getDriveDirectUrl(url);
       var img = document.getElementById('floors-preview-img');
       var previewDiv = document.getElementById('floors-image-preview');
+      var btn = document.getElementById('floors-preview-btn');
+      btn.disabled = true;
+      btn.textContent = 'Loading...';
 
-      img.onerror = function() {
-        previewDiv.style.display = 'none';
-        showMessage('Failed to load image. Check the URL and sharing permissions.', 'error');
-      };
-      img.onload = function() {
+      loadFloorPlanImage(floor, function(loaded, info, errorMessage) {
+        btn.disabled = false;
+        btn.textContent = 'Preview Plan';
+        if (!loaded) {
+          previewDiv.style.display = 'none';
+          showMessage('Could not load the floor plan: ' + (errorMessage || 'unknown error'), 'error');
+          return;
+        }
+        img.src = loaded.src;
         previewDiv.style.display = '';
-      };
-      img.src = directUrl;
+      });
     }
 
     /* ========================================================
@@ -1690,6 +2183,7 @@
 
       if (!buildingId || !campusData || !campusData.floors) {
         roomsCurrentFloor = null;
+        if (roomsCanvas) roomsCanvas.loadFloor(null);
         updateRoomsCount();
         return;
       }
@@ -1705,6 +2199,7 @@
 
       if (floors.length === 0) {
         roomsCurrentFloor = null;
+        if (roomsCanvas) roomsCanvas.loadFloor(null);
         updateRoomsCount();
         return;
       }
@@ -1763,17 +2258,8 @@
         });
       }
 
-      // Load floor plan image
-      if (floor && floor.planImageUrl) {
-        roomsCanvas.loadImage(floor.planImageUrl, function() {
-          roomsCanvas.fitImage();
-        });
-      } else {
-        // No image — clear and render empty
-        roomsCanvas.image = null;
-        roomsCanvas.imageLoaded = false;
-        roomsCanvas.resetView();
-      }
+      // Load the floor plan SVG (overlays render even if the SVG is missing)
+      roomsCanvas.loadFloor(floor);
 
       updateRoomsCount();
     }
@@ -1935,9 +2421,11 @@
           floorId: roomsCurrentFloor.id,
           number: existingRoom ? (existingRoom.number || '') : '',
           label: existingRoom ? (existingRoom.label || '') : '',
+          type: existingRoom ? normalizeRoomType(existingRoom.type) : 'other',
           polygon: polygon,
           centerX: center.x,
-          centerY: center.y
+          centerY: center.y,
+          searchable: existingRoom ? toBool(existingRoom.searchable, true) : true
         };
 
         google.script.run
@@ -1971,9 +2459,11 @@
           floorId: roomsCurrentFloor.id,
           number: number,
           label: label,
+          type: 'other',
           polygon: polygon,
           centerX: center.x,
-          centerY: center.y
+          centerY: center.y,
+          searchable: true
         };
 
         google.script.run
@@ -1982,7 +2472,7 @@
               updateRoomsCount();
               if (roomsCanvas) roomsCanvas.render();
             });
-            showMessage('Room "' + number + '" created successfully.', 'success');
+            showMessage('Room "' + number + '" created. Select it to set its type.', 'success');
           })
           .withFailureHandler(function(err) {
             showMessage('Failed to save room: ' + (err.message || String(err)), 'error');
@@ -2012,8 +2502,10 @@
         if (roomsSelectedRoom && roomsSelectedRoom.id === room.id) continue;
 
         if (hasPoly) {
-          ctx.fillStyle = 'rgba(0, 100, 255, 0.2)';
-          ctx.strokeStyle = 'rgba(0, 100, 255, 0.6)';
+          // Searchable rooms in blue; non-searchable (corridors, mechanical...) in grey
+          var searchable = toBool(room.searchable, true);
+          ctx.fillStyle = searchable ? 'rgba(0, 100, 255, 0.2)' : 'rgba(107, 114, 128, 0.15)';
+          ctx.strokeStyle = searchable ? 'rgba(0, 100, 255, 0.6)' : 'rgba(107, 114, 128, 0.5)';
           ctx.lineWidth = 2 / scale;
 
           ctx.beginPath();
@@ -2128,19 +2620,25 @@
      * Open the room edit panel and populate fields with room data.
      */
     function openRoomPanel(room) {
+      fillSelectOptions(document.getElementById('rooms-edit-type'), ROOM_TYPES, normalizeRoomType(room.type));
       document.getElementById('rooms-edit-id').value = room.id || '';
+      document.getElementById('rooms-edit-id-label').textContent = room.id ? ('ID: ' + room.id) : '';
       document.getElementById('rooms-edit-number').value = room.number || '';
       document.getElementById('rooms-edit-label').value = room.label || '';
+      document.getElementById('rooms-edit-searchable').checked = toBool(room.searchable, true);
       document.getElementById('rooms-panel').classList.add('visible');
     }
 
     /**
-     * Save edits to the selected room (number, label) without changing the polygon.
+     * Save edits to the selected room (number, label, type, searchable)
+     * without changing the polygon.
      */
     function saveRoomEdit() {
       var id = document.getElementById('rooms-edit-id').value;
       var number = document.getElementById('rooms-edit-number').value.trim();
       var label = document.getElementById('rooms-edit-label').value.trim();
+      var type = document.getElementById('rooms-edit-type').value;
+      var searchable = document.getElementById('rooms-edit-searchable').checked;
 
       if (!id) { showMessage('No room selected.', 'error'); return; }
       if (!number) { showMessage('Room number is required.', 'error'); return; }
@@ -2163,9 +2661,11 @@
         floorId: roomsCurrentFloor.id,
         number: number,
         label: label,
+        type: type,
         polygon: room.polygon,
         centerX: room.centerX,
-        centerY: room.centerY
+        centerY: room.centerY,
+        searchable: searchable
       };
 
       google.script.run
@@ -2255,12 +2755,12 @@
 
       var desc = document.createElement('p');
       desc.style.cssText = 'font-size:13px;color:var(--text-light);margin-bottom:8px;';
-      desc.textContent = 'Paste JSON array: [{number, label, polygon: [[x,y],...]}]';
+      desc.textContent = 'Adds rooms to this floor. Paste a JSON array: [{number, label, type, searchable, polygon: [[x,y],...]}] (type and searchable optional). To replace a whole floor from pipeline output, use the Import tab.';
       modal.appendChild(desc);
 
       var ta = document.createElement('textarea');
       ta.id = 'rooms-json-input';
-      ta.placeholder = '[{"number":"101","label":"Lab","polygon":[[100,100],[200,100],[200,200],[100,200]]}]';
+      ta.placeholder = '[{"number":"0141","label":"141 Lab","type":"lab","searchable":true,"polygon":[[100,100],[200,100],[200,200],[100,200]]}]';
       modal.appendChild(ta);
 
       var btnRow = document.createElement('div');
@@ -2329,9 +2829,11 @@
         rooms.push({
           number: r.number || '',
           label: r.label || '',
+          type: normalizeRoomType(r.type),
           polygon: r.polygon,
-          centerX: center.x,
-          centerY: center.y
+          centerX: (r.centerX !== undefined && r.centerX !== '') ? Number(r.centerX) : center.x,
+          centerY: (r.centerY !== undefined && r.centerY !== '') ? Number(r.centerY) : center.y,
+          searchable: toBool(r.searchable, true)
         });
       }
 
@@ -2371,6 +2873,8 @@
         exportData.push({
           number: rooms[i].number || '',
           label: rooms[i].label || '',
+          type: normalizeRoomType(rooms[i].type),
+          searchable: toBool(rooms[i].searchable, true),
           polygon: rooms[i].polygon || []
         });
       }
@@ -2521,6 +3025,7 @@
 
       if (!buildingId || !campusData || !campusData.floors) {
         navCurrentFloor = null;
+        if (navCanvas) navCanvas.loadFloor(null);
         updateNavCount();
         return;
       }
@@ -2536,6 +3041,7 @@
 
       if (floors.length === 0) {
         navCurrentFloor = null;
+        if (navCanvas) navCanvas.loadFloor(null);
         updateNavCount();
         return;
       }
@@ -2595,16 +3101,8 @@
         });
       }
 
-      // Load floor plan image
-      if (floor && floor.planImageUrl) {
-        navCanvas.loadImage(floor.planImageUrl, function() {
-          navCanvas.fitImage();
-        });
-      } else {
-        navCanvas.image = null;
-        navCanvas.imageLoaded = false;
-        navCanvas.resetView();
-      }
+      // Load the floor plan SVG (overlays render even if the SVG is missing)
+      navCanvas.loadFloor(floor);
 
       updateNavCount();
     }
@@ -2651,8 +3149,9 @@
           floorId: navCurrentFloor.id,
           x: Math.round(canvasX),
           y: Math.round(canvasY),
-          type: navDraggingNode.type || 'waypoint',
-          roomId: navDraggingNode.roomId || ''
+          type: normalizeNodeType(navDraggingNode.type),
+          roomId: navDraggingNode.roomId || '',
+          linkId: navDraggingNode.linkId || ''
         };
         google.script.run
           .withSuccessHandler(function() {
@@ -2673,17 +3172,23 @@
 
       if (navTool === 'addnode') {
         // Prompt for node type
-        var type = prompt('Node type: waypoint, elevator, staircase, entrance', 'waypoint');
+        var typeList = [];
+        for (var t = 0; t < NODE_TYPES.length; t++) typeList.push(NODE_TYPES[t].value);
+        var type = prompt('Node type: ' + typeList.join(', '), 'waypoint');
         if (!type) return;
         type = type.toLowerCase().trim();
-        var validTypes = ['waypoint', 'elevator', 'staircase', 'entrance'];
-        var typeValid = false;
-        for (var t = 0; t < validTypes.length; t++) {
-          if (validTypes[t] === type) { typeValid = true; break; }
-        }
-        if (!typeValid) {
-          showMessage('Invalid node type. Use: waypoint, elevator, staircase, entrance.', 'error');
+        if (type === 'staircase' || type === 'stairs') type = 'stair';
+        if (!vocabHas(NODE_TYPES, type)) {
+          showMessage('Invalid node type. Use: ' + typeList.join(', ') + '.', 'error');
           return;
+        }
+
+        // Stairs and elevators share a linkId across floors
+        var linkId = '';
+        if (type === 'stair' || type === 'elevator') {
+          linkId = prompt('Link ID shared by this ' + type + ' on every floor (e.g. it-' + type + '-1):', '');
+          if (linkId === null) return;
+          linkId = linkId.trim();
         }
 
         // Check if tap is inside a room polygon
@@ -2705,7 +3210,8 @@
           x: Math.round(canvasX),
           y: Math.round(canvasY),
           type: type,
-          roomId: roomId
+          roomId: roomId,
+          linkId: linkId
         };
 
         google.script.run
@@ -2739,7 +3245,7 @@
           }
           var n1 = navEdgeFirstNode;
           var n2 = nearNode;
-          var metersPerPixel = (navCurrentFloor && navCurrentFloor.metersPerPixel) ? navCurrentFloor.metersPerPixel : 1;
+          var metersPerPixel = Number(navCurrentFloor && navCurrentFloor.metersPerPixel) || 1;
           var pixelDist = Math.sqrt((n2.x - n1.x) * (n2.x - n1.x) + (n2.y - n1.y) * (n2.y - n1.y));
           var distance = Math.round(pixelDist * metersPerPixel * 100) / 100;
 
@@ -2748,7 +3254,8 @@
             fromNodeId: n1.id,
             toNodeId: n2.id,
             distance: distance,
-            floorChange: false
+            floorChange: false,
+            accessible: true
           };
 
           google.script.run
@@ -2922,14 +3429,18 @@
         if (!fromNode || !toNode) continue;
 
         var isSelected = navSelectedEdge && navSelectedEdge.id === edge.id;
-        ctx.strokeStyle = isSelected ? '#FDB515' : '#666';
+        var isAccessible = toBool(edge.accessible, true);
+        ctx.strokeStyle = isSelected ? '#FDB515' : (isAccessible ? '#666' : '#b45309');
         ctx.lineWidth = (isSelected ? 3 : 2) / scale;
+        // Edges that are not step-free draw dashed
+        ctx.setLineDash(isAccessible ? [] : [6 / scale, 4 / scale]);
 
         ctx.beginPath();
         ctx.moveTo(fromNode.x, fromNode.y);
         ctx.lineTo(toNode.x, toNode.y);
         ctx.stroke();
       }
+      ctx.setLineDash([]);
 
       // 3. Edge first node highlight (pulsing ring)
       if (navEdgeFirstNode && nodeMap[navEdgeFirstNode.id]) {
@@ -2941,17 +3452,11 @@
       }
 
       // 4. Nodes (colored by type)
-      var nodeColors = {
-        waypoint: '#9CA3AF',
-        elevator: '#7C3AED',
-        staircase: '#059669',
-        entrance: '#DC2626'
-      };
       var nodeRadius = 6 / scale;
 
       for (var ndi = 0; ndi < floorNodes.length; ndi++) {
         var nd = floorNodes[ndi];
-        var color = nodeColors[nd.type] || nodeColors.waypoint;
+        var color = NAV_NODE_COLORS[normalizeNodeType(nd.type)] || NAV_NODE_COLORS.waypoint;
         var isNodeSelected = navSelectedNode && navSelectedNode.id === nd.id;
         var isDragging = navDraggingNode && navDraggingNode.id === nd.id;
         var drawRadius = isDragging ? (9 / scale) : nodeRadius;
@@ -2994,39 +3499,52 @@
      */
     function showNavNodePanel(node) {
       var panel = document.getElementById('navgraph-panel');
-      var typeOptions = [
-        { value: 'waypoint', label: 'Waypoint' },
-        { value: 'elevator', label: 'Elevator' },
-        { value: 'staircase', label: 'Staircase' },
-        { value: 'entrance', label: 'Entrance' }
-      ];
-
-      var optionsHtml = '';
-      for (var i = 0; i < typeOptions.length; i++) {
-        var selected = (node.type === typeOptions[i].value) ? ' selected' : '';
-        optionsHtml += '<option value="' + typeOptions[i].value + '"' + selected + '>' + typeOptions[i].label + '</option>';
-      }
+      var type = normalizeNodeType(node.type);
 
       panel.innerHTML =
-        '<h3 style="font-size:14px;margin-bottom:12px;color:var(--navy);">Node: ' + escapeHtml(node.type || 'waypoint') + '</h3>' +
-        '<p style="font-size:12px;color:var(--text-light);margin-bottom:8px;">ID: ' + escapeHtml(node.id) + '</p>' +
-        '<p style="font-size:12px;color:var(--text-light);margin-bottom:12px;">Position: (' + Math.round(node.x) + ', ' + Math.round(node.y) + ')</p>' +
-        '<div class="form-group">' +
-          '<label>Type</label>' +
-          '<select id="nav-edit-type">' + optionsHtml + '</select>' +
+        '<h3 style="font-size:14px;margin-bottom:4px;color:var(--navy);">Node</h3>' +
+        '<p class="field-help" style="margin-bottom:12px;">ID: ' + escapeHtml(node.id) +
+          ' &middot; Position: (' + Math.round(node.x) + ', ' + Math.round(node.y) + ')</p>' +
+        '<div class="form-row">' +
+          '<div class="form-group">' +
+            '<label for="nav-edit-type">Type</label>' +
+            '<select id="nav-edit-type" onchange="onNavEditTypeChange()"></select>' +
+          '</div>' +
+          '<div class="form-group">' +
+            '<label for="nav-edit-roomId">Room ID</label>' +
+            '<input type="text" id="nav-edit-roomId">' +
+          '</div>' +
         '</div>' +
         '<div class="form-group">' +
-          '<label>Room ID</label>' +
-          '<input type="text" id="nav-edit-roomId" value="' + escapeHtml(node.roomId || '') + '">' +
+          '<label for="nav-edit-linkId">Link ID</label>' +
+          '<input type="text" id="nav-edit-linkId" placeholder="e.g. it-stair-1">' +
+          '<p class="field-help">Stairs and elevators on different floors that share a Link ID are the same shaft; cross-floor edges connect them.</p>' +
         '</div>' +
         '<div class="btn-row">' +
           '<button class="btn btn-primary" onclick="saveNavNodeEdit()">Save</button>' +
           '<button class="btn btn-outline" onclick="startNavNodeDrag()">Move</button>' +
-          '<button class="btn btn-outline delete-btn" style="color:var(--error);border-color:var(--error);" onclick="deleteNavNodeConfirm()">Delete Node</button>' +
           '<button class="btn btn-outline" onclick="closeNavPanel()">Close</button>' +
+          '<button class="btn btn-danger" onclick="deleteNavNodeConfirm()">Delete Node</button>' +
         '</div>';
 
+      // Values are set through the DOM, not concatenated into markup
+      fillSelectOptions(document.getElementById('nav-edit-type'), NODE_TYPES, type);
+      document.getElementById('nav-edit-roomId').value = node.roomId || '';
+      document.getElementById('nav-edit-linkId').value = node.linkId || '';
+      onNavEditTypeChange();
+
       panel.classList.add('visible');
+    }
+
+    /**
+     * Hint the Link ID field when the node type is not a stair or elevator.
+     */
+    function onNavEditTypeChange() {
+      var typeEl = document.getElementById('nav-edit-type');
+      var linkEl = document.getElementById('nav-edit-linkId');
+      if (!typeEl || !linkEl) return;
+      var vertical = typeEl.value === 'stair' || typeEl.value === 'elevator';
+      linkEl.placeholder = vertical ? 'e.g. it-' + typeEl.value + '-1' : 'Only used by stairs and elevators';
     }
 
     /**
@@ -3034,31 +3552,69 @@
      */
     function showNavEdgePanel(edge) {
       var panel = document.getElementById('navgraph-panel');
-      var dist = (edge.distance !== undefined && edge.distance !== null) ? edge.distance : '?';
-      var floorChange = edge.floorChange ? 'Yes' : 'No';
+      var dist = (edge.distance !== undefined && edge.distance !== null && edge.distance !== '') ? edge.distance : '?';
+      var floorChange = toBool(edge.floorChange, false) ? 'Yes' : 'No';
 
       panel.innerHTML =
-        '<h3 style="font-size:14px;margin-bottom:12px;color:var(--navy);">Edge</h3>' +
-        '<p style="font-size:12px;color:var(--text-light);margin-bottom:4px;">From: ' + escapeHtml(edge.fromNodeId) + '</p>' +
-        '<p style="font-size:12px;color:var(--text-light);margin-bottom:4px;">To: ' + escapeHtml(edge.toNodeId) + '</p>' +
-        '<p style="font-size:12px;color:var(--text-light);margin-bottom:4px;">Distance: ' + dist + 'm</p>' +
-        '<p style="font-size:12px;color:var(--text-light);margin-bottom:12px;">Floor change: ' + floorChange + '</p>' +
+        '<h3 style="font-size:14px;margin-bottom:4px;color:var(--navy);">Edge</h3>' +
+        '<p class="field-help" style="margin-bottom:12px;">ID: ' + escapeHtml(edge.id || '') + '</p>' +
+        '<p style="font-size:13px;margin-bottom:4px;">From: ' + escapeHtml(edge.fromNodeId) + '</p>' +
+        '<p style="font-size:13px;margin-bottom:4px;">To: ' + escapeHtml(edge.toNodeId) + '</p>' +
+        '<p style="font-size:13px;margin-bottom:4px;">Distance: ' + escapeHtml(String(dist)) + ' m</p>' +
+        '<p style="font-size:13px;margin-bottom:12px;">Floor change: ' + floorChange + '</p>' +
+        '<div class="form-group">' +
+          '<div class="checkbox-group">' +
+            '<input type="checkbox" id="nav-edit-accessible">' +
+            '<label for="nav-edit-accessible">Accessible (step-free; used when a route avoids stairs)</label>' +
+          '</div>' +
+        '</div>' +
         '<div class="btn-row">' +
-          '<button class="btn btn-outline delete-btn" style="color:var(--error);border-color:var(--error);" onclick="deleteNavEdgeConfirm()">Delete Edge</button>' +
+          '<button class="btn btn-primary" onclick="saveNavEdgeEdit()">Save</button>' +
           '<button class="btn btn-outline" onclick="closeNavPanel()">Close</button>' +
+          '<button class="btn btn-danger" onclick="deleteNavEdgeConfirm()">Delete Edge</button>' +
         '</div>';
 
+      document.getElementById('nav-edit-accessible').checked = toBool(edge.accessible, true);
       panel.classList.add('visible');
     }
 
     /**
-     * Save edits to the selected nav node (type, roomId).
+     * Save the selected edge's accessible flag (other fields are preserved).
+     */
+    function saveNavEdgeEdit() {
+      if (!navSelectedEdge) { showMessage('No edge selected.', 'error'); return; }
+      var edge = navSelectedEdge;
+      var data = {
+        pin: adminPin,
+        id: edge.id,
+        fromNodeId: edge.fromNodeId,
+        toNodeId: edge.toNodeId,
+        distance: edge.distance,
+        floorChange: toBool(edge.floorChange, false),
+        accessible: document.getElementById('nav-edit-accessible').checked
+      };
+
+      runServer('updateNavEdge', [data], function() {
+        refreshCampusData(function() {
+          updateNavCount();
+          if (navCanvas) navCanvas.render();
+        });
+        closeNavPanel();
+        showMessage('Edge updated.', 'success');
+      }, function(err) {
+        showMessage('Failed to update edge: ' + (err.message || String(err)), 'error');
+      });
+    }
+
+    /**
+     * Save edits to the selected nav node (type, roomId, linkId).
      */
     function saveNavNodeEdit() {
       if (!navSelectedNode) { showMessage('No node selected.', 'error'); return; }
 
       var type = document.getElementById('nav-edit-type').value;
       var roomId = document.getElementById('nav-edit-roomId').value.trim();
+      var linkId = document.getElementById('nav-edit-linkId').value.trim();
 
       var data = {
         pin: adminPin,
@@ -3067,7 +3623,8 @@
         x: navSelectedNode.x,
         y: navSelectedNode.y,
         type: type,
-        roomId: roomId
+        roomId: roomId,
+        linkId: linkId
       };
 
       google.script.run
@@ -3172,7 +3729,7 @@
 
     /**
      * Show cross-floor edge creation modal.
-     * Populates dropdowns with elevator/staircase nodes.
+     * Populates dropdowns with stair/elevator nodes; matching Link IDs are preselected.
      */
     function showNavCrossFloor() {
       if (!navCurrentFloor || !navCurrentBuilding) {
@@ -3180,18 +3737,17 @@
         return;
       }
 
-      // Gather elevator/staircase nodes on current floor
+      // Gather stair/elevator nodes on current floor
       var currentFloorNodes = [];
       var navNodes = (campusData && campusData.navNodes) || [];
       for (var i = 0; i < navNodes.length; i++) {
-        var n = navNodes[i];
-        if (n.floorId === navCurrentFloor.id && (n.type === 'elevator' || n.type === 'staircase')) {
-          currentFloorNodes.push(n);
+        if (navNodes[i].floorId === navCurrentFloor.id && isVerticalNode(navNodes[i])) {
+          currentFloorNodes.push(navNodes[i]);
         }
       }
 
       if (currentFloorNodes.length === 0) {
-        showMessage('No elevator or staircase nodes on the current floor. Add some first.', 'error');
+        showMessage('No stair or elevator nodes on the current floor. Add some first.', 'error');
         return;
       }
 
@@ -3210,20 +3766,6 @@
         return;
       }
 
-      // Build from-node options
-      var fromOptions = '';
-      for (var fn = 0; fn < currentFloorNodes.length; fn++) {
-        var cfn = currentFloorNodes[fn];
-        fromOptions += '<option value="' + cfn.id + '">' + cfn.type + ' (' + Math.round(cfn.x) + ',' + Math.round(cfn.y) + ') ' + cfn.id + '</option>';
-      }
-
-      // Build target floor options
-      var floorOptions = '';
-      for (var tfi = 0; tfi < otherFloors.length; tfi++) {
-        var tf = otherFloors[tfi];
-        floorOptions += '<option value="' + tf.id + '">' + (tf.label || 'Floor ' + tf.level) + '</option>';
-      }
-
       var overlay = document.createElement('div');
       overlay.className = 'json-modal-overlay';
       overlay.id = 'rooms-json-modal';
@@ -3232,18 +3774,30 @@
       modal.className = 'json-modal';
       modal.innerHTML =
         '<h3>Cross-Floor Edge</h3>' +
-        '<p style="font-size:13px;color:var(--text-light);margin-bottom:12px;">Connect elevator/staircase nodes across floors.</p>' +
+        '<p style="font-size:13px;color:var(--text-light);margin-bottom:12px;">Connect stair or elevator nodes across floors. Nodes with the same Link ID are matched automatically.</p>' +
         '<div class="form-group">' +
-          '<label>From Node (current floor)</label>' +
-          '<select id="cross-from-node">' + fromOptions + '</select>' +
+          '<label for="cross-from-node">From Node (current floor)</label>' +
+          '<select id="cross-from-node" onchange="onCrossFloorChange()"></select>' +
         '</div>' +
         '<div class="form-group">' +
-          '<label>Target Floor</label>' +
-          '<select id="cross-target-floor" onchange="onCrossFloorChange()">' + floorOptions + '</select>' +
+          '<label for="cross-target-floor">Target Floor</label>' +
+          '<select id="cross-target-floor" onchange="onCrossFloorChange()"></select>' +
         '</div>' +
         '<div class="form-group">' +
-          '<label>To Node (target floor)</label>' +
+          '<label for="cross-to-node">To Node (target floor)</label>' +
           '<select id="cross-to-node"><option value="">Loading...</option></select>' +
+        '</div>' +
+        '<div class="form-row">' +
+          '<div class="form-group">' +
+            '<label for="cross-distance">Distance (m)</label>' +
+            '<input type="number" id="cross-distance" min="0" step="0.5" value="5">' +
+          '</div>' +
+          '<div class="form-group" style="align-self:flex-end;">' +
+            '<div class="checkbox-group">' +
+              '<input type="checkbox" id="cross-accessible">' +
+              '<label for="cross-accessible">Accessible (elevator)</label>' +
+            '</div>' +
+          '</div>' +
         '</div>' +
         '<div class="btn-row">' +
           '<button class="btn btn-primary" onclick="saveCrossFloorEdge()">Create Edge</button>' +
@@ -3251,25 +3805,51 @@
         '</div>';
 
       overlay.appendChild(modal);
-
       overlay.onclick = function(e) {
         if (e.target === overlay) closeJsonModal();
       };
-
       document.body.appendChild(overlay);
 
-      // Trigger initial population of to-node dropdown
+      // Options are built through the DOM so ids and labels need no escaping
+      var fromSel = document.getElementById('cross-from-node');
+      for (var fn = 0; fn < currentFloorNodes.length; fn++) {
+        var cfn = currentFloorNodes[fn];
+        var fopt = document.createElement('option');
+        fopt.value = cfn.id;
+        fopt.textContent = navNodeOptionLabel(cfn);
+        fromSel.appendChild(fopt);
+      }
+      var floorSel = document.getElementById('cross-target-floor');
+      for (var tfi = 0; tfi < otherFloors.length; tfi++) {
+        var topt = document.createElement('option');
+        topt.value = otherFloors[tfi].id;
+        topt.textContent = otherFloors[tfi].label || ('Floor ' + otherFloors[tfi].level);
+        floorSel.appendChild(topt);
+      }
+
       onCrossFloorChange();
     }
 
+    function navNodeOptionLabel(node) {
+      var label = normalizeNodeType(node.type);
+      if (node.linkId) label += ' [' + node.linkId + ']';
+      return label + ' (' + Math.round(node.x) + ', ' + Math.round(node.y) + ') ' + node.id;
+    }
+
     /**
-     * Update the "To Node" dropdown when target floor changes.
-     * Only shows elevator/staircase nodes on the selected target floor.
+     * Update the "To Node" dropdown when the from node or target floor changes.
+     * Lists stair/elevator nodes on the target floor; preselects a Link ID match
+     * and sets the accessible default (elevators yes, stairs no).
      */
     function onCrossFloorChange() {
       var targetFloorId = document.getElementById('cross-target-floor').value;
+      var fromNode = findById(campusData && campusData.navNodes, document.getElementById('cross-from-node').value);
       var toNodeSel = document.getElementById('cross-to-node');
       toNodeSel.innerHTML = '';
+
+      if (fromNode) {
+        document.getElementById('cross-accessible').checked = normalizeNodeType(fromNode.type) === 'elevator';
+      }
 
       if (!targetFloorId) {
         toNodeSel.innerHTML = '<option value="">Select target floor first</option>';
@@ -3279,14 +3859,13 @@
       var navNodes = (campusData && campusData.navNodes) || [];
       var targetNodes = [];
       for (var i = 0; i < navNodes.length; i++) {
-        var n = navNodes[i];
-        if (n.floorId === targetFloorId && (n.type === 'elevator' || n.type === 'staircase')) {
-          targetNodes.push(n);
+        if (navNodes[i].floorId === targetFloorId && isVerticalNode(navNodes[i])) {
+          targetNodes.push(navNodes[i]);
         }
       }
 
       if (targetNodes.length === 0) {
-        toNodeSel.innerHTML = '<option value="">No elevator/staircase nodes on this floor</option>';
+        toNodeSel.innerHTML = '<option value="">No stair or elevator nodes on this floor</option>';
         return;
       }
 
@@ -3294,7 +3873,8 @@
         var tn = targetNodes[j];
         var opt = document.createElement('option');
         opt.value = tn.id;
-        opt.textContent = tn.type + ' (' + Math.round(tn.x) + ',' + Math.round(tn.y) + ') ' + tn.id;
+        opt.textContent = navNodeOptionLabel(tn);
+        if (fromNode && fromNode.linkId && tn.linkId === fromNode.linkId) opt.selected = true;
         toNodeSel.appendChild(opt);
       }
     }
@@ -3311,12 +3891,19 @@
         return;
       }
 
+      var fromNode = findById(campusData && campusData.navNodes, fromId);
+      var toNode = findById(campusData && campusData.navNodes, toId);
+      if (fromNode && toNode && fromNode.linkId && toNode.linkId && fromNode.linkId !== toNode.linkId) {
+        if (!confirm('These nodes have different Link IDs (' + fromNode.linkId + ' and ' + toNode.linkId + '). Connect them anyway?')) return;
+      }
+
       var edgeData = {
         pin: adminPin,
         fromNodeId: fromId,
         toNodeId: toId,
-        distance: 0,
-        floorChange: true
+        distance: parseFloat(document.getElementById('cross-distance').value) || 0,
+        floorChange: true,
+        accessible: document.getElementById('cross-accessible').checked
       };
 
       google.script.run
@@ -3353,9 +3940,10 @@
       modal.innerHTML =
         '<h3>Import Nav Graph JSON</h3>' +
         '<p style="font-size:13px;color:var(--text-light);margin-bottom:8px;">' +
-          'Paste JSON with nodes and edges. Edges use 0-based array indices referencing the nodes array.' +
+          'Adds nodes and edges to this floor. Edges use 0-based indices into the nodes array; linkId and accessible are optional. ' +
+          'To replace a whole floor from pipeline output, use the Import tab.' +
         '</p>' +
-        '<textarea id="nav-json-input" placeholder=\'{"nodes":[{"x":100,"y":200,"type":"waypoint","roomId":""}],"edges":[{"from":0,"to":1}]}\'></textarea>' +
+        '<textarea id="nav-json-input" placeholder=\'{"nodes":[{"x":100,"y":200,"type":"waypoint","roomId":"","linkId":""}],"edges":[{"from":0,"to":1,"accessible":true}]}\'></textarea>' +
         '<div class="btn-row">' +
           '<button class="btn btn-primary" onclick="importNavJson()">Import</button>' +
           '<button class="btn btn-outline" onclick="closeJsonModal()">Cancel</button>' +
@@ -3410,8 +3998,9 @@
         batchNodes.push({
           x: Math.round(nd.x),
           y: Math.round(nd.y),
-          type: nd.type || 'waypoint',
-          roomId: nd.roomId || ''
+          type: normalizeNodeType(nd.type),
+          roomId: nd.roomId || '',
+          linkId: nd.linkId || ''
         });
       }
 
@@ -3446,7 +4035,8 @@
                 fromNodeId: nodeIds[fromIdx],
                 toNodeId: nodeIds[toIdx],
                 distance: e.distance || 0,
-                floorChange: false
+                floorChange: false,
+                accessible: toBool(e.accessible, true)
               });
             }
 
@@ -3514,8 +4104,9 @@
         exportNodes.push({
           x: n.x,
           y: n.y,
-          type: n.type || 'waypoint',
-          roomId: n.roomId || ''
+          type: normalizeNodeType(n.type),
+          roomId: n.roomId || '',
+          linkId: n.linkId || ''
         });
       }
 
@@ -3527,7 +4118,7 @@
         var fromIdx = nodeIdToIndex[edge.fromNodeId];
         var toIdx = nodeIdToIndex[edge.toNodeId];
         if (fromIdx !== undefined && toIdx !== undefined) {
-          var edgeObj = { from: fromIdx, to: toIdx };
+          var edgeObj = { from: fromIdx, to: toIdx, accessible: toBool(edge.accessible, true) };
           if (edge.distance) edgeObj.distance = edge.distance;
           exportEdges.push(edgeObj);
         }
@@ -3628,19 +4219,35 @@
 
     /* ========================================================
        BUILDINGS & ENTRANCES
+       The Google Map is optional: without a Maps key the tab still edits
+       building fields, coordinates and the entrance list (no map picking).
        ======================================================== */
     var buildingsMap = null;
     var buildingsMapLoaded = false;
     var buildingsMapLoading = false;
     var buildingsSelectedBuilding = null;
     var buildingsMarkers = [];           // building markers on overview map
-    var buildingsEntranceMarkers = [];   // entrance markers when building selected
+    var buildingsEntrances = [];         // [{name, lat, lng, marker|null}] for the selected building
     var buildingsCenterMarker = null;
     var buildingsPickingGps = false;
+    var CAMPUS_CENTER = { lat: 36.6155, lng: -88.3215 };
+
+    function mapsAvailable() {
+      return !!(buildingsMap && typeof google !== 'undefined' && google.maps);
+    }
+
+    function setBuildingsMapVisible(visible) {
+      document.getElementById('buildings-map-wrap').style.display = visible ? '' : 'none';
+      document.getElementById('buildings-map-empty').style.display = visible ? 'none' : '';
+      document.getElementById('buildings-pick-gps-btn').style.display = visible ? '' : 'none';
+      document.getElementById('buildings-entrance-help').textContent = visible ?
+        'Click the map to add entrances. Drag markers to reposition.' :
+        'Without the map, entrances can be renamed or removed here; adding or moving them needs the map.';
+    }
 
     /**
      * Initialize the Buildings tab. Populates dropdown from campusData.buildings,
-     * loads Google Maps API if needed, refreshes building markers.
+     * loads Google Maps API if a key is configured, refreshes building markers.
      */
     function initBuildingsTab() {
       if (!campusData || !campusData.buildings) return;
@@ -3653,44 +4260,44 @@
         var b = buildings[i];
         var opt = document.createElement('option');
         opt.value = b.id;
-        opt.textContent = b.name || b.id;
+        opt.textContent = (b.code ? b.code + ' - ' : '') + (b.name || b.id);
         sel.appendChild(opt);
       }
-      // Restore selection if possible
       if (currentVal) {
         sel.value = currentVal;
       }
 
-      // Load Google Maps API if needed
       if (typeof google !== 'undefined' && google.maps) {
         buildingsMapLoaded = true;
+        setBuildingsMapVisible(true);
         if (!buildingsMap) {
           onBuildingsMapsReady();
         } else {
           refreshBuildingMarkers();
         }
-      } else {
-        // Find API key from config
-        var apiKey = '';
-        var config = (campusData && campusData.config) || [];
-        for (var j = 0; j < config.length; j++) {
-          if (config[j].key === 'mapsApiKey') {
-            apiKey = config[j].value;
-            break;
-          }
-        }
-        if (!apiKey) {
-          showMessage('Google Maps API key not found in Config sheet', 'error');
-          return;
-        }
-        if (buildingsMapLoading) return; // already loading
-        buildingsMapLoading = true;
-        var script = document.createElement('script');
-        script.src = 'https://maps.googleapis.com/maps/api/js?key=' + apiKey + '&callback=onBuildingsMapsReady';
-        script.async = true;
-        script.defer = true;
-        document.head.appendChild(script);
+        return;
       }
+
+      // The browser key comes with the campus data (Script Properties first,
+      // Config sheet fallback on the server). Never shown in the page.
+      var apiKey = campusData.mapsApiKey || getConfigValue('mapsApiKey');
+      if (!apiKey) {
+        setBuildingsMapVisible(false);
+        return;
+      }
+      setBuildingsMapVisible(true);
+      if (buildingsMapLoading) return; // already loading
+      buildingsMapLoading = true;
+      var script = document.createElement('script');
+      script.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(apiKey) + '&callback=onBuildingsMapsReady';
+      script.async = true;
+      script.defer = true;
+      script.onerror = function() {
+        buildingsMapLoading = false;
+        setBuildingsMapVisible(false);
+        showMessage('Google Maps failed to load. Check the Maps key in the Settings tab.', 'error');
+      };
+      document.head.appendChild(script);
     }
 
     /**
@@ -3699,10 +4306,12 @@
      */
     function onBuildingsMapsReady() {
       buildingsMapLoaded = true;
+      buildingsMapLoading = false;
+      setBuildingsMapVisible(true);
 
       if (!buildingsMap) {
         buildingsMap = new google.maps.Map(document.getElementById('buildings-map-wrap'), {
-          center: { lat: 36.6155, lng: -88.3215 },
+          center: CAMPUS_CENTER,
           zoom: 16,
           mapTypeId: 'satellite',
           clickableIcons: false
@@ -3712,6 +4321,8 @@
       }
 
       refreshBuildingMarkers();
+      // A building may already be selected (chosen before the map finished loading)
+      if (buildingsSelectedBuilding) onBuildingsSelectChange();
     }
 
     /**
@@ -3719,13 +4330,12 @@
      * Each building with lat/lng gets a marker. Clicking a marker selects that building.
      */
     function refreshBuildingMarkers() {
-      // Clear existing building markers
       for (var i = 0; i < buildingsMarkers.length; i++) {
         buildingsMarkers[i].setMap(null);
       }
       buildingsMarkers = [];
 
-      if (!buildingsMap || !campusData || !campusData.buildings) return;
+      if (!mapsAvailable() || !campusData || !campusData.buildings) return;
 
       var buildings = campusData.buildings;
       for (var j = 0; j < buildings.length; j++) {
@@ -3741,7 +4351,6 @@
           title: b.name || b.id
         });
 
-        // Click marker to select that building
         (function(buildingId) {
           marker.addListener('click', function() {
             document.getElementById('buildings-select').value = buildingId;
@@ -3759,43 +4368,22 @@
      * Building selected: show detail, populate form, zoom to building, load entrances.
      */
     function onBuildingsSelectChange() {
-      var sel = document.getElementById('buildings-select');
-      var buildingId = sel.value;
+      var buildingId = document.getElementById('buildings-select').value;
       var detailDiv = document.getElementById('buildings-detail');
+      buildingsPickingGps = false;
 
       if (!buildingId) {
-        // Overview mode
         buildingsSelectedBuilding = null;
         detailDiv.style.display = 'none';
-
-        // Clear entrance markers
-        for (var i = 0; i < buildingsEntranceMarkers.length; i++) {
-          buildingsEntranceMarkers[i].marker.setMap(null);
-        }
-        buildingsEntranceMarkers = [];
-        if (buildingsCenterMarker) {
-          buildingsCenterMarker.setMap(null);
-          buildingsCenterMarker = null;
-        }
-
-        // Zoom out to show all buildings
-        if (buildingsMap) {
-          buildingsMap.setCenter({ lat: 36.6155, lng: -88.3215 });
+        clearBuildingEntrances();
+        if (mapsAvailable()) {
+          buildingsMap.setCenter(CAMPUS_CENTER);
           buildingsMap.setZoom(16);
         }
         return;
       }
 
-      // Find building object
-      var buildings = (campusData && campusData.buildings) || [];
-      var building = null;
-      for (var j = 0; j < buildings.length; j++) {
-        if (buildings[j].id === buildingId) {
-          building = buildings[j];
-          break;
-        }
-      }
-
+      var building = findBuilding(buildingId);
       if (!building) {
         showMessage('Building not found.', 'error');
         return;
@@ -3803,23 +4391,24 @@
 
       buildingsSelectedBuilding = building;
 
-      // Show detail section
       detailDiv.style.display = '';
       document.getElementById('buildings-detail-title').textContent = building.name || building.id;
+      document.getElementById('buildings-edit-id-label').textContent = 'ID: ' + building.id;
       document.getElementById('buildings-edit-name').value = building.name || '';
+      document.getElementById('buildings-edit-code').value = building.code || '';
+      document.getElementById('buildings-edit-number').value = building.number || '';
+      document.getElementById('buildings-edit-hasIndoor').checked = toBool(building.hasIndoor, false);
       document.getElementById('buildings-edit-lat').value = building.lat || '';
       document.getElementById('buildings-edit-lng').value = building.lng || '';
 
-      // Zoom map to building
-      if (buildingsMap) {
-        var centerLat = parseFloat(building.lat) || 36.6155;
-        var centerLng = parseFloat(building.lng) || -88.3215;
+      if (mapsAvailable()) {
+        var centerLat = parseFloat(building.lat) || CAMPUS_CENTER.lat;
+        var centerLng = parseFloat(building.lng) || CAMPUS_CENTER.lng;
         buildingsMap.setCenter({ lat: centerLat, lng: centerLng });
         buildingsMap.setZoom(18);
       }
 
-      // Load entrance markers
-      loadBuildingEntranceMarkers(building);
+      loadBuildingEntrances(building);
     }
 
     /**
@@ -3833,11 +4422,9 @@
       var clickLng = event.latLng.lng();
 
       if (buildingsPickingGps) {
-        // Set building center GPS
         document.getElementById('buildings-edit-lat').value = clickLat.toFixed(6);
         document.getElementById('buildings-edit-lng').value = clickLng.toFixed(6);
 
-        // Move or create building center marker
         if (buildingsCenterMarker) {
           buildingsCenterMarker.setPosition(event.latLng);
         } else {
@@ -3860,12 +4447,15 @@
         return;
       }
 
-      // Normal mode: add entrance
       var name = prompt('Entrance name:', 'Main Entrance');
       if (!name) return;
 
-      var marker = createBuildingEntranceMarker(clickLat, clickLng, name);
-      buildingsEntranceMarkers.push({ marker: marker, name: name, lat: clickLat, lng: clickLng });
+      buildingsEntrances.push({
+        name: name,
+        lat: clickLat,
+        lng: clickLng,
+        marker: createBuildingEntranceMarker(clickLat, clickLng, name)
+      });
       renderBuildingEntrancesList();
       showMessage('Entrance added. Click Save Entrances to persist.', 'info');
     }
@@ -3897,7 +4487,7 @@
         return;
       }
 
-      var saveData = { pin: adminPin, name: name };
+      var saveData = { pin: adminPin, name: name, code: '', number: '', hasIndoor: false };
 
       google.script.run
         .withSuccessHandler(function(result) {
@@ -3905,7 +4495,6 @@
           hideBuildingAddForm2();
           refreshCampusData(function() {
             initBuildingsTab();
-            // Select the new building
             document.getElementById('buildings-select').value = result.id;
             onBuildingsSelectChange();
           });
@@ -3917,8 +4506,8 @@
     }
 
     /**
-     * Save building details (name, lat, lng) via updateBuilding.
-     * Preserves existing entrances and photoUrl.
+     * Save building details (name, code, number, hasIndoor, lat, lng) via
+     * updateBuilding. Preserves existing entrances and photoUrl.
      */
     function saveBuildingDetails() {
       if (!buildingsSelectedBuilding) {
@@ -3927,27 +4516,37 @@
       }
 
       var name = document.getElementById('buildings-edit-name').value.trim();
+      var code = document.getElementById('buildings-edit-code').value.trim().toUpperCase();
+      var number = document.getElementById('buildings-edit-number').value.trim();
+      var hasIndoor = document.getElementById('buildings-edit-hasIndoor').checked;
       var lat = document.getElementById('buildings-edit-lat').value.trim();
       var lng = document.getElementById('buildings-edit-lng').value.trim();
 
       if (!name) { showMessage('Building name is required.', 'error'); return; }
+      if ((lat && isNaN(parseFloat(lat))) || (lng && isNaN(parseFloat(lng)))) {
+        showMessage('Latitude and longitude must be numbers.', 'error');
+        return;
+      }
 
+      var buildingId = buildingsSelectedBuilding.id;
       var data = {
         pin: adminPin,
-        id: buildingsSelectedBuilding.id,
+        id: buildingId,
         name: name,
+        code: code,
+        number: number,
         lat: parseFloat(lat) || 0,
         lng: parseFloat(lng) || 0,
         entrances: buildingsSelectedBuilding.entrances || '',
-        photoUrl: buildingsSelectedBuilding.photoUrl || ''
+        photoUrl: buildingsSelectedBuilding.photoUrl || '',
+        hasIndoor: hasIndoor
       };
 
       google.script.run
         .withSuccessHandler(function() {
           refreshCampusData(function() {
             initBuildingsTab();
-            // Re-select the building
-            document.getElementById('buildings-select').value = buildingsSelectedBuilding.id;
+            document.getElementById('buildings-select').value = buildingId;
             onBuildingsSelectChange();
           });
           showMessage('Building updated successfully.', 'success');
@@ -3975,7 +4574,6 @@
           buildingsSelectedBuilding = null;
           refreshCampusData(function() {
             initBuildingsTab();
-            // Clear selection
             document.getElementById('buildings-select').value = '';
             onBuildingsSelectChange();
           });
@@ -3991,54 +4589,49 @@
      * Enter GPS picking mode. Next map click sets building lat/lng.
      */
     function pickBuildingGps() {
-      if (!buildingsMap) {
-        showMessage('Map not loaded yet.', 'error');
+      if (!mapsAvailable()) {
+        showMessage('The map is not available; type the coordinates instead.', 'error');
         return;
       }
       buildingsPickingGps = true;
       showMessage('Click the map to set building GPS location.', 'info');
     }
 
-    /**
-     * Load entrance markers and building center marker for a building.
-     * Clears existing entrance markers first.
-     */
-    function loadBuildingEntranceMarkers(building) {
-      // Clear existing entrance markers
-      for (var i = 0; i < buildingsEntranceMarkers.length; i++) {
-        buildingsEntranceMarkers[i].marker.setMap(null);
+    function clearBuildingEntrances() {
+      for (var i = 0; i < buildingsEntrances.length; i++) {
+        if (buildingsEntrances[i].marker) buildingsEntrances[i].marker.setMap(null);
       }
-      buildingsEntranceMarkers = [];
-
-      // Clear building center marker
+      buildingsEntrances = [];
       if (buildingsCenterMarker) {
         buildingsCenterMarker.setMap(null);
         buildingsCenterMarker = null;
       }
+    }
 
-      // Parse entrances
+    /**
+     * Load a building's entrances (and its center marker when the map is up).
+     */
+    function loadBuildingEntrances(building) {
+      clearBuildingEntrances();
+
       var existing = Array.isArray(building.entrances) ? building.entrances : [];
-
-      // Create markers for each entrance
       for (var j = 0; j < existing.length; j++) {
         var ent = existing[j];
         var lat = parseFloat(ent.lat);
         var lng = parseFloat(ent.lng);
         if (isNaN(lat) || isNaN(lng)) continue;
-
-        var marker = createBuildingEntranceMarker(lat, lng, ent.name || 'Entrance');
-        buildingsEntranceMarkers.push({
-          marker: marker,
-          name: ent.name || 'Entrance',
+        var name = ent.name || 'Entrance';
+        buildingsEntrances.push({
+          name: name,
           lat: lat,
-          lng: lng
+          lng: lng,
+          marker: createBuildingEntranceMarker(lat, lng, name)
         });
       }
 
-      // Create building center marker if lat/lng available
       var bldLat = parseFloat(building.lat);
       var bldLng = parseFloat(building.lng);
-      if (!isNaN(bldLat) && !isNaN(bldLng)) {
+      if (mapsAvailable() && !isNaN(bldLat) && !isNaN(bldLng)) {
         buildingsCenterMarker = new google.maps.Marker({
           position: { lat: bldLat, lng: bldLng },
           map: buildingsMap,
@@ -4052,9 +4645,11 @@
     }
 
     /**
-     * Create a draggable entrance marker on the buildings map.
+     * Create a draggable entrance marker on the buildings map
+     * (returns null when the map is not available).
      */
     function createBuildingEntranceMarker(lat, lng, name) {
+      if (!mapsAvailable()) return null;
       var marker = new google.maps.Marker({
         position: { lat: lat, lng: lng },
         map: buildingsMap,
@@ -4067,11 +4662,10 @@
       });
 
       marker.addListener('dragend', function() {
-        // Find this marker in buildingsEntranceMarkers and update its lat/lng
-        for (var k = 0; k < buildingsEntranceMarkers.length; k++) {
-          if (buildingsEntranceMarkers[k].marker === marker) {
-            buildingsEntranceMarkers[k].lat = marker.getPosition().lat();
-            buildingsEntranceMarkers[k].lng = marker.getPosition().lng();
+        for (var k = 0; k < buildingsEntrances.length; k++) {
+          if (buildingsEntrances[k].marker === marker) {
+            buildingsEntrances[k].lat = marker.getPosition().lat();
+            buildingsEntrances[k].lng = marker.getPosition().lng();
             break;
           }
         }
@@ -4091,17 +4685,22 @@
 
       list.innerHTML = '';
 
-      for (var i = 0; i < buildingsEntranceMarkers.length; i++) {
+      if (buildingsEntrances.length === 0) {
+        var empty = document.createElement('li');
+        empty.style.color = 'var(--text-light)';
+        empty.textContent = mapsAvailable() ? 'No entrances yet. Click the map to add one.' : 'No entrances recorded.';
+        list.appendChild(empty);
+      }
+
+      for (var i = 0; i < buildingsEntrances.length; i++) {
         (function(idx) {
-          var ent = buildingsEntranceMarkers[idx];
-          var currentLat = ent.marker.getPosition().lat().toFixed(6);
-          var currentLng = ent.marker.getPosition().lng().toFixed(6);
+          var ent = buildingsEntrances[idx];
 
           var li = document.createElement('li');
 
           var nameSpan = document.createElement('span');
           nameSpan.className = 'item-name';
-          nameSpan.textContent = ent.name + '  (' + currentLat + ', ' + currentLng + ')';
+          nameSpan.textContent = ent.name + '  (' + Number(ent.lat).toFixed(6) + ', ' + Number(ent.lng).toFixed(6) + ')';
           li.appendChild(nameSpan);
 
           var actions = document.createElement('span');
@@ -4112,9 +4711,11 @@
           renameBtn.onclick = function() {
             var newName = prompt('New entrance name:', ent.name);
             if (newName) {
-              buildingsEntranceMarkers[idx].name = newName;
-              buildingsEntranceMarkers[idx].marker.setTitle(newName);
-              buildingsEntranceMarkers[idx].marker.setLabel(newName[0].toUpperCase());
+              buildingsEntrances[idx].name = newName;
+              if (buildingsEntrances[idx].marker) {
+                buildingsEntrances[idx].marker.setTitle(newName);
+                buildingsEntrances[idx].marker.setLabel(newName[0].toUpperCase());
+              }
               renderBuildingEntrancesList();
             }
           };
@@ -4124,8 +4725,8 @@
           deleteBtn.className = 'delete-btn';
           deleteBtn.textContent = 'Delete';
           deleteBtn.onclick = function() {
-            buildingsEntranceMarkers[idx].marker.setMap(null);
-            buildingsEntranceMarkers.splice(idx, 1);
+            if (buildingsEntrances[idx].marker) buildingsEntrances[idx].marker.setMap(null);
+            buildingsEntrances.splice(idx, 1);
             renderBuildingEntrancesList();
           };
           actions.appendChild(deleteBtn);
@@ -4135,12 +4736,11 @@
         })(i);
       }
 
-      countEl.textContent = buildingsEntranceMarkers.length + ' entrance' + (buildingsEntranceMarkers.length !== 1 ? 's' : '');
+      countEl.textContent = buildingsEntrances.length + ' entrance' + (buildingsEntrances.length !== 1 ? 's' : '');
     }
 
     /**
-     * Save all entrances for the selected building.
-     * Collects positions from markers and calls updateBuildingEntrances.
+     * Save all entrances for the selected building via updateBuildingEntrances.
      */
     function saveAllEntrances2() {
       if (!buildingsSelectedBuilding) {
@@ -4149,27 +4749,21 @@
       }
 
       var entrancesArray = [];
-      for (var i = 0; i < buildingsEntranceMarkers.length; i++) {
-        var m = buildingsEntranceMarkers[i];
+      for (var i = 0; i < buildingsEntrances.length; i++) {
         entrancesArray.push({
-          name: m.name,
-          lat: m.marker.getPosition().lat(),
-          lng: m.marker.getPosition().lng()
+          name: buildingsEntrances[i].name,
+          lat: buildingsEntrances[i].lat,
+          lng: buildingsEntrances[i].lng
         });
       }
 
+      var buildingId = buildingsSelectedBuilding.id;
       showMessage('Saving entrances...', 'info');
       google.script.run
         .withSuccessHandler(function() {
           refreshCampusData(function() {
-            // Re-select the building to update local state
-            var buildings = (campusData && campusData.buildings) || [];
-            for (var j = 0; j < buildings.length; j++) {
-              if (buildings[j].id === buildingsSelectedBuilding.id) {
-                buildingsSelectedBuilding = buildings[j];
-                break;
-              }
-            }
+            var updated = findBuilding(buildingId);
+            if (updated) buildingsSelectedBuilding = updated;
             showMessage('Entrances saved successfully.', 'success');
           });
         })
@@ -4178,33 +4772,419 @@
         })
         .updateBuildingEntrances({
           pin: adminPin,
-          id: buildingsSelectedBuilding.id,
+          id: buildingId,
           entrances: entrancesArray
         });
     }
 
     /* ========================================================
+       IMPORT TAB — replace one floor's rooms, nav nodes and nav edges
+       from floor-plan pipeline output via importFloorData(pin, payload).
+       Payload sent: { floorId, rooms, navNodes, navEdges[, floor] }, the
+       item objects passed through as the pipeline wrote them.
+       ======================================================== */
+    var importPending = null;   // { floorId, payload, stats } awaiting confirmation
+
+    function initImportTab() {
+      var sel = document.getElementById('import-floor-select');
+      var currentVal = sel.value;
+      sel.innerHTML = '<option value="">Select floor...</option>';
+      var floors = ((campusData && campusData.floors) || []).slice();
+      floors.sort(function(a, b) {
+        var ba = String(a.buildingId), bb = String(b.buildingId);
+        if (ba !== bb) return ba < bb ? -1 : 1;
+        return (Number(a.level) || 0) - (Number(b.level) || 0);
+      });
+      for (var i = 0; i < floors.length; i++) {
+        var f = floors[i];
+        var b = findBuilding(f.buildingId);
+        var opt = document.createElement('option');
+        opt.value = f.id;
+        opt.textContent = (b ? (b.code || b.name || b.id) : f.buildingId) + ' - ' +
+          (f.label || ('Floor ' + f.level)) + ' (' + f.id + ')';
+        sel.appendChild(opt);
+      }
+      if (currentVal) sel.value = currentVal;
+    }
+
+    function onImportFloorChange() {
+      // A different target invalidates an existing preview
+      if (importPending) previewFloorImport();
+    }
+
+    function onImportFileChosen(input) {
+      var file = input.files && input.files[0];
+      if (!file) return;
+      if (file.size > 20 * 1024 * 1024) {
+        showMessage('That file is larger than 20 MB; a single floor should be far smaller.', 'error');
+        return;
+      }
+      var reader = new FileReader();
+      reader.onload = function() {
+        document.getElementById('import-json').value = String(reader.result || '');
+        previewFloorImport();
+      };
+      reader.onerror = function() {
+        showMessage('Could not read the file.', 'error');
+      };
+      reader.readAsText(file);
+    }
+
+    function resetFloorImport() {
+      importPending = null;
+      document.getElementById('import-json').value = '';
+      document.getElementById('import-file').value = '';
+      document.getElementById('import-preview').style.display = 'none';
+      document.getElementById('import-preview-body').innerHTML = '';
+    }
+
+    function firstArray() {
+      for (var i = 0; i < arguments.length; i++) {
+        if (Array.isArray(arguments[i])) return arguments[i];
+      }
+      return null;
+    }
+
+    /**
+     * Parse pipeline JSON into an import payload plus counts and warnings.
+     * Returns { error } or { floorId, payload, stats, warnings }.
+     */
+    function parseFloorImport(text) {
+      var parsed;
+      try {
+        parsed = JSON.parse(text);
+      } catch (e) {
+        return { error: 'The JSON could not be parsed: ' + e.message };
+      }
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return { error: 'Expected one floor\'s JSON object with rooms, navNodes and navEdges.' };
+      }
+
+      var graph = parsed.graph || {};
+      var rooms = firstArray(parsed.rooms);
+      var navNodes = firstArray(parsed.navNodes, parsed.nodes, graph.navNodes, graph.nodes);
+      var navEdges = firstArray(parsed.navEdges, parsed.edges, graph.navEdges, graph.edges);
+      if (!rooms && !navNodes && !navEdges) {
+        return { error: 'No rooms, navNodes or navEdges arrays were found in this JSON.' };
+      }
+      rooms = rooms || [];
+      navNodes = navNodes || [];
+      navEdges = navEdges || [];
+
+      var fileFloorId = parsed.floorId || (parsed.floor && parsed.floor.id) ||
+        (typeof parsed.id === 'string' && parsed.id.indexOf('floor-') === 0 ? parsed.id : '');
+
+      var warnings = [];
+      var badRooms = 0;
+      for (var i = 0; i < rooms.length; i++) {
+        var r = rooms[i] || {};
+        var poly = r.polygon;
+        if (typeof poly === 'string') {
+          try { poly = JSON.parse(poly); } catch (e1) { poly = null; }
+        }
+        if (!Array.isArray(poly) || poly.length < 3) badRooms++;
+      }
+      if (badRooms) warnings.push(badRooms + ' room' + (badRooms !== 1 ? 's have' : ' has') + ' no usable polygon.');
+
+      var nodeIds = {};
+      var badNodes = 0;
+      for (var n = 0; n < navNodes.length; n++) {
+        var nd = navNodes[n] || {};
+        if (nd.id !== undefined) nodeIds[nd.id] = true;
+        if (isNaN(Number(nd.x)) || isNaN(Number(nd.y)) || nd.x === '' || nd.y === '') badNodes++;
+      }
+      if (badNodes) warnings.push(badNodes + ' node' + (badNodes !== 1 ? 's lack' : ' lacks') + ' numeric x/y.');
+
+      var crossFloor = 0, inaccessible = 0;
+      for (var e = 0; e < navEdges.length; e++) {
+        var ed = navEdges[e] || {};
+        var from = ed.fromNodeId !== undefined ? ed.fromNodeId : ed.from;
+        var to = ed.toNodeId !== undefined ? ed.toNodeId : ed.to;
+        if (toBool(ed.floorChange, false) || !nodeIds[from] || !nodeIds[to]) crossFloor++;
+        if (!toBool(ed.accessible, true)) inaccessible++;
+      }
+
+      var payload = { floorId: fileFloorId, rooms: rooms, navNodes: navNodes, navEdges: navEdges };
+      if (parsed.floor && typeof parsed.floor === 'object') payload.floor = parsed.floor;
+
+      return {
+        fileFloorId: fileFloorId,
+        payload: payload,
+        warnings: warnings,
+        stats: {
+          rooms: rooms.length,
+          navNodes: navNodes.length,
+          navEdges: navEdges.length,
+          crossFloor: crossFloor,
+          inaccessible: inaccessible
+        }
+      };
+    }
+
+    /** Current counts on a floor (what an import would replace). */
+    function countFloorData(floorId) {
+      var counts = { rooms: 0, navNodes: 0, navEdges: 0 };
+      var nodeSet = {};
+      var rooms = (campusData && campusData.rooms) || [];
+      var nodes = (campusData && campusData.navNodes) || [];
+      var edges = (campusData && campusData.navEdges) || [];
+      for (var i = 0; i < rooms.length; i++) if (rooms[i].floorId === floorId) counts.rooms++;
+      for (var j = 0; j < nodes.length; j++) {
+        if (nodes[j].floorId === floorId) { counts.navNodes++; nodeSet[nodes[j].id] = true; }
+      }
+      for (var k = 0; k < edges.length; k++) {
+        if (nodeSet[edges[k].fromNodeId] || nodeSet[edges[k].toNodeId]) counts.navEdges++;
+      }
+      return counts;
+    }
+
+    function previewFloorImport() {
+      var previewEl = document.getElementById('import-preview');
+      var bodyEl = document.getElementById('import-preview-body');
+      var confirmBtn = document.getElementById('import-confirm-btn');
+      importPending = null;
+
+      var text = document.getElementById('import-json').value.trim();
+      if (!text) {
+        previewEl.style.display = 'none';
+        showMessage('Choose a file or paste the JSON first.', 'error');
+        return;
+      }
+
+      var result = parseFloorImport(text);
+      if (result.error) {
+        previewEl.style.display = 'none';
+        showMessage(result.error, 'error');
+        return;
+      }
+
+      var sel = document.getElementById('import-floor-select');
+      if (!sel.value && result.fileFloorId && findFloor(result.fileFloorId)) {
+        sel.value = result.fileFloorId;
+      }
+      var targetId = sel.value;
+      var warnings = result.warnings.slice();
+      if (result.fileFloorId && targetId && result.fileFloorId !== targetId) {
+        warnings.unshift('The file is for ' + result.fileFloorId + ' but the target floor is ' + targetId + '. Its room and node ids will not match the target floor.');
+      }
+      if (result.fileFloorId && !findFloor(result.fileFloorId)) {
+        warnings.push('The file\'s floor ' + result.fileFloorId + ' is not in the Floors list.');
+      }
+
+      var current = targetId ? countFloorData(targetId) : null;
+      var s = result.stats;
+
+      bodyEl.innerHTML = '';
+      var table = document.createElement('table');
+      table.className = 'preview-table';
+      var rowsHtml =
+        '<tr><th></th><th>In file</th><th>Now on target floor</th></tr>' +
+        '<tr><td>Rooms</td><td>' + s.rooms + '</td><td>' + (current ? current.rooms : '-') + '</td></tr>' +
+        '<tr><td>Nav nodes</td><td>' + s.navNodes + '</td><td>' + (current ? current.navNodes : '-') + '</td></tr>' +
+        '<tr><td>Nav edges</td><td>' + s.navEdges + '</td><td>' + (current ? current.navEdges : '-') + '</td></tr>';
+      table.innerHTML = rowsHtml;
+      bodyEl.appendChild(table);
+
+      var info = document.createElement('p');
+      info.className = 'field-help';
+      info.textContent = s.crossFloor + ' edge' + (s.crossFloor !== 1 ? 's' : '') + ' cross to other floors; ' +
+        s.inaccessible + ' ' + (s.inaccessible !== 1 ? 'are' : 'is') + ' not step-free.' +
+        (result.fileFloorId ? ' File floor: ' + result.fileFloorId + '.' : ' The file does not name its floor.');
+      bodyEl.appendChild(info);
+
+      for (var w = 0; w < warnings.length; w++) {
+        var warn = document.createElement('div');
+        warn.className = 'status-msg visible error';
+        warn.style.position = 'static';
+        warn.style.boxShadow = 'none';
+        warn.style.margin = '8px 0 0 0';
+        warn.textContent = warnings[w];
+        bodyEl.appendChild(warn);
+      }
+
+      if (!targetId) {
+        var need = document.createElement('p');
+        need.style.cssText = 'font-size:13px;margin-top:8px;color:var(--error);';
+        need.textContent = 'Select the target floor to continue.';
+        bodyEl.appendChild(need);
+      }
+
+      confirmBtn.disabled = !targetId;
+      previewEl.style.display = '';
+
+      if (targetId) {
+        var payload = result.payload;
+        payload.floorId = targetId;
+        importPending = { floorId: targetId, payload: payload, stats: s, current: current };
+      }
+    }
+
+    function confirmFloorImport() {
+      if (!importPending) { showMessage('Preview the import first.', 'error'); return; }
+      var p = importPending;
+      var floor = findFloor(p.floorId);
+      var floorName = floor ? (floor.label || floor.id) : p.floorId;
+      var msg = 'Replace all rooms, nav nodes and nav edges on ' + floorName + ' (' + p.floorId + ')?\n\n' +
+        'Now: ' + p.current.rooms + ' rooms, ' + p.current.navNodes + ' nodes, ' + p.current.navEdges + ' edges.\n' +
+        'After: ' + p.stats.rooms + ' rooms, ' + p.stats.navNodes + ' nodes, ' + p.stats.navEdges + ' edges.\n\n' +
+        'This cannot be undone from the admin page.';
+      if (!confirm(msg)) return;
+
+      var btn = document.getElementById('import-confirm-btn');
+      btn.disabled = true;
+      btn.textContent = 'Importing...';
+      showMessage('Importing floor data...', 'info');
+
+      runServer('importFloorData', [adminPin, p.payload], function(result) {
+        btn.disabled = false;
+        btn.textContent = 'Replace Floor Data';
+        resetFloorImport();
+        var summary = 'Imported floor data for ' + p.floorId + '.';
+        if (result && typeof result === 'object') {
+          var parts = [];
+          if (result.rooms !== undefined) parts.push(result.rooms + ' rooms');
+          if (result.navNodes !== undefined) parts.push(result.navNodes + ' nodes');
+          if (result.navEdges !== undefined) parts.push(result.navEdges + ' edges');
+          if (parts.length) summary = 'Imported ' + parts.join(', ') + ' for ' + p.floorId + '.';
+        }
+        refreshCampusData(function() {
+          initImportTab();
+          showMessage(summary, 'success');
+        });
+      }, function(err) {
+        btn.disabled = false;
+        btn.textContent = 'Replace Floor Data';
+        showMessage('Import failed: ' + ((err && err.message) || String(err)), 'error');
+      });
+    }
+
+    /* ========================================================
+       SETTINGS TAB — Maps key and admin PIN live only in Script
+       Properties. Status is booleans only; values are never shown,
+       logged, or kept beyond the request that sets them.
+       ======================================================== */
+    function readStatusFlag(status, names) {
+      if (!status || typeof status !== 'object') return null;
+      for (var i = 0; i < names.length; i++) {
+        if (status.hasOwnProperty(names[i])) return !!status[names[i]];
+      }
+      return null;
+    }
+
+    function setStatusTag(el, flag) {
+      if (flag === true) { el.className = 'tag tag-ok'; el.textContent = 'Configured'; }
+      else if (flag === false) { el.className = 'tag tag-bad'; el.textContent = 'Not configured'; }
+      else { el.className = 'tag tag-muted'; el.textContent = 'Unknown'; }
+    }
+
+    function loadSettingsStatus() {
+      var keyEl = document.getElementById('settings-key-status');
+      var pinEl = document.getElementById('settings-pin-status');
+      keyEl.className = 'tag tag-muted'; keyEl.textContent = 'Checking...';
+      pinEl.className = 'tag tag-muted'; pinEl.textContent = 'Checking...';
+
+      runServer('getSettingsStatus', [adminPin], function(status) {
+        setStatusTag(keyEl, readStatusFlag(status, ['mapsApiKeyConfigured', 'mapsApiKeySet', 'hasMapsApiKey', 'mapsKeyConfigured', 'keyConfigured', 'mapsApiKey']));
+        setStatusTag(pinEl, readStatusFlag(status, ['adminPinConfigured', 'adminPinSet', 'hasAdminPin', 'pinConfigured', 'adminPin']));
+      }, function(err) {
+        setStatusTag(keyEl, null);
+        setStatusTag(pinEl, null);
+        showMessage('Could not read settings status: ' + ((err && err.message) || String(err)), 'error');
+      });
+    }
+
+    function saveMapsApiKey() {
+      var input = document.getElementById('settings-maps-key');
+      var key = input.value.trim();
+      if (!key) { showMessage('Paste the new key first.', 'error'); return; }
+      if (/\s/.test(key)) { showMessage('The key cannot contain spaces.', 'error'); return; }
+      if (!confirm('Replace the stored Google Maps API key?')) return;
+
+      var btn = document.getElementById('settings-key-btn');
+      btn.disabled = true;
+      runServer('setMapsApiKey', [adminPin, key], function() {
+        input.value = '';
+        key = '';
+        btn.disabled = false;
+        loadSettingsStatus();
+        refreshCampusData(function() {
+          showMessage('Maps key saved. Reload the admin page to use it in the Buildings map.', 'success');
+        });
+      }, function(err) {
+        input.value = '';
+        key = '';
+        btn.disabled = false;
+        showMessage('Could not save the key: ' + ((err && err.message) || String(err)), 'error');
+      });
+    }
+
+    function saveAdminPin() {
+      var curEl = document.getElementById('settings-pin-current');
+      var newEl = document.getElementById('settings-pin-new');
+      var confEl = document.getElementById('settings-pin-confirm');
+      var current = curEl.value;
+      var next = newEl.value;
+      var again = confEl.value;
+
+      function clearFields() {
+        curEl.value = '';
+        newEl.value = '';
+        confEl.value = '';
+      }
+
+      if (!current || !next || !again) { showMessage('Fill in all three PIN fields.', 'error'); return; }
+      if (/\s/.test(next) || next.length < 6 || next.length > 20) {
+        showMessage('The new PIN must be 6 to 20 characters with no spaces.', 'error');
+        return;
+      }
+      if (next !== again) { showMessage('The new PIN and its confirmation do not match.', 'error'); return; }
+      if (next === current) { showMessage('The new PIN is the same as the current PIN.', 'error'); return; }
+      if (!confirm('Change the admin PIN? Everyone using the admin page will need the new PIN.')) return;
+
+      var btn = document.getElementById('settings-pin-btn');
+      btn.disabled = true;
+      runServer('changeAdminPin', [current, next], function() {
+        adminPin = next;
+        clearFields();
+        btn.disabled = false;
+        loadSettingsStatus();
+        showMessage('Admin PIN changed. Use the new PIN next time you sign in.', 'success');
+      }, function(err) {
+        clearFields();
+        btn.disabled = false;
+        showMessage('Could not change the PIN: ' + ((err && err.message) || String(err)), 'error');
+      });
+    }
+
+    /* ========================================================
        ADMIN CANVAS CONTROLLER — Reusable pan/zoom/tap canvas controller
-       Ported from WebApp.html's setupCanvasInteraction pattern.
+       Draws a floor plan (SVG decoded into an Image) in the floor's own
+       coordinate space (SVG units = widthPx x heightPx), with overlays drawn
+       by the onRender callback in that same space.
 
        Usage:
          var ctrl = new AdminCanvasController('rooms-canvas', {
-           onTap: function(canvasX, canvasY) { ... },
+           onTap: function(x, y, event) { ... },
            onRender: function(ctx, scale, offsetX, offsetY) { ... }
          });
-         ctrl.loadImage(url, function() { ctrl.render(); });
+         ctrl.loadFloor(floorObject);
          ctrl.render();
-         ctrl.resetView();
        ======================================================== */
     function AdminCanvasController(canvasId, opts) {
       this.canvas = document.getElementById(canvasId);
       this.ctx = this.canvas.getContext('2d');
       this.opts = opts || {};
       this.scale = 1;
+      this.minScale = 0.05;
+      this.maxScale = 5;
       this.offsetX = 0;
       this.offsetY = 0;
       this.image = null;
       this.imageLoaded = false;
+      this.planWidth = 0;    // floor width in SVG units
+      this.planHeight = 0;   // floor height in SVG units
+      this.statusText = '';  // empty-state / error text drawn when there is no image
+      this._loadToken = 0;
 
       // Internal drag state
       this._isDragging = false;
@@ -4216,22 +5196,59 @@
       this._tapStartTime = 0;
 
       this._setupEvents();
+      this.syncSize();
     }
 
     /**
-     * Attach touch (start/move/end) and mouse (down/move/up/click/wheel) events.
+     * Match the canvas backing store to its displayed size (and the device
+     * pixel ratio, so lines and text stay crisp).
+     */
+    AdminCanvasController.prototype.syncSize = function() {
+      var wrap = this.canvas.parentElement;
+      if (!wrap || !wrap.clientWidth || !wrap.clientHeight) return false;
+      var dpr = window.devicePixelRatio || 1;
+      var w = Math.round(wrap.clientWidth * dpr);
+      var h = Math.round(wrap.clientHeight * dpr);
+      if (this.canvas.width !== w || this.canvas.height !== h) {
+        this.canvas.width = w;
+        this.canvas.height = h;
+      }
+      this.cssWidth = wrap.clientWidth;
+      this.cssHeight = wrap.clientHeight;
+      this.dpr = dpr;
+      return true;
+    };
+
+    /**
+     * Zoom by factor around a point given in canvas CSS pixels.
+     */
+    AdminCanvasController.prototype.zoomAt = function(factor, px, py) {
+      var newScale = Math.max(this.minScale, Math.min(this.maxScale, this.scale * factor));
+      var applied = newScale / this.scale;
+      this.offsetX = px - (px - this.offsetX) * applied;
+      this.offsetY = py - (py - this.offsetY) * applied;
+      this.scale = newScale;
+      this.render();
+    };
+
+    /**
+     * Attach touch (start/move/end) and mouse (down/move/up/wheel) events.
      * Touch: single-finger pan, two-finger pinch zoom, tap detection (< 300ms, < 10px).
-     * Mouse: drag to pan, click tap detection, wheel zoom (0.9/1.1, clamped 0.3-5.0).
+     * Mouse: drag to pan, click tap detection, wheel zoom around the pointer.
      */
     AdminCanvasController.prototype._setupEvents = function() {
       var self = this;
       var canvas = this.canvas;
 
-      // --- Helper: get distance between two touches ---
       function getTouchDistance(touches) {
         var dx = touches[0].clientX - touches[1].clientX;
         var dy = touches[0].clientY - touches[1].clientY;
         return Math.sqrt(dx * dx + dy * dy);
+      }
+
+      function localPoint(clientX, clientY) {
+        var rect = canvas.getBoundingClientRect();
+        return { x: clientX - rect.left, y: clientY - rect.top };
       }
 
       // --- Touch events ---
@@ -4252,22 +5269,21 @@
 
       canvas.addEventListener('touchmove', function(e) {
         if (e.touches.length === 1 && self._isDragging) {
-          var dx = e.touches[0].clientX - self._lastX;
-          var dy = e.touches[0].clientY - self._lastY;
-          self.offsetX += dx;
-          self.offsetY += dy;
+          self.offsetX += e.touches[0].clientX - self._lastX;
+          self.offsetY += e.touches[0].clientY - self._lastY;
           self._lastX = e.touches[0].clientX;
           self._lastY = e.touches[0].clientY;
           self.render();
         } else if (e.touches.length === 2) {
           var dist = getTouchDistance(e.touches);
           if (self._lastDist > 0) {
-            var scaleDelta = dist / self._lastDist;
-            self.scale *= scaleDelta;
-            self.scale = Math.max(0.3, Math.min(5.0, self.scale));
+            var mid = localPoint(
+              (e.touches[0].clientX + e.touches[1].clientX) / 2,
+              (e.touches[0].clientY + e.touches[1].clientY) / 2
+            );
+            self.zoomAt(dist / self._lastDist, mid.x, mid.y);
           }
           self._lastDist = dist;
-          self.render();
         }
         e.preventDefault();
       }, { passive: false });
@@ -4279,9 +5295,7 @@
           var moveY = Math.abs(e.changedTouches[0].clientY - self._tapStartY);
           if (elapsed < 300 && moveX < 10 && moveY < 10) {
             var coords = self.toCanvasCoords(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
-            if (self.opts.onTap) {
-              self.opts.onTap(coords.x, coords.y, e);
-            }
+            if (self.opts.onTap) self.opts.onTap(coords.x, coords.y, e);
           }
         }
         self._isDragging = false;
@@ -4307,10 +5321,8 @@
 
       canvas.addEventListener('mousemove', function(e) {
         if (!mouseDragging) return;
-        var dx = e.clientX - mouseStartX;
-        var dy = e.clientY - mouseStartY;
-        self.offsetX += dx;
-        self.offsetY += dy;
+        self.offsetX += e.clientX - mouseStartX;
+        self.offsetY += e.clientY - mouseStartY;
         mouseStartX = e.clientX;
         mouseStartY = e.clientY;
         self.render();
@@ -4320,15 +5332,12 @@
       canvas.addEventListener('mouseup', function(e) {
         if (!mouseDragging) return;
         mouseDragging = false;
-        // Detect tap: short duration, minimal movement
         var elapsed = Date.now() - mouseTapStartTime;
         var moveX = Math.abs(e.clientX - mouseTapStartX);
         var moveY = Math.abs(e.clientY - mouseTapStartY);
         if (elapsed < 300 && moveX < 10 && moveY < 10) {
           var coords = self.toCanvasCoords(e.clientX, e.clientY);
-          if (self.opts.onTap) {
-            self.opts.onTap(coords.x, coords.y, e);
-          }
+          if (self.opts.onTap) self.opts.onTap(coords.x, coords.y, e);
         }
         e.preventDefault();
       });
@@ -4337,88 +5346,98 @@
         mouseDragging = false;
       });
 
-      // --- Mouse wheel zoom ---
+      // --- Mouse wheel zoom (around the pointer) ---
       canvas.addEventListener('wheel', function(e) {
         e.preventDefault();
-        var delta = e.deltaY > 0 ? 0.9 : 1.1;
-        self.scale *= delta;
-        self.scale = Math.max(0.3, Math.min(5.0, self.scale));
-        self.render();
+        var p = localPoint(e.clientX, e.clientY);
+        self.zoomAt(e.deltaY > 0 ? 0.9 : 1.1, p.x, p.y);
       }, { passive: false });
+
+      // Keep the backing store matched to the layout
+      window.addEventListener('resize', function() {
+        if (self.syncSize()) self.render();
+      });
     };
 
     /**
-     * Load an image from a URL (handles Google Drive conversion).
-     * On load, sizes canvas to match wrap dimensions and calls callback().
+     * Load a floor's plan. The view is sized from the floor's widthPx/heightPx
+     * (falling back to the SVG's own size); overlays still render when the SVG
+     * itself is missing. callback(errorMessage) runs after the first render.
      */
-    AdminCanvasController.prototype.loadImage = function(url, callback) {
+    AdminCanvasController.prototype.loadFloor = function(floor, callback) {
       var self = this;
-      function onImageReady(img) {
+      var token = ++this._loadToken;
+
+      this.image = null;
+      this.imageLoaded = false;
+      this.planWidth = Number(floor && floor.widthPx) || 0;
+      this.planHeight = Number(floor && floor.heightPx) || 0;
+      this.statusText = floor ? 'Loading floor plan...' : 'Select a building and floor.';
+      this.fitImage();
+
+      if (!floor) {
+        if (typeof callback === 'function') callback(null);
+        return;
+      }
+
+      loadFloorPlanImage(floor, function(img, info, errorMessage) {
+        if (token !== self._loadToken) return; // a newer floor was selected meanwhile
         if (img) {
           self.image = img;
           self.imageLoaded = true;
+          self.statusText = '';
+          if (!self.planWidth || !self.planHeight) {
+            self.planWidth = (info && info.width) || img.naturalWidth || img.width;
+            self.planHeight = (info && info.height) || img.naturalHeight || img.height;
+          }
         } else {
-          self.image = null;
-          self.imageLoaded = false;
+          var reason = String(errorMessage || 'unavailable').replace(/[.\s]+$/, '');
+          self.statusText = 'No floor plan drawing (' + reason + '). Rooms and nodes are still shown and editable.';
         }
-        var wrap = self.canvas.parentElement;
-        if (wrap) {
-          self.canvas.width = wrap.clientWidth;
-          self.canvas.height = wrap.clientHeight;
-        }
-        if (typeof callback === 'function') callback();
-      }
-      var match = url ? url.match(/\/d\/([a-zA-Z0-9_-]+)/) : null;
-      if (match) {
-        // Fetch via server to bypass CORS
-        google.script.run
-          .withSuccessHandler(function(result) {
-            var img = new Image();
-            img.onload = function() { onImageReady(img); };
-            img.onerror = function() { onImageReady(null); };
-            img.src = 'data:' + result.mimeType + ';base64,' + result.base64;
-          })
-          .withFailureHandler(function() {
-            // Fallback to direct URL
-            var img = new Image();
-            img.crossOrigin = 'anonymous';
-            img.onload = function() { onImageReady(img); };
-            img.onerror = function() { onImageReady(null); };
-            img.src = getDriveDirectUrl(url);
-          })
-          .getFloorPlanFile(match[1]);
-      } else {
-        var img = new Image();
-        img.crossOrigin = 'anonymous';
-        img.onload = function() { onImageReady(img); };
-        img.onerror = function() { onImageReady(null); };
-        img.src = getDriveDirectUrl(url);
-      }
+        self.fitImage();
+        if (typeof callback === 'function') callback(img ? null : errorMessage);
+      });
     };
 
     /**
-     * Render the canvas. Clears, draws image with pan/zoom transform,
-     * then calls onRender callback for overlay drawing.
+     * Render the canvas: clear, draw the plan with the pan/zoom transform,
+     * then call onRender for overlays in plan coordinates.
      */
     AdminCanvasController.prototype.render = function() {
       var ctx = this.ctx;
-      var canvas = this.canvas;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      var dpr = this.dpr || 1;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
+      ctx.save();
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.translate(this.offsetX, this.offsetY);
+      ctx.scale(this.scale, this.scale);
+      if (this.planWidth && this.planHeight) {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, this.planWidth, this.planHeight);
+      }
       if (this.imageLoaded && this.image) {
+        ctx.drawImage(this.image, 0, 0, this.planWidth || this.image.width, this.planHeight || this.image.height);
+      }
+      if (this.opts.onRender) {
+        this.opts.onRender(ctx, this.scale, this.offsetX, this.offsetY);
+      }
+      ctx.restore();
+
+      if (this.statusText) {
         ctx.save();
-        ctx.translate(this.offsetX, this.offsetY);
-        ctx.scale(this.scale, this.scale);
-        ctx.drawImage(this.image, 0, 0);
-        if (this.opts.onRender) {
-          this.opts.onRender(ctx, this.scale, this.offsetX, this.offsetY);
-        }
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.font = '13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        var maxW = Math.max(120, (this.cssWidth || 300) - 24);
+        var tw = Math.min(ctx.measureText(this.statusText).width, maxW);
+        ctx.fillStyle = 'rgba(255,255,255,0.92)';
+        ctx.fillRect(8, 8, tw + 16, 26);
+        ctx.fillStyle = '#374151';
+        ctx.fillText(this.statusText, 16, 14, maxW);
         ctx.restore();
-      } else {
-        // No image — call onRender with identity transform
-        if (this.opts.onRender) {
-          this.opts.onRender(ctx, 1, 0, 0);
-        }
       }
     };
 
@@ -4427,41 +5446,46 @@
      */
     AdminCanvasController.prototype.resetView = function() {
       this.scale = 1;
+      this.minScale = 0.05;
+      this.maxScale = 5;
       this.offsetX = 0;
       this.offsetY = 0;
       this.render();
     };
 
     /**
-     * Fit the loaded image within the canvas, centered, then render.
+     * Fit the floor plan within the canvas, centered, then render.
+     * Zoom limits are set relative to the fitted scale.
      */
     AdminCanvasController.prototype.fitImage = function() {
-      if (!this.imageLoaded || !this.image) return;
-      var canvas = this.canvas;
-      var imgW = this.image.width;
-      var imgH = this.image.height;
-      if (imgW === 0 || imgH === 0) return;
-
-      var scaleX = canvas.width / imgW;
-      var scaleY = canvas.height / imgH;
-      this.scale = Math.min(scaleX, scaleY);
-
-      // Center the image
-      this.offsetX = (canvas.width - imgW * this.scale) / 2;
-      this.offsetY = (canvas.height - imgH * this.scale) / 2;
-
+      this.syncSize();
+      var w = this.planWidth;
+      var h = this.planHeight;
+      var cw = this.cssWidth || 0;
+      var ch = this.cssHeight || 0;
+      if (!w || !h || !cw || !ch) {
+        this.resetView();
+        return;
+      }
+      var fit = Math.min(cw / w, ch / h) * 0.95;
+      this.scale = fit;
+      this.minScale = fit * 0.5;
+      this.maxScale = Math.max(fit * 40, 5);
+      this.offsetX = (cw - w * fit) / 2;
+      this.offsetY = (ch - h * fit) / 2;
       this.render();
     };
 
     /**
-     * Convert client (screen) coordinates to canvas (image) coordinates.
-     * Returns {x: canvasX, y: canvasY}.
+     * Convert client (screen) coordinates to plan coordinates.
+     * Returns {x, y}.
      */
     AdminCanvasController.prototype.toCanvasCoords = function(clientX, clientY) {
       var rect = this.canvas.getBoundingClientRect();
-      var canvasX = (clientX - rect.left - this.offsetX) / this.scale;
-      var canvasY = (clientY - rect.top - this.offsetY) / this.scale;
-      return { x: canvasX, y: canvasY };
+      return {
+        x: (clientX - rect.left - this.offsetX) / this.scale,
+        y: (clientY - rect.top - this.offsetY) / this.scale
+      };
     };
 
     /* ========================================================
