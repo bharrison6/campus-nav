@@ -1,0 +1,364 @@
+<script>
+/*
+ * Schedule (localStorage), QR scanning and deep links (?qr=<base64 JSON> as Admin generates;
+ * plus ?loc=<nodeId> and ?room=<roomId>), and the Pannellum photo viewer. ES5.
+ * Third-party scripts load on first use, not at page load.
+ */
+var LIBS = {
+  qr: 'https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js',
+  pannellumJs: 'https://cdn.jsdelivr.net/npm/pannellum@2.5.6/build/pannellum.js',
+  pannellumCss: 'https://cdn.jsdelivr.net/npm/pannellum@2.5.6/build/pannellum.css'
+};
+var loadedLibs = {};
+
+function loadScriptOnce(url, cb) {
+  if (loadedLibs[url] === true) { cb(null); return; }
+  if (loadedLibs[url]) { loadedLibs[url].push(cb); return; }
+  loadedLibs[url] = [cb];
+  var s = document.createElement('script');
+  s.src = url;
+  s.async = true;
+  s.onload = function () { var q = loadedLibs[url]; loadedLibs[url] = true; for (var i = 0; i < q.length; i++) { q[i](null); } };
+  s.onerror = function () { var q = loadedLibs[url]; delete loadedLibs[url]; for (var i = 0; i < q.length; i++) { q[i](new Error('Could not load ' + url)); } };
+  document.head.appendChild(s);
+}
+
+function loadCssOnce(url) {
+  if (loadedLibs[url]) { return; }
+  loadedLibs[url] = true;
+  var l = document.createElement('link');
+  l.rel = 'stylesheet';
+  l.href = url;
+  document.head.appendChild(l);
+}
+
+/* ---------- schedule ---------- */
+function getSchedule() {
+  var list = parseJsonField(lsGet(LS_KEYS.schedule), []);
+  return isArray(list) ? list : [];
+}
+
+function saveSchedule(events) { lsSet(LS_KEYS.schedule, JSON.stringify(events)); }
+
+function addScheduleEvent(ev) {
+  var list = getSchedule();
+  for (var i = 0; i < list.length; i++) {
+    if (list[i].time === ev.time && list[i].building === ev.building && String(list[i].room) === String(ev.room)) {
+      toast('That event is already in your schedule.');
+      return false;
+    }
+  }
+  list.push(ev);
+  list.sort(function (a, b) { return String(a.time).localeCompare(String(b.time)); });
+  saveSchedule(list);
+  return true;
+}
+
+function removeScheduleEvent(id) {
+  var list = getSchedule();
+  var out = [];
+  for (var i = 0; i < list.length; i++) { if (list[i].id !== id) { out.push(list[i]); } }
+  saveSchedule(out);
+  renderSchedule();
+}
+
+function formatTime(hhmm) {
+  var m = String(hhmm || '').match(/^(\d{1,2}):(\d{2})/);
+  if (!m) { return String(hhmm || ''); }
+  var h = Number(m[1]);
+  var ap = h >= 12 ? 'PM' : 'AM';
+  var h12 = h % 12 === 0 ? 12 : h % 12;
+  return h12 + ':' + m[2] + ' ' + ap;
+}
+
+function pad2(n) { return (n < 10 ? '0' : '') + n; }
+
+/* Event rooms are free text from Admin QR codes ("141", "0141", "IT 141") or a CAD number from the picker. */
+function findRoomInBuilding(buildingId, roomText) {
+  var floors = APP.floorsByBuilding[buildingId] || [];
+  var raw = String(roomText || '').replace(/^\s+|\s+$/g, '');
+  var b = APP.by.buildings[buildingId];
+  if (b && b.code) { raw = raw.replace(new RegExp('^' + String(b.code).replace(/[^A-Za-z0-9]/g, '') + '[\\s-]*', 'i'), ''); }
+  var want = MSCNSearch.displayNumber(raw);
+  for (var f = 0; f < floors.length; f++) {
+    var rooms = APP.roomsByFloor[floors[f].id] || [];
+    for (var i = 0; i < rooms.length; i++) {
+      if (String(rooms[i].number) === raw || rooms[i].id === raw || MSCNSearch.displayNumber(rooms[i].number) === want) { return rooms[i]; }
+    }
+  }
+  return null;
+}
+
+function renderSchedule() {
+  var box = $('schedule-list');
+  if (!box) { return; }
+  var list = getSchedule();
+  if (!list.length) {
+    box.innerHTML = '<div class="empty-state">' + ICONS.calendar + '<p><strong>No events yet.</strong></p>' +
+      '<p>Scan a class QR code or tap "Add event".</p></div>';
+    return;
+  }
+  var now = new Date();
+  var current = pad2(now.getHours()) + ':' + pad2(now.getMinutes());
+  var foundNext = false;
+  var html = '';
+  for (var i = 0; i < list.length; i++) {
+    var ev = list[i];
+    var past = String(ev.time) < current;
+    var next = !past && !foundNext;
+    if (next) { foundNext = true; }
+    var room = APP.data ? findRoomInBuilding(ev.building, ev.room) : null;
+    var where = buildingName(ev.building) + ' · ' + (room ? roomTitle(room) : 'Room ' + ev.room);
+    html += '<div class="event' + (past ? ' is-past' : '') + (next ? ' is-next' : '') + '">' +
+      '<div class="time">' + escapeHtml(formatTime(ev.time)) + '</div>' +
+      '<div class="body"><div class="name">' + escapeHtml(ev.name || 'Event') + (next ? ' <span class="chip">Next</span>' : '') + '</div>' +
+      '<div class="loc">' + escapeHtml(where) + '</div>' +
+      '<div class="actions">' +
+        '<button type="button" class="btn btn-primary" data-go="' + escapeHtml(ev.id) + '">' + ICONS.navigate + 'Go</button>' +
+        '<button type="button" class="btn btn-secondary" data-share="' + escapeHtml(ev.id) + '">Share</button>' +
+        '<button type="button" class="btn btn-ghost" data-remove="' + escapeHtml(ev.id) + '" aria-label="Remove ' + escapeHtml(ev.name || 'event') + '">Remove</button>' +
+      '</div></div></div>';
+  }
+  box.innerHTML = html;
+  var i2;
+  var go = box.querySelectorAll('[data-go]');
+  for (i2 = 0; i2 < go.length; i2++) { go[i2].onclick = function (e) { navigateToEvent(e.currentTarget.getAttribute('data-go')); }; }
+  var sh = box.querySelectorAll('[data-share]');
+  for (i2 = 0; i2 < sh.length; i2++) { sh[i2].onclick = function (e) { shareEvent(e.currentTarget.getAttribute('data-share')); }; }
+  var rm = box.querySelectorAll('[data-remove]');
+  for (i2 = 0; i2 < rm.length; i2++) { rm[i2].onclick = function (e) { removeScheduleEvent(e.currentTarget.getAttribute('data-remove')); }; }
+}
+
+function eventById(id) {
+  var list = getSchedule();
+  for (var i = 0; i < list.length; i++) { if (list[i].id === id) { return list[i]; } }
+  return null;
+}
+
+function navigateToEvent(id) {
+  var ev = eventById(id);
+  if (!ev) { return; }
+  var room = findRoomInBuilding(ev.building, ev.room);
+  if (room) {
+    openRoom(room.id, { navigate: true });
+    return;
+  }
+  var t = buildingTarget(ev.building, null);
+  if (t) {
+    window.open(directionsUrl(t.lat, t.lng), '_blank', 'noopener');
+    toast('That room is not on the indoor map; opening walking directions to the building.');
+  } else {
+    showError('That room is not in the campus data.');
+  }
+}
+
+function encodeQrPayload(payload) {
+  return encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(payload)))));
+}
+
+function decodeQrPayload(param) {
+  var b64 = decodeURIComponent(String(param)).replace(/ /g, '+');
+  var json;
+  try { json = decodeURIComponent(escape(atob(b64))); } catch (e) { json = atob(b64); }
+  return JSON.parse(json);
+}
+
+function shareEvent(id) {
+  var ev = eventById(id);
+  if (!ev) { return; }
+  if (!APP.appUrl) { showError('Sharing is not available in this preview.'); return; }
+  var payload = { type: 'schedule', time: ev.time, building: ev.building, room: ev.room, name: ev.name || '' };
+  var url = APP.appUrl + '?qr=' + encodeQrPayload(payload);
+  var title = (ev.name || 'Event') + ' at ' + formatTime(ev.time);
+  if (navigator.share) {
+    navigator.share({ title: title, url: url }).catch(function () { /* share sheet dismissed */ });
+  } else if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(function () { toast('Link copied', 'success'); },
+      function () { window.prompt('Copy this link:', url); });
+  } else {
+    window.prompt('Copy this link:', url);
+  }
+}
+
+/* add-event dialog */
+var eventReturnFocus = null;
+function showAddEventForm() {
+  eventReturnFocus = document.activeElement;
+  var sel = $('event-building');
+  var list = (APP.data && APP.data.buildings) || [];
+  var html = '<option value="">Select a building…</option>';
+  for (var i = 0; i < list.length; i++) { html += '<option value="' + escapeHtml(list[i].id) + '">' + escapeHtml(list[i].name) + '</option>'; }
+  sel.innerHTML = html;
+  onEventBuildingChange('');
+  $('event-modal').hidden = false;
+  $('event-time').focus();
+}
+
+function hideAddEventForm() {
+  $('event-modal').hidden = true;
+  if (eventReturnFocus && eventReturnFocus.focus) { eventReturnFocus.focus(); }
+}
+
+function onEventBuildingChange(buildingId) {
+  var sel = $('event-room');
+  var html = '<option value="">Select a room…</option>';
+  var floors = APP.floorsByBuilding[buildingId] || [];
+  var rooms = [];
+  for (var f = 0; f < floors.length; f++) {
+    var rr = APP.roomsByFloor[floors[f].id] || [];
+    for (var i = 0; i < rr.length; i++) { if (MSCNPath.toBool(rr[i].searchable, true)) { rooms.push(rr[i]); } }
+  }
+  rooms.sort(function (a, b) { return MSCNSearch.naturalCompare(a.number, b.number); });
+  for (var k = 0; k < rooms.length; k++) {
+    var use = MSCNSearch.useText(rooms[k]);
+    html += '<option value="' + escapeHtml(rooms[k].number) + '">' + escapeHtml(roomTitle(rooms[k]) + (use ? ' – ' + use : '')) + '</option>';
+  }
+  sel.innerHTML = html;
+  sel.disabled = !rooms.length;
+}
+
+function submitAddEvent() {
+  var time = $('event-time').value;
+  var building = $('event-building').value;
+  var room = $('event-room').value;
+  var name = $('event-name').value;
+  if (!time) { showError('Please choose a time.'); return; }
+  if (!building) { showError('Please choose a building.'); return; }
+  if (!room) { showError('Please choose a room.'); return; }
+  if (addScheduleEvent({ id: String(new Date().getTime()), time: time, building: building, room: room, name: name, addedAt: new Date().toISOString() })) {
+    toast('Added to your schedule', 'success');
+  }
+  hideAddEventForm();
+  renderSchedule();
+  $('event-time').value = '09:00';
+  $('event-name').value = '';
+}
+
+/* ---------- QR ---------- */
+var qrScanner = null;
+
+function startScan() {
+  var box = $('qr-viewfinder');
+  $('scan-result').textContent = 'Starting camera…';
+  loadScriptOnce(LIBS.qr, function (err) {
+    if (err || typeof Html5Qrcode === 'undefined') {
+      $('scan-result').textContent = 'The scanner could not load. Check your connection.';
+      return;
+    }
+    box.innerHTML = '';
+    qrScanner = new Html5Qrcode('qr-viewfinder');
+    qrScanner.start({ facingMode: 'environment' }, { fps: 10, qrbox: { width: 240, height: 240 } },
+      function (text) { stopScan(); handleQrText(text); },
+      function () { /* no code in this frame */ }
+    ).then(function () {
+      $('scan-result').textContent = 'Point the camera at a campus QR code.';
+      $('btn-start-scan').hidden = true;
+      $('btn-stop-scan').hidden = false;
+    }).catch(function (e) {
+      qrScanner = null;
+      box.innerHTML = '<span>Camera is off</span>';
+      $('scan-result').textContent = 'Camera unavailable: ' + errText(e);
+    });
+  });
+}
+
+function stopScan() {
+  if (qrScanner) {
+    var s = qrScanner;
+    qrScanner = null;
+    s.stop().then(function () { $('qr-viewfinder').innerHTML = '<span>Camera is off</span>'; }, function () { /* already stopped */ });
+  }
+  $('btn-start-scan').hidden = false;
+  $('btn-stop-scan').hidden = true;
+}
+
+function queryParam(url, name) {
+  var m = String(url).match(new RegExp('[?&]' + name + '=([^&#]*)'));
+  return m ? m[1] : null;
+}
+
+function handleQrText(raw) {
+  var out = $('scan-result');
+  var payload = null;
+  try {
+    var qr = queryParam(raw, 'qr');
+    var loc = queryParam(raw, 'loc');
+    if (qr) { payload = decodeQrPayload(qr); }
+    else if (loc) { payload = { type: 'location', nodeId: decodeURIComponent(loc) }; }
+    else { payload = JSON.parse(raw); }
+  } catch (e) {
+    out.textContent = 'That QR code is not a campus navigation code.';
+    return;
+  }
+  if (!processQrPayload(payload)) {
+    out.textContent = 'That QR code is not a campus navigation code.';
+  } else {
+    out.textContent = '';
+  }
+}
+
+function processQrPayload(p) {
+  if (!p || !p.type) { return false; }
+  if (p.type === 'location') { handleLocationPayload(p); return true; }
+  if (p.type === 'schedule') { handleSchedulePayload(p); return true; }
+  return false;
+}
+
+function handleSchedulePayload(p) {
+  var ev = { id: String(new Date().getTime()), time: p.time, building: p.building, room: p.room, name: p.name || '', addedAt: new Date().toISOString() };
+  if (addScheduleEvent(ev)) { toast('Added to your schedule: ' + (ev.name || ('Room ' + ev.room)) + ' at ' + formatTime(ev.time), 'success'); }
+  switchToView('schedule');
+}
+
+/* Deep links on page load: ?qr= (Admin QR codes), ?loc=<nodeId>, ?room=<roomId>. */
+function checkDeepLink() {
+  if (typeof google === 'undefined' || !google.script || !google.script.url) { return; }
+  try {
+    google.script.url.getLocation(function (loc) {
+      var p = (loc && loc.parameter) || {};
+      try {
+        if (p.qr) { processQrPayload(decodeQrPayload(p.qr)); }
+        else if (p.loc) { handleLocationPayload({ type: 'location', nodeId: p.loc, permanent: true }); }
+        else if (p.room) {
+          var id = APP.by.rooms[p.room] ? p.room : null;
+          if (id) { openRoom(id, { navigate: p.nav === '1' }); } else { showError('That room link is not valid.'); }
+        }
+      } catch (e) {
+        showError('That link could not be read.');
+      }
+    });
+  } catch (e) { /* url API unavailable */ }
+}
+
+/* ---------- panorama ---------- */
+var panoramaViewer = null;
+var panoramaReturnFocus = null;
+
+function driveDirectUrl(url) {
+  var m = String(url || '').match(/\/d\/([a-zA-Z0-9_-]+)/) || String(url || '').match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  return m ? 'https://drive.google.com/uc?export=view&id=' + m[1] : String(url || '');
+}
+
+function showPanorama(photo) {
+  if (!photo || !photo.driveUrl) { toast('This photo is not available yet.'); return; }
+  panoramaReturnFocus = document.activeElement;
+  loadCssOnce(LIBS.pannellumCss);
+  loadScriptOnce(LIBS.pannellumJs, function (err) {
+    if (err || typeof pannellum === 'undefined') { showError('The photo viewer could not load.'); return; }
+    closePanorama(true);
+    $('panorama-modal').hidden = false;
+    panoramaViewer = pannellum.viewer('panorama-container', {
+      type: 'equirectangular', panorama: driveDirectUrl(photo.driveUrl), autoLoad: true, compass: true,
+      northOffset: Number(photo.heading) || 0, title: photo.caption || '', showControls: true, mouseZoom: true
+    });
+    panoramaViewer.on('error', function () { closePanorama(); showError('Could not load that photo.'); });
+    $('btn-close-panorama').focus();
+  });
+}
+
+function closePanorama(keepFocus) {
+  if (panoramaViewer) { panoramaViewer.destroy(); panoramaViewer = null; }
+  $('panorama-modal').hidden = true;
+  if (!keepFocus && panoramaReturnFocus && panoramaReturnFocus.focus) { panoramaReturnFocus.focus(); }
+}
+</script>

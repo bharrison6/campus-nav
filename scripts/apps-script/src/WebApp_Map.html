@@ -1,0 +1,200 @@
+<script>
+/*
+ * Map: Google Maps with building markers when Config.mapsApiKey is set (read at runtime, never
+ * hardcoded); otherwise, or when the map fails to load, a building list with key-free
+ * "Open in Google Maps" walking-direction links. ES5.
+ */
+var MAP = { mode: null, map: null, markers: {}, timer: null };
+
+function mapsKey() {
+  var k = getConfigValue('mapsApiKey');
+  k = k === null || k === undefined ? '' : String(k).replace(/^\s+|\s+$/g, '');
+  if (!k || /REMOVED|^\*+/.test(k)) { return ''; }
+  return k;
+}
+
+function initMap() {
+  var key = mapsKey();
+  if (!key) {
+    showBuildingList('nokey');
+    return;
+  }
+  MAP.mode = 'loading';
+  $('map-canvas').hidden = false;
+  window.gm_authFailure = function () { showBuildingList('failed'); };
+  window.mscnOnMapsLoaded = onMapsLoaded;
+  var s = document.createElement('script');
+  s.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(key) + '&callback=mscnOnMapsLoaded&loading=async';
+  s.async = true;
+  s.onerror = function () { showBuildingList('failed'); };
+  document.head.appendChild(s);
+  MAP.timer = setTimeout(function () {
+    if (MAP.mode === 'loading') { showBuildingList('failed'); }
+  }, 15000);
+}
+
+function buildingsWithLocation() {
+  var out = [];
+  var list = (APP.data && APP.data.buildings) || [];
+  for (var i = 0; i < list.length; i++) {
+    if (list[i] && list[i].lat !== '' && list[i].lng !== '' && isFinite(Number(list[i].lat)) && isFinite(Number(list[i].lng)) && Number(list[i].lat) !== 0) {
+      out.push(list[i]);
+    }
+  }
+  return out;
+}
+
+function onMapsLoaded() {
+  if (MAP.mode !== 'loading') { return; }
+  clearTimeout(MAP.timer);
+  MAP.mode = 'map';
+  var list = buildingsWithLocation();
+  var center = { lat: 36.6155, lng: -88.3215 };
+  if (list.length) {
+    var la = 0, ln = 0;
+    for (var i = 0; i < list.length; i++) { la += Number(list[i].lat); ln += Number(list[i].lng); }
+    center = { lat: la / list.length, lng: ln / list.length };
+  }
+  MAP.map = new google.maps.Map($('map-canvas'), {
+    center: center, zoom: 17, mapTypeControl: false, streetViewControl: false, fullscreenControl: false,
+    clickableIcons: false, styles: [{ featureType: 'poi', stylers: [{ visibility: 'off' }] }]
+  });
+  for (var k = 0; k < list.length; k++) { addBuildingMarker(list[k]); }
+  addPhotoMarkers();
+  MAP.map.addListener('click', function () { closeBuildingSheet(); });
+}
+
+function addBuildingMarker(b) {
+  var marker = new google.maps.Marker({
+    position: { lat: Number(b.lat), lng: Number(b.lng) },
+    map: MAP.map,
+    title: b.name,
+    label: b.code ? { text: String(b.code), color: '#ffffff', fontSize: '11px', fontWeight: '700' } : null,
+    icon: { path: google.maps.SymbolPath.CIRCLE, scale: 15, fillColor: '#002144', fillOpacity: 1, strokeColor: '#ecac00', strokeWeight: 3 }
+  });
+  marker.addListener('click', function () {
+    showBuildingSheet(b);
+    MAP.map.panTo(marker.getPosition());
+  });
+  MAP.markers[b.id] = marker;
+}
+
+function addPhotoMarkers() {
+  var list = (APP.data && APP.data.photos) || [];
+  for (var i = 0; i < list.length; i++) {
+    (function (photo) {
+      if (photo.type !== 'outdoor' || !photo.lat || !photo.lng) { return; }
+      var m = new google.maps.Marker({
+        position: { lat: Number(photo.lat), lng: Number(photo.lng) }, map: MAP.map, title: photo.caption || 'Photo',
+        icon: { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: '#ecac00', fillOpacity: 1, strokeColor: '#ffffff', strokeWeight: 2 }
+      });
+      m.addListener('click', function () { showPanorama(photo); });
+    })(list[i]);
+  }
+}
+
+function buildingCardHtml(b, headingId) {
+  var t = buildingTarget(b.id, null);
+  var ents = b.entrances || [];
+  var html = '<h3' + (headingId ? ' id="' + headingId + '"' : '') + '>' + escapeHtml(b.name || b.id) + '</h3>';
+  var sub = [];
+  if (b.code) { sub.push('Building ' + b.code + (b.number ? ' (' + b.number + ')' : '')); }
+  if (buildingHasIndoor(b)) { sub.push('Indoor maps'); }
+  if (sub.length) { html += '<div class="sub">' + escapeHtml(sub.join(' · ')) + '</div>'; }
+  html += '<div class="row">';
+  if (t) {
+    html += '<a class="btn btn-primary" data-directions="' + escapeHtml(b.id) + '" href="' + escapeHtml(directionsUrl(t.lat, t.lng)) +
+      '" target="_blank" rel="noopener">' + ICONS.walk + 'Open in Google Maps</a>';
+  }
+  if (buildingHasIndoor(b)) {
+    html += '<button type="button" class="btn btn-secondary" data-inside="' + escapeHtml(b.id) + '">' + ICONS.building + 'View inside</button>';
+  }
+  html += '</div>';
+  if (ents.length > 1) {
+    html += '<ul aria-label="Entrances">';
+    for (var i = 0; i < ents.length; i++) {
+      if (!ents[i].lat || !ents[i].lng) { continue; }
+      html += '<li><a href="' + escapeHtml(directionsUrl(ents[i].lat, ents[i].lng)) + '" target="_blank" rel="noopener">Directions to ' +
+        escapeHtml(ents[i].name || 'entrance ' + (i + 1)) + '</a></li>';
+    }
+    html += '</ul>';
+  }
+  return html;
+}
+
+function wireBuildingButtons(root) {
+  var btns = root.querySelectorAll('[data-inside]');
+  for (var i = 0; i < btns.length; i++) {
+    btns[i].onclick = function (e) {
+      var id = e.currentTarget.getAttribute('data-inside');
+      closeBuildingSheet();
+      switchToView('indoor');
+      selectBuilding(id);
+    };
+  }
+}
+
+function showBuildingList(reason) {
+  if (MAP.mode === 'list') { return; }
+  clearTimeout(MAP.timer);
+  MAP.mode = 'list';
+  $('map-canvas').hidden = true;
+  $('map-fallback').hidden = false;
+  var list = (APP.data && APP.data.buildings) || [];
+  var html = '<div class="notice" id="map-notice" role="note">' + ICONS.info + '<div>' +
+    (reason === 'failed'
+      ? 'The interactive map could not load. '
+      : 'The interactive map is not configured (no Maps key). ') +
+    'Directions below open in Google Maps and need no key.</div></div>';
+  var sorted = list.slice(0).sort(function (a, b) {
+    var ai = buildingHasIndoor(a) ? 0 : 1;
+    var bi = buildingHasIndoor(b) ? 0 : 1;
+    if (ai !== bi) { return ai - bi; }
+    return String(a.name).localeCompare(String(b.name));
+  });
+  for (var i = 0; i < sorted.length; i++) {
+    if (!sorted[i] || !sorted[i].id) { continue; }
+    html += '<article class="bcard" id="bcard-' + escapeHtml(sorted[i].id) + '" aria-labelledby="bcard-h-' + escapeHtml(sorted[i].id) + '">' +
+      buildingCardHtml(sorted[i], 'bcard-h-' + escapeHtml(sorted[i].id)) + '</article>';
+  }
+  if (!sorted.length) { html += '<div class="empty-state"><p>No buildings in the campus data yet.</p></div>'; }
+  var box = $('building-list');
+  box.innerHTML = html;
+  wireBuildingButtons(box);
+}
+
+function showBuildingSheet(b) {
+  var sheet = $('building-sheet');
+  sheet.innerHTML = '<div class="sheet-grip" aria-hidden="true"></div><div class="sheet-head"><div class="bcard" style="border:0;padding:0;flex:1">' +
+    buildingCardHtml(b, 'building-sheet-title') + '</div>' +
+    '<button type="button" class="sheet-close" id="building-sheet-close" aria-label="Close">' + ICONS.close + '</button></div>';
+  sheet.hidden = false;
+  $('building-sheet-close').onclick = closeBuildingSheet;
+  wireBuildingButtons(sheet);
+}
+
+function closeBuildingSheet() {
+  var s = $('building-sheet');
+  s.hidden = true;
+  s.innerHTML = '';
+}
+
+/* From search: show a building on the Map tab. */
+function focusBuildingOnMap(buildingId) {
+  var b = APP.by.buildings[buildingId];
+  if (!b) { return; }
+  switchToView('map');
+  if (MAP.mode === 'map' && MAP.markers[buildingId]) {
+    MAP.map.panTo(MAP.markers[buildingId].getPosition());
+    MAP.map.setZoom(18);
+    showBuildingSheet(b);
+    return;
+  }
+  var card = $('bcard-' + buildingId);
+  if (card) {
+    card.scrollIntoView({ block: 'center' });
+    card.className = 'bcard is-flash';
+    setTimeout(function () { card.className = 'bcard'; }, 1600);
+  }
+}
+</script>

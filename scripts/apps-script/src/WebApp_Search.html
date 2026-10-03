@@ -1,0 +1,205 @@
+<script>
+/*
+ * MSCNSearch: room and building search (Data contract v2). Pure ES5, no DOM access;
+ * loaded by the web app as an include and by the Node unit tests.
+ *
+ * Understands "IT 141", "it141", "141", "0141", "140b", "EP lab", label words, building names.
+ */
+var MSCNSearch = (function () {
+  'use strict';
+
+  function norm(s) {
+    return String(s === null || s === undefined ? '' : s)
+      .toLowerCase()
+      .replace(/&/g, ' and ')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .replace(/^\s+|\s+$/g, '');
+  }
+
+  /* "it141" -> ["it", "141"]; "140b" stays one token (room suffix). */
+  function tokens(s) {
+    var n = norm(s).replace(/([a-z])(\d)/g, '$1 $2');
+    if (!n) { return []; }
+    var parts = n.split(/\s+/);
+    var out = [];
+    for (var i = 0; i < parts.length; i++) {
+      if (parts[i]) { out.push(stripZeros(parts[i])); }
+    }
+    return out;
+  }
+
+  function stripZeros(t) {
+    return /^\d/.test(t) ? t.replace(/^0+(?=\d)/, '') : t;
+  }
+
+  /* CAD number "0140B" -> "140B". */
+  function displayNumber(number) {
+    var s = String(number === null || number === undefined ? '' : number).replace(/^\s+|\s+$/g, '');
+    return s.replace(/^0+(?=\d)/, '').toUpperCase();
+  }
+
+  /* Label "141 Classroom" -> "Classroom" (the use text without the repeated number). */
+  function useText(room) {
+    var label = String(room.label === null || room.label === undefined ? '' : room.label).replace(/^\s+|\s+$/g, '');
+    var num = displayNumber(room.number);
+    if (!label) { return ''; }
+    var first = label.split(/\s+/)[0];
+    if (num && first.toUpperCase() === num) { return label.substring(first.length).replace(/^\s+/, ''); }
+    if (num && label.toUpperCase() === num) { return ''; }
+    return label;
+  }
+
+  function toBool(v, dflt) {
+    if (v === true || v === false) { return v; }
+    if (v === null || v === undefined || v === '') { return dflt; }
+    var s = String(v).toLowerCase();
+    if (s === 'false' || s === '0' || s === 'no') { return false; }
+    if (s === 'true' || s === '1' || s === 'yes') { return true; }
+    return dflt;
+  }
+
+  /*
+   * buildIndex(data, opts) -> index
+   *   opts.floorFilter(floor) -> bool : hide rooms on floors that fail (non-public floors)
+   */
+  function buildIndex(data, opts) {
+    opts = opts || {};
+    var buildings = {};
+    var floors = {};
+    var codes = {};
+    var entries = [];
+    var i;
+    var bl = (data && data.buildings) || [];
+    for (i = 0; i < bl.length; i++) {
+      var b = bl[i];
+      if (!b || !b.id) { continue; }
+      buildings[b.id] = b;
+      var code = norm(b.code);
+      if (code) { codes[code] = true; }
+      entries.push({
+        kind: 'building', id: b.id, buildingId: b.id,
+        title: String(b.name || b.id),
+        subtitle: b.code ? 'Building ' + b.code + (b.number ? ' (' + b.number + ')' : '') : 'Building',
+        code: code,
+        words: tokens(b.name)
+      });
+    }
+    var fl = (data && data.floors) || [];
+    for (i = 0; i < fl.length; i++) { if (fl[i] && fl[i].id) { floors[fl[i].id] = fl[i]; } }
+
+    var rl = (data && data.rooms) || [];
+    for (i = 0; i < rl.length; i++) {
+      var r = rl[i];
+      if (!r || !r.id) { continue; }
+      var f = floors[r.floorId];
+      if (!f) { continue; }
+      if (opts.floorFilter && !opts.floorFilter(f)) { continue; }
+      if (!toBool(r.searchable, true)) { continue; }
+      var bb = buildings[f.buildingId] || { name: '', code: '' };
+      var num = displayNumber(r.number);
+      var use = useText(r);
+      var type = String(r.type || '');
+      var sub = [];
+      if (use) { sub.push(use); }
+      if (type && norm(type) !== norm(use) && norm(use).indexOf(norm(type)) === -1) { sub.push(type); }
+      sub.push((bb.name ? bb.name + ', ' : '') + (f.label || ('Floor ' + f.level)));
+      entries.push({
+        kind: 'room', id: r.id, roomId: r.id, floorId: f.id, buildingId: f.buildingId,
+        title: (bb.code ? bb.code + ' ' : '') + (num || r.id),
+        subtitle: sub.join(' · '),
+        num: num.toLowerCase(),
+        code: norm(bb.code),
+        words: tokens(use + ' ' + type),
+        bwords: tokens(bb.name)
+      });
+    }
+    return { entries: entries, codes: codes };
+  }
+
+  function prefixOfAny(tok, words) {
+    for (var i = 0; i < words.length; i++) {
+      if (words[i].indexOf(tok) === 0) { return words[i] === tok ? 2 : 1; }
+    }
+    return 0;
+  }
+
+  function naturalCompare(a, b) {
+    var ax = String(a).toLowerCase().match(/(\d+|\D+)/g) || [];
+    var bx = String(b).toLowerCase().match(/(\d+|\D+)/g) || [];
+    for (var i = 0; i < Math.min(ax.length, bx.length); i++) {
+      var x = ax[i];
+      var y = bx[i];
+      if (x === y) { continue; }
+      var nx = /^\d/.test(x);
+      var ny = /^\d/.test(y);
+      if (nx && ny) { return Number(x) - Number(y); }
+      return x < y ? -1 : 1;
+    }
+    return ax.length - bx.length;
+  }
+
+  function scoreRoom(e, qt, codes) {
+    var score = 0;
+    var own = false;
+    for (var i = 0; i < qt.length; i++) {
+      var t = qt[i];
+      if (e.code && t === e.code) { score += 25; continue; }
+      if (codes[t] && t !== e.code) { return 0; }
+      if (/^\d/.test(t)) {
+        if (e.num === t) { score += 60; own = true; continue; }
+        if (e.num.indexOf(t) === 0) { score += 35; own = true; continue; }
+        return 0;
+      }
+      var w = prefixOfAny(t, e.words);
+      if (w) { score += 8 + 4 * w; own = true; continue; }
+      var bw = prefixOfAny(t, e.bwords);
+      if (bw) { score += 3; continue; }
+      return 0;
+    }
+    return own ? score : 0;
+  }
+
+  function scoreBuilding(e, qt) {
+    var score = 0;
+    for (var i = 0; i < qt.length; i++) {
+      var t = qt[i];
+      if (e.code && t === e.code) { score += 70; continue; }
+      var w = prefixOfAny(t, e.words);
+      if (w) { score += 30 + 5 * w; continue; }
+      return 0;
+    }
+    return score;
+  }
+
+  /* search(index, query, limit) -> [entry + score], best first */
+  function search(index, query, limit) {
+    var qt = tokens(query);
+    if (!qt.length || !index) { return []; }
+    var hits = [];
+    for (var i = 0; i < index.entries.length; i++) {
+      var e = index.entries[i];
+      var s = e.kind === 'room' ? scoreRoom(e, qt, index.codes) : scoreBuilding(e, qt);
+      if (s > 0) { hits.push({ entry: e, score: s }); }
+    }
+    hits.sort(function (a, b) {
+      if (b.score !== a.score) { return b.score - a.score; }
+      if (a.entry.kind !== b.entry.kind) { return a.entry.kind === 'building' ? -1 : 1; }
+      return naturalCompare(a.entry.title, b.entry.title);
+    });
+    var out = [];
+    var max = limit || 8;
+    for (var k = 0; k < hits.length && out.length < max; k++) { out.push(hits[k].entry); }
+    return out;
+  }
+
+  return {
+    norm: norm,
+    tokens: tokens,
+    displayNumber: displayNumber,
+    useText: useText,
+    buildIndex: buildIndex,
+    search: search,
+    naturalCompare: naturalCompare
+  };
+})();
+</script>

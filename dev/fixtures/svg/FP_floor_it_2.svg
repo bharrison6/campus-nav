@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2400 1200" width="2400" height="1200" data-floor-id="floor-it-2">
+  <g id="background"><rect x="0" y="0" width="2400" height="1200" fill="#f4f4f2"/></g>
+  <g id="walls">
+    <rect x="40" y="40" width="2320" height="1120" fill="none" stroke="#111111" stroke-width="12"/>
+    <line x1="100" y1="500" x2="2300" y2="500" stroke="#111111" stroke-width="6"/>
+    <line x1="100" y1="700" x2="2300" y2="700" stroke="#111111" stroke-width="6"/>
+  </g>
+  <g id="rooms">
+    <path data-room-id="room-it-2-0241" d="M100 100 L700 100 L700 500 L100 500 Z" fill="#ffffff" stroke="#222222" stroke-width="4"/>
+    <path data-room-id="room-it-2-0243" d="M700 100 L1300 100 L1300 500 L700 500 Z" fill="#ffffff" stroke="#222222" stroke-width="4"/>
+    <path data-room-id="room-it-2-0245" d="M1300 100 L2300 100 L2300 500 L1300 500 Z" fill="#ffffff" stroke="#222222" stroke-width="4"/>
+    <path data-room-id="room-it-2-0240" d="M300 700 L1850 700 L1850 1100 L300 1100 Z" fill="#ffffff" stroke="#222222" stroke-width="4"/>
+    <path data-room-id="room-it-2-0250" d="M1900 700 L2050 700 L2050 1100 L1900 1100 Z" fill="#ffffff" stroke="#222222" stroke-width="4"/>
+    <path data-room-id="room-it-2-0252" d="M100 700 L300 700 L300 1100 L100 1100 Z" fill="#ffffff" stroke="#222222" stroke-width="4"/>
+  </g>
+</svg>

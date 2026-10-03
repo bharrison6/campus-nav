@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" width="1600" height="900" data-floor-id="floor-ep-1">
+  <g id="background"><rect x="0" y="0" width="1600" height="900" fill="#f4f4f2"/></g>
+  <g id="walls">
+    <rect x="40" y="40" width="1520" height="820" fill="none" stroke="#111111" stroke-width="12"/>
+    <line x1="100" y1="275" x2="1500" y2="275" stroke="#111111" stroke-width="6"/>
+    <line x1="100" y1="475" x2="1500" y2="475" stroke="#111111" stroke-width="6"/>
+  </g>
+  <g id="rooms">
+    <path data-room-id="room-ep-1-0132" d="M100 450 L700 450 L700 800 L100 800 Z" fill="#ffffff" stroke="#222222" stroke-width="4"/>
+    <path data-room-id="room-ep-1-0134" d="M700 450 L1500 450 L1500 800 L700 800 Z" fill="#ffffff" stroke="#222222" stroke-width="4"/>
+    <path data-room-id="room-ep-1-0130" d="M100 100 L700 100 L700 300 L100 300 Z" fill="#ffffff" stroke="#222222" stroke-width="4"/>
+  </g>
+</svg>

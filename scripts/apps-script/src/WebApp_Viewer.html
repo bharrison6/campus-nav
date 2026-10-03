@@ -1,0 +1,616 @@
+<script>
+/*
+ * FloorViewer: renders one floor-plan SVG inline and pans/zooms it by rewriting the viewBox,
+ * so the plan stays vector-crisp at every zoom. Rooms are the SVG's [data-room-id] elements.
+ * Overlay layers (labels, route, markers) live in the same coordinate space as the plan,
+ * Rooms.polygon and NavNodes x/y (Data contract v2). ES5, no dependencies.
+ *
+ * new FloorViewer(host, {
+ *   resolveRoomId(rawAttr, floorId) -> canonical room id or null,
+ *   onTap({ roomId, markerId, point }),
+ * })
+ */
+var FloorViewer = (function () {
+  'use strict';
+
+  var SVGNS = 'http://www.w3.org/2000/svg';
+  var LABEL_PX = 12;
+  var MARKER_PX = 1;
+
+  function el(name, attrs) {
+    var e = document.createElementNS(SVGNS, name);
+    if (attrs) {
+      for (var k in attrs) { if (attrs.hasOwnProperty(k)) { e.setAttribute(k, attrs[k]); } }
+    }
+    return e;
+  }
+
+  function raf(fn) {
+    return (window.requestAnimationFrame || function (f) { return setTimeout(f, 16); })(fn);
+  }
+
+  function sanitize(root) {
+    var bad = root.querySelectorAll('script, foreignObject, iframe, object, embed');
+    var i;
+    for (i = 0; i < bad.length; i++) { bad[i].parentNode.removeChild(bad[i]); }
+    var all = root.getElementsByTagName('*');
+    var nodes = [root];
+    for (i = 0; i < all.length; i++) { nodes.push(all[i]); }
+    for (i = 0; i < nodes.length; i++) {
+      var attrs = nodes[i].attributes;
+      for (var j = attrs.length - 1; j >= 0; j--) {
+        var name = attrs[j].name.toLowerCase();
+        var val = String(attrs[j].value || '').toLowerCase();
+        if (name.indexOf('on') === 0 || ((name === 'href' || name === 'xlink:href') && val.indexOf('javascript:') > -1)) {
+          nodes[i].removeAttribute(attrs[j].name);
+        }
+      }
+    }
+    return root;
+  }
+
+  /* XML first (the asset is SVG); HTML parser as a fallback for markup that is not well-formed XML. */
+  function parseSvg(str) {
+    var text = String(str || '').replace(/^﻿/, '').replace(/<\?xml[\s\S]*?\?>/i, '').replace(/<!DOCTYPE[\s\S]*?>/i, '');
+    var root = null;
+    try {
+      var doc = new DOMParser().parseFromString(text, 'image/svg+xml');
+      var r = doc.documentElement;
+      if (r && r.namespaceURI === SVGNS && r.localName === 'svg' && !doc.getElementsByTagName('parsererror').length) {
+        root = document.importNode(r, true);
+      }
+    } catch (e) { root = null; }
+    if (!root) {
+      var div = document.createElement('div');
+      div.innerHTML = text;
+      root = div.querySelector('svg');
+      if (root) { root.parentNode.removeChild(root); }
+    }
+    if (!root) { throw new Error('The floor plan file is not a readable SVG.'); }
+    return sanitize(root);
+  }
+
+  function parseViewBox(svg, fallbackW, fallbackH) {
+    var vb = (svg.getAttribute('viewBox') || '').split(/[\s,]+/);
+    if (vb.length === 4) {
+      var b = { x: +vb[0], y: +vb[1], w: +vb[2], h: +vb[3] };
+      if (b.w > 0 && b.h > 0) { return b; }
+    }
+    var w = parseFloat(svg.getAttribute('width')) || Number(fallbackW) || 1000;
+    var h = parseFloat(svg.getAttribute('height')) || Number(fallbackH) || 1000;
+    return { x: 0, y: 0, w: w, h: h };
+  }
+
+  function bboxOfPoints(pts) {
+    var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (var i = 0; i < pts.length; i++) {
+      var x = Number(pts[i][0]);
+      var y = Number(pts[i][1]);
+      if (x < x0) { x0 = x; } if (y < y0) { y0 = y; }
+      if (x > x1) { x1 = x; } if (y > y1) { y1 = y; }
+    }
+    if (x0 === Infinity) { return null; }
+    return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+  }
+
+  function pointInPolygon(x, y, poly) {
+    var inside = false;
+    for (var i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      var xi = Number(poly[i][0]), yi = Number(poly[i][1]);
+      var xj = Number(poly[j][0]), yj = Number(poly[j][1]);
+      if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) { inside = !inside; }
+    }
+    return inside;
+  }
+
+  function FloorViewer(host, opts) {
+    this.host = host;
+    this.opts = opts || {};
+    this.svg = null;
+    this.floorId = null;
+    this.base = null;
+    this.vb = null;
+    this.scale = 1;
+    this.fitScale = 1;
+    this.roomEls = {};
+    this.roomInfo = [];
+    this.labels = [];
+    this.markers = [];
+    this.layers = {};
+    this.pointers = {};
+    this.pointerCount = 0;
+    this.gesture = null;
+    this.pending = false;
+    this.needsFit = false;
+    this._bind();
+  }
+
+  FloorViewer.prototype.isLoaded = function () { return !!this.svg; };
+
+  /*
+   * load(svgString, info) ; info = { floorId, widthPx, heightPx, rooms: [{ id, label, centerX, centerY, polygon }] }
+   * Throws when the SVG cannot be parsed.
+   */
+  FloorViewer.prototype.load = function (svgString, info) {
+    info = info || {};
+    var svg = parseSvg(svgString);
+    var base = parseViewBox(svg, info.widthPx, info.heightPx);
+    svg.removeAttribute('width');
+    svg.removeAttribute('height');
+    svg.removeAttribute('style');
+    svg.setAttribute('class', 'fv-svg');
+    svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('focusable', 'false');
+
+    var hadText = svg.getElementsByTagName('text').length > 0;
+    var paper = el('rect', { 'class': 'fv-paper', x: base.x, y: base.y, width: base.w, height: base.h });
+    svg.insertBefore(paper, svg.firstChild);
+
+    this.host.innerHTML = '';
+    this.host.appendChild(svg);
+    this.svg = svg;
+    this.floorId = info.floorId || null;
+    this.base = base;
+    this.roomEls = {};
+    this.roomInfo = [];
+    this.markers = [];
+    this.labels = [];
+
+    var resolve = this.opts.resolveRoomId;
+    var nodes = svg.querySelectorAll('[data-room-id]');
+    for (var i = 0; i < nodes.length; i++) {
+      var raw = nodes[i].getAttribute('data-room-id');
+      var id = resolve ? resolve(raw, this.floorId) : raw;
+      if (id) {
+        nodes[i].setAttribute('data-mscn-room', id);
+        this.roomEls[id] = nodes[i];
+      }
+    }
+
+    var rooms = info.rooms || [];
+    for (i = 0; i < rooms.length; i++) {
+      var poly = rooms[i].polygon;
+      if (typeof poly === 'string') { try { poly = JSON.parse(poly); } catch (e) { poly = null; } }
+      var box = (poly && poly.length > 2) ? bboxOfPoints(poly) : null;
+      this.roomInfo.push({ id: rooms[i].id, polygon: (poly && poly.length > 2) ? poly : null, box: box, room: rooms[i] });
+    }
+
+    this.layers.labels = el('g', { 'class': 'fv-labels' });
+    this.layers.route = el('g', { 'class': 'fv-routes' });
+    this.layers.markers = el('g', { 'class': 'fv-markers' });
+    svg.appendChild(this.layers.labels);
+    svg.appendChild(this.layers.route);
+    svg.appendChild(this.layers.markers);
+    if (!hadText) { this._buildLabels(); }
+
+    this.fit();
+  };
+
+  FloorViewer.prototype.clear = function () {
+    this.host.innerHTML = '';
+    this.svg = null;
+    this.floorId = null;
+    this.roomEls = {};
+    this.roomInfo = [];
+    this.labels = [];
+    this.markers = [];
+  };
+
+  FloorViewer.prototype._buildLabels = function () {
+    for (var i = 0; i < this.roomInfo.length; i++) {
+      var ri = this.roomInfo[i];
+      var r = ri.room;
+      var text = r.shortLabel || '';
+      if (!text) { continue; }
+      var cx = Number(r.centerX);
+      var cy = Number(r.centerY);
+      if (!isFinite(cx) || !isFinite(cy) || (r.centerX === '' && r.centerY === '')) {
+        if (!ri.box) { continue; }
+        cx = ri.box.x + ri.box.w / 2;
+        cy = ri.box.y + ri.box.h / 2;
+      }
+      var t = el('text', { 'class': 'fv-label', x: cx, y: cy });
+      t.appendChild(document.createTextNode(text));
+      this.layers.labels.appendChild(t);
+      var box = ri.box;
+      if (!box && this.roomEls[r.id] && this.roomEls[r.id].getBBox) {
+        try { box = this.roomEls[r.id].getBBox(); } catch (e) { box = null; }
+      }
+      this.labels.push({ el: t, len: text.length, w: box ? box.w : 0, h: box ? box.h : 0 });
+    }
+  };
+
+  /* ---------- view box ---------- */
+
+  FloorViewer.prototype._hostSize = function () {
+    return { w: this.host.clientWidth, h: this.host.clientHeight };
+  };
+
+  /* Screen-pixel insets covered by floating UI (sheets, panels); fitting keeps content clear of them. */
+  FloorViewer.prototype.setInsets = function (insets) {
+    this.insets = insets || null;
+  };
+
+  FloorViewer.prototype.fitBox = function (box, pad) {
+    var size = this._hostSize();
+    if (!box || size.w < 2 || size.h < 2) { this.needsFit = true; return; }
+    pad = pad === undefined ? 0.04 : pad;
+    var ins = this.insets || {};
+    var l = ins.left || 0, r = ins.right || 0, t = ins.top || 0, b = ins.bottom || 0;
+    if (size.w - l - r < size.w * 0.35) { l = 0; r = 0; }
+    if (size.h - t - b < size.h * 0.35) { t = 0; b = 0; }
+    var bw = Math.max(box.w, 1) * (1 + 2 * pad);
+    var bh = Math.max(box.h, 1) * (1 + 2 * pad);
+    var s = Math.min((size.w - l - r) / bw, (size.h - t - b) / bh);
+    this._setView(box.x + box.w / 2 - (l - r) / (2 * s), box.y + box.h / 2 - (t - b) / (2 * s), s);
+  };
+
+  FloorViewer.prototype.fit = function () {
+    if (!this.base) { return; }
+    var size = this._hostSize();
+    if (size.w < 2 || size.h < 2) { this.needsFit = true; return; }
+    this.needsFit = false;
+    this.fitScale = Math.min(size.w / (this.base.w * 1.08), size.h / (this.base.h * 1.08));
+    this.fitBox(this.base, 0.04);
+  };
+
+  FloorViewer.prototype._clampScale = function (s) {
+    var min = this.fitScale * 0.6;
+    var max = this.fitScale * 60;
+    return Math.max(min, Math.min(max, s));
+  };
+
+  FloorViewer.prototype._setView = function (cx, cy, s) {
+    var size = this._hostSize();
+    if (size.w < 2 || size.h < 2 || !this.base) { return; }
+    s = this._clampScale(s);
+    var b = this.base;
+    var mx = b.w * 0.3;
+    var my = b.h * 0.3;
+    cx = Math.max(b.x - mx, Math.min(b.x + b.w + mx, cx));
+    cy = Math.max(b.y - my, Math.min(b.y + b.h + my, cy));
+    var w = size.w / s;
+    var h = size.h / s;
+    this.scale = s;
+    this.vb = { x: cx - w / 2, y: cy - h / 2, w: w, h: h };
+    this._schedule();
+  };
+
+  FloorViewer.prototype._center = function () {
+    return { x: this.vb.x + this.vb.w / 2, y: this.vb.y + this.vb.h / 2 };
+  };
+
+  FloorViewer.prototype._schedule = function () {
+    if (this.pending) { return; }
+    this.pending = true;
+    var self = this;
+    raf(function () {
+      self.pending = false;
+      self._apply();
+    });
+  };
+
+  FloorViewer.prototype._apply = function () {
+    if (!this.svg || !this.vb) { return; }
+    var v = this.vb;
+    this.svg.setAttribute('viewBox', v.x + ' ' + v.y + ' ' + v.w + ' ' + v.h);
+    var s = this.scale;
+    var fs = LABEL_PX / s;
+    for (var i = 0; i < this.labels.length; i++) {
+      var L = this.labels[i];
+      var needW = (L.len * LABEL_PX * 0.62 + 6) / s;
+      var show = L.w === 0 || (L.w >= needW && L.h >= fs * 1.3);
+      L.el.setAttribute('font-size', fs);
+      L.el.setAttribute('stroke-width', 3 / s);
+      L.el.setAttribute('class', show ? 'fv-label' : 'fv-label is-hidden');
+    }
+    for (i = 0; i < this.markers.length; i++) {
+      var m = this.markers[i];
+      m.el.setAttribute('transform', 'translate(' + m.x + ' ' + m.y + ') scale(' + (MARKER_PX / s) + ')');
+    }
+  };
+
+  /* Keep the same center and scale when the host changes size. */
+  FloorViewer.prototype.resize = function () {
+    if (!this.base) { return; }
+    if (this.needsFit || !this.vb) { this.fit(); return; }
+    var size = this._hostSize();
+    if (size.w < 2 || size.h < 2) { return; }
+    var c = this._center();
+    this.fitScale = Math.min(size.w / (this.base.w * 1.08), size.h / (this.base.h * 1.08));
+    this._setView(c.x, c.y, this.scale);
+  };
+
+  FloorViewer.prototype.clientToSvg = function (clientX, clientY) {
+    var r = this.host.getBoundingClientRect();
+    return { x: this.vb.x + (clientX - r.left) / this.scale, y: this.vb.y + (clientY - r.top) / this.scale };
+  };
+
+  FloorViewer.prototype.zoomAt = function (factor, clientX, clientY) {
+    if (!this.vb) { return; }
+    var p = this.clientToSvg(clientX, clientY);
+    var s = this._clampScale(this.scale * factor);
+    var f = s / this.scale;
+    var c = this._center();
+    this._setView(p.x + (c.x - p.x) / f, p.y + (c.y - p.y) / f, s);
+  };
+
+  FloorViewer.prototype.zoomBy = function (factor) {
+    if (!this.vb) { return; }
+    var r = this.host.getBoundingClientRect();
+    this.zoomAt(factor, r.left + r.width / 2, r.top + r.height / 2);
+  };
+
+  FloorViewer.prototype.panBy = function (dx, dy) {
+    if (!this.vb) { return; }
+    var c = this._center();
+    this._setView(c.x - dx / this.scale, c.y - dy / this.scale, this.scale);
+  };
+
+  FloorViewer.prototype.centerOn = function (x, y, minZoom) {
+    if (!this.base) { return; }
+    var s = this.scale;
+    if (minZoom && s < this.fitScale * minZoom) { s = this.fitScale * minZoom; }
+    this._setView(Number(x), Number(y), s);
+  };
+
+  FloorViewer.prototype.roomBox = function (roomId) {
+    for (var i = 0; i < this.roomInfo.length; i++) {
+      if (this.roomInfo[i].id === roomId && this.roomInfo[i].box) { return this.roomInfo[i].box; }
+    }
+    var e = this.roomEls[roomId];
+    if (e && e.getBBox) { try { return e.getBBox(); } catch (err) { return null; } }
+    return null;
+  };
+
+  /* Zoom to a room, but never closer than about half the floor so context stays visible. */
+  FloorViewer.prototype.focusRoom = function (roomId) {
+    var box = this.roomBox(roomId);
+    if (!box || !this.base) { return; }
+    var minW = this.base.w / 2.2;
+    var minH = this.base.h / 2.2;
+    var w = Math.max(box.w, minW);
+    var h = Math.max(box.h, minH);
+    this.fitBox({ x: box.x + box.w / 2 - w / 2, y: box.y + box.h / 2 - h / 2, w: w, h: h }, 0.1);
+  };
+
+  FloorViewer.prototype.focusPoints = function (pts) {
+    var box = bboxOfPoints(pts || []);
+    if (!box || !this.base) { return; }
+    var minW = this.base.w / 3;
+    var minH = this.base.h / 3;
+    var w = Math.max(box.w, minW);
+    var h = Math.max(box.h, minH);
+    this.fitBox({ x: box.x + box.w / 2 - w / 2, y: box.y + box.h / 2 - h / 2, w: w, h: h }, 0.12);
+  };
+
+  /* ---------- room state ---------- */
+
+  FloorViewer.prototype.hasRoom = function (roomId) { return !!this.roomEls[roomId]; };
+
+  FloorViewer.prototype.setRoomClass = function (roomId, cls, on) {
+    var e = this.roomEls[roomId];
+    if (!e) { return; }
+    var list = (e.getAttribute('class') || '').split(/\s+/);
+    var out = [];
+    for (var i = 0; i < list.length; i++) { if (list[i] && list[i] !== cls) { out.push(list[i]); } }
+    if (on) { out.push(cls); }
+    e.setAttribute('class', out.join(' '));
+  };
+
+  FloorViewer.prototype.clearRoomClass = function (cls) {
+    for (var id in this.roomEls) {
+      if (this.roomEls.hasOwnProperty(id)) { this.setRoomClass(id, cls, false); }
+    }
+  };
+
+  /* ---------- overlays ---------- */
+
+  /* routes: [{ points: [[x,y]...], dim: bool }] */
+  FloorViewer.prototype.setRoutes = function (routes) {
+    if (!this.layers.route) { return; }
+    var g = this.layers.route;
+    while (g.firstChild) { g.removeChild(g.firstChild); }
+    routes = routes || [];
+    var ordered = [];
+    var i;
+    for (i = 0; i < routes.length; i++) { if (routes[i].dim) { ordered.push(routes[i]); } }
+    for (i = 0; i < routes.length; i++) { if (!routes[i].dim) { ordered.push(routes[i]); } }
+    for (i = 0; i < ordered.length; i++) {
+      var pts = ordered[i].points || [];
+      if (pts.length < 2) { continue; }
+      var s = [];
+      for (var k = 0; k < pts.length; k++) { s.push(Number(pts[k][0]) + ',' + Number(pts[k][1])); }
+      var str = s.join(' ');
+      var grp = el('g', { 'class': 'fv-route' + (ordered[i].dim ? ' is-dim' : ''), 'data-route': ordered[i].dim ? 'dim' : 'active' });
+      grp.appendChild(el('polyline', { 'class': 'fv-route-casing', points: str }));
+      grp.appendChild(el('polyline', { 'class': 'fv-route-line', points: str }));
+      grp.appendChild(el('polyline', { 'class': 'fv-route-flow', points: str }));
+      g.appendChild(grp);
+    }
+  };
+
+  /* markers: [{ id, x, y, kind: 'start'|'dest'|'you'|'link'|'photo', text }] */
+  FloorViewer.prototype.setMarkers = function (markers) {
+    if (!this.layers.markers) { return; }
+    var g = this.layers.markers;
+    while (g.firstChild) { g.removeChild(g.firstChild); }
+    this.markers = [];
+    markers = markers || [];
+    for (var i = 0; i < markers.length; i++) {
+      var m = markers[i];
+      var x = Number(m.x);
+      var y = Number(m.y);
+      if (!isFinite(x) || !isFinite(y)) { continue; }
+      var grp = el('g', { 'class': 'fv-marker fv-marker--' + m.kind, 'data-marker-id': m.id || '' });
+      if (m.kind === 'you') { grp.appendChild(el('circle', { 'class': 'halo', r: 22 })); }
+      grp.appendChild(el('circle', { 'class': 'ring', r: m.kind === 'link' || m.kind === 'photo' ? 12 : 11 }));
+      grp.appendChild(el('circle', { 'class': 'core', r: m.kind === 'link' || m.kind === 'photo' ? 10 : 7 }));
+      if (m.text) {
+        var t = el('text', { x: 0, y: 0 });
+        t.appendChild(document.createTextNode(m.text));
+        grp.appendChild(t);
+      }
+      if (m.title) {
+        var ti = el('title');
+        ti.appendChild(document.createTextNode(m.title));
+        grp.appendChild(ti);
+      }
+      g.appendChild(grp);
+      this.markers.push({ el: grp, x: x, y: y });
+    }
+    this._apply();
+  };
+
+  /* ---------- input ---------- */
+
+  FloorViewer.prototype._hitRoomAt = function (clientX, clientY) {
+    var target = document.elementFromPoint(clientX, clientY);
+    while (target && target !== this.host) {
+      if (target.getAttribute) {
+        var mk = target.getAttribute('data-marker-id');
+        if (mk) { return { markerId: mk }; }
+        var rid = target.getAttribute('data-mscn-room');
+        if (rid) { return { roomId: rid }; }
+      }
+      target = target.parentNode;
+    }
+    if (!this.vb) { return {}; }
+    var p = this.clientToSvg(clientX, clientY);
+    for (var i = 0; i < this.roomInfo.length; i++) {
+      var ri = this.roomInfo[i];
+      if (ri.polygon && pointInPolygon(p.x, p.y, ri.polygon)) { return { roomId: ri.id }; }
+    }
+    return {};
+  };
+
+  FloorViewer.prototype._tap = function (clientX, clientY) {
+    if (!this.svg || !this.opts.onTap) { return; }
+    var hit = this._hitRoomAt(clientX, clientY);
+    hit.point = this.vb ? this.clientToSvg(clientX, clientY) : null;
+    this.opts.onTap(hit);
+  };
+
+  FloorViewer.prototype._pointerList = function () {
+    var list = [];
+    for (var id in this.pointers) { if (this.pointers.hasOwnProperty(id)) { list.push(this.pointers[id]); } }
+    return list;
+  };
+
+  FloorViewer.prototype._bind = function () {
+    var self = this;
+    var host = this.host;
+    var pinch = null;
+
+    function down(e) {
+      if (!self.svg) { return; }
+      if (e.pointerType === 'mouse' && e.button !== 0) { return; }
+      try { host.setPointerCapture(e.pointerId); } catch (err) { /* capture is best-effort */ }
+      self.pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+      self.pointerCount = self._pointerList().length;
+      if (self.pointerCount === 1) {
+        self.gesture = { x0: e.clientX, y0: e.clientY, t0: Date.now(), moved: false, multi: false };
+      } else if (self.gesture) {
+        self.gesture.multi = true;
+      }
+      if (self.pointerCount === 2) {
+        var l = self._pointerList();
+        pinch = {
+          d: Math.max(1, Math.sqrt(Math.pow(l[0].x - l[1].x, 2) + Math.pow(l[0].y - l[1].y, 2))),
+          mx: (l[0].x + l[1].x) / 2,
+          my: (l[0].y + l[1].y) / 2
+        };
+      }
+    }
+
+    function move(e) {
+      var p = self.pointers[e.pointerId];
+      if (!p) { return; }
+      var dx = e.clientX - p.x;
+      var dy = e.clientY - p.y;
+      p.x = e.clientX;
+      p.y = e.clientY;
+      if (self.pointerCount === 1 && self.gesture) {
+        if (!self.gesture.moved) {
+          var tx = e.clientX - self.gesture.x0;
+          var ty = e.clientY - self.gesture.y0;
+          if (tx * tx + ty * ty > 49) {
+            self.gesture.moved = true;
+            host.className = host.className + ' is-dragging';
+          } else {
+            return;
+          }
+        }
+        self.panBy(dx, dy);
+      } else if (self.pointerCount >= 2 && pinch) {
+        var l = self._pointerList();
+        var d = Math.max(1, Math.sqrt(Math.pow(l[0].x - l[1].x, 2) + Math.pow(l[0].y - l[1].y, 2)));
+        var mx = (l[0].x + l[1].x) / 2;
+        var my = (l[0].y + l[1].y) / 2;
+        self.panBy(mx - pinch.mx, my - pinch.my);
+        self.zoomAt(d / pinch.d, mx, my);
+        pinch = { d: d, mx: mx, my: my };
+      }
+    }
+
+    function up(e, cancelled) {
+      if (!self.pointers[e.pointerId]) { return; }
+      delete self.pointers[e.pointerId];
+      self.pointerCount = self._pointerList().length;
+      if (self.pointerCount < 2) { pinch = null; }
+      if (self.pointerCount === 0) {
+        var g = self.gesture;
+        self.gesture = null;
+        host.className = host.className.replace(/\s*is-dragging/g, '');
+        if (!cancelled && g && !g.moved && !g.multi && Date.now() - g.t0 < 700) {
+          self._tap(e.clientX, e.clientY);
+        }
+      }
+    }
+
+    if (window.PointerEvent) {
+      host.addEventListener('pointerdown', down);
+      host.addEventListener('pointermove', move);
+      host.addEventListener('pointerup', function (e) { up(e, false); });
+      host.addEventListener('pointercancel', function (e) { up(e, true); });
+    } else {
+      host.addEventListener('click', function (e) { self._tap(e.clientX, e.clientY); });
+    }
+
+    host.addEventListener('wheel', function (e) {
+      if (!self.svg) { return; }
+      e.preventDefault();
+      var unit = e.deltaMode === 1 ? 16 : (e.deltaMode === 2 ? 400 : 1);
+      var k = e.ctrlKey ? 0.01 : 0.0018;
+      self.zoomAt(Math.exp(-e.deltaY * unit * k), e.clientX, e.clientY);
+    }, { passive: false });
+
+    host.addEventListener('dblclick', function (e) {
+      if (!self.svg) { return; }
+      e.preventDefault();
+      self.zoomAt(e.shiftKey ? 0.5 : 2, e.clientX, e.clientY);
+    });
+
+    host.addEventListener('keydown', function (e) {
+      if (!self.svg) { return; }
+      var step = 60;
+      var key = e.key;
+      var handled = true;
+      if (key === 'ArrowLeft') { self.panBy(step, 0); }
+      else if (key === 'ArrowRight') { self.panBy(-step, 0); }
+      else if (key === 'ArrowUp') { self.panBy(0, step); }
+      else if (key === 'ArrowDown') { self.panBy(0, -step); }
+      else if (key === '+' || key === '=') { self.zoomBy(1.4); }
+      else if (key === '-' || key === '_') { self.zoomBy(1 / 1.4); }
+      else if (key === '0') { self.fit(); }
+      else { handled = false; }
+      if (handled) { e.preventDefault(); }
+    });
+  };
+
+  FloorViewer.parseSvg = parseSvg;
+  FloorViewer.pointInPolygon = pointInPolygon;
+  return FloorViewer;
+})();
+</script>
