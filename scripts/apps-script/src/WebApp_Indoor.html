@@ -1,0 +1,671 @@
+<script>
+/*
+ * Indoor: building and floor pickers, the floor viewer, room detail sheet, starting point,
+ * and routing (step cards that switch floors; a key-free outdoor leg between buildings). ES5.
+ */
+var IND = {
+  viewer: null,
+  buildingId: null,
+  floorId: null,
+  loadedFloorId: null,
+  loadToken: 0,
+  selectedRoomId: null,
+  start: null,
+  routeDestId: null,
+  route: null,
+  stepIndex: 0,
+  avoidStairs: false
+};
+
+function initIndoor() {
+  IND.avoidStairs = lsGet(LS_KEYS.avoidStairs) === '1';
+  IND.viewer = new FloorViewer($('viewer'), { resolveRoomId: resolveRoomRef, onTap: onViewerTap });
+
+  var sel = $('building-select');
+  var list = indoorBuildings();
+  var html = '';
+  for (var i = 0; i < list.length; i++) {
+    html += '<option value="' + escapeHtml(list[i].id) + '">' + escapeHtml(list[i].name || list[i].id) + '</option>';
+  }
+  sel.innerHTML = html || '<option value="">No indoor maps yet</option>';
+  sel.disabled = !list.length;
+  sel.onchange = function () { if (sel.value) { selectBuilding(sel.value); } };
+
+  $('zoom-in').onclick = function () { IND.viewer.zoomBy(1.5); };
+  $('zoom-out').onclick = function () { IND.viewer.zoomBy(1 / 1.5); };
+  $('zoom-fit').onclick = function () { IND.viewer.fit(); };
+  $('start-chip-clear').onclick = function () { clearStart(); };
+
+  var host = $('viewer');
+  if (window.ResizeObserver) {
+    new ResizeObserver(function () { IND.viewer.resize(); }).observe(host);
+  } else {
+    window.addEventListener('resize', function () { IND.viewer.resize(); });
+  }
+}
+
+/* Called whenever the Indoor tab becomes visible. */
+function indoorOnShow() {
+  if (!IND.buildingId) {
+    var list = indoorBuildings();
+    if (!list.length) {
+      setViewerStatus('empty');
+      return;
+    }
+    var last = lsGet(LS_KEYS.lastBuilding);
+    var pick = list[0];
+    for (var i = 0; i < list.length; i++) { if (list[i].id === last) { pick = list[i]; } }
+    selectBuilding(pick.id);
+  } else {
+    IND.viewer.resize();
+  }
+}
+
+function selectBuilding(buildingId, floorId, done) {
+  var b = APP.by.buildings[buildingId];
+  if (!b) { return; }
+  IND.buildingId = buildingId;
+  lsSet(LS_KEYS.lastBuilding, buildingId);
+  $('building-select').value = buildingId;
+  var floors = APP.floorsByBuilding[buildingId] || [];
+  var target = null;
+  if (floorId && APP.by.floors[floorId] && APP.by.floors[floorId].buildingId === buildingId) { target = floorId; }
+  if (!target && floors.length) { target = floors[0].id; }
+  IND.floorId = target;
+  renderFloorPicker();
+  if (target) {
+    showFloor(target, done);
+  } else {
+    IND.viewer.clear();
+    IND.loadedFloorId = null;
+    setViewerStatus('empty');
+  }
+}
+
+function shortFloorLabel(f) {
+  var label = String(f.label || ('Floor ' + f.level));
+  var m = label.match(/^(floor|level)\s+(.+)$/i);
+  return m ? m[2] : label;
+}
+
+function routeFloors() {
+  var out = {};
+  if (IND.route && IND.route.steps) {
+    for (var i = 0; i < IND.route.steps.length; i++) {
+      if (IND.route.steps[i].kind === 'walk') { out[IND.route.steps[i].floorId] = true; }
+    }
+  }
+  return out;
+}
+
+function renderFloorPicker() {
+  var box = $('floor-picker');
+  var floors = APP.floorsByBuilding[IND.buildingId] || [];
+  var onRoute = routeFloors();
+  var html = '';
+  for (var i = 0; i < floors.length; i++) {
+    var f = floors[i];
+    var on = f.id === IND.floorId;
+    html += '<button type="button" role="radio" data-floor-id="' + escapeHtml(f.id) + '"' +
+      ' aria-checked="' + (on ? 'true' : 'false') + '" tabindex="' + (on ? '0' : '-1') + '"' +
+      ' aria-label="' + escapeHtml(floorLabel(f.id)) + (onRoute[f.id] ? ', on your route' : '') + '"' +
+      (onRoute[f.id] ? ' class="has-route"' : '') + '>' + escapeHtml(shortFloorLabel(f)) + '</button>';
+  }
+  box.innerHTML = html;
+  var buttons = box.getElementsByTagName('button');
+  for (var k = 0; k < buttons.length; k++) {
+    buttons[k].onclick = onFloorButton;
+    buttons[k].onkeydown = onFloorKey;
+  }
+}
+
+function onFloorButton(e) {
+  var id = e.currentTarget.getAttribute('data-floor-id');
+  showFloor(id);
+}
+
+function onFloorKey(e) {
+  var key = e.key;
+  if (key !== 'ArrowLeft' && key !== 'ArrowRight' && key !== 'ArrowUp' && key !== 'ArrowDown') { return; }
+  e.preventDefault();
+  var buttons = $('floor-picker').getElementsByTagName('button');
+  var idx = 0;
+  for (var i = 0; i < buttons.length; i++) { if (buttons[i] === e.currentTarget) { idx = i; } }
+  idx += (key === 'ArrowRight' || key === 'ArrowDown') ? 1 : -1;
+  idx = (idx + buttons.length) % buttons.length;
+  showFloor(buttons[idx].getAttribute('data-floor-id'));
+  var again = $('floor-picker').getElementsByTagName('button');
+  if (again[idx]) { again[idx].focus(); }
+}
+
+function setViewerStatus(kind, message) {
+  var s = $('viewer-status');
+  if (!kind) { s.hidden = true; s.innerHTML = ''; return; }
+  var html = '';
+  if (kind === 'loading') {
+    html = '<div class="spinner spinner--dark" aria-hidden="true"></div><p>Loading floor plan…</p>';
+  } else if (kind === 'error') {
+    html = '<h2>Floor plan unavailable</h2><p>' + escapeHtml(message || 'Please try again.') + '</p>' +
+      '<button type="button" class="btn btn-primary" id="viewer-retry">Try again</button>';
+  } else {
+    html = '<h2>No indoor maps yet</h2><p>Indoor floor plans have not been published for this building.</p>';
+  }
+  s.innerHTML = html;
+  s.setAttribute('role', kind === 'error' ? 'alert' : 'status');
+  s.hidden = false;
+  var retry = $('viewer-retry');
+  if (retry) { retry.onclick = function () { IND.loadedFloorId = null; showFloor(IND.floorId); }; }
+}
+
+function setViewerNotice(kind) {
+  var n = $('viewer-notice');
+  if (!kind) { n.hidden = true; n.innerHTML = ''; return; }
+  if (kind === 'simplified') {
+    n.innerHTML = 'Simplified plan: the detailed floor plan did not load. <button type="button" id="viewer-notice-retry">Retry</button>';
+  } else {
+    n.innerHTML = 'Offline copy of this floor plan';
+  }
+  n.hidden = false;
+  var r = $('viewer-notice-retry');
+  if (r) { r.onclick = function () { IND.loadedFloorId = null; showFloor(IND.floorId); }; }
+}
+
+function showFloor(floorId, done) {
+  var f = APP.by.floors[floorId];
+  if (!f) { return; }
+  if (f.buildingId !== IND.buildingId) { selectBuilding(f.buildingId, floorId, done); return; }
+  IND.floorId = floorId;
+  renderFloorPicker();
+  if (IND.loadedFloorId === floorId && IND.viewer.isLoaded()) {
+    decorateFloor();
+    if (done) { done(); }
+    return;
+  }
+  var token = ++IND.loadToken;
+  closeRoomSheet(true);
+  setViewerStatus('loading');
+  setViewerNotice(null);
+  getFloorSvg(floorId, function (err, svg, meta) {
+    if (token !== IND.loadToken) { return; }
+    var info = { floorId: floorId, widthPx: f.widthPx, heightPx: f.heightPx, rooms: APP.roomsByFloor[floorId] || [] };
+    var notice = (meta && meta.source === 'stale-cache') ? 'stale' : null;
+    var ok = false;
+    var lastErr = err;
+    if (svg) {
+      try { IND.viewer.load(svg, info); ok = true; } catch (e) { lastErr = e; }
+    }
+    if (!ok) {
+      var simple = synthesizeFloorSvg(floorId);
+      if (simple) {
+        try { IND.viewer.load(simple, info); ok = true; notice = 'simplified'; } catch (e2) { lastErr = e2; }
+      }
+    }
+    if (!ok) {
+      IND.loadedFloorId = null;
+      IND.viewer.clear();
+      setViewerStatus('error', errText(lastErr));
+      return;
+    }
+    IND.loadedFloorId = floorId;
+    setViewerStatus(null);
+    setViewerNotice(notice);
+    decorateFloor();
+    if (done) { done(); }
+  });
+}
+
+function photosOnFloor(floorId) {
+  var out = [];
+  var list = (APP.data && APP.data.photos) || [];
+  for (var i = 0; i < list.length; i++) {
+    if (list[i] && list[i].type === 'indoor' && list[i].floorId === floorId && list[i].x !== '' && list[i].y !== '') { out.push(list[i]); }
+  }
+  return out;
+}
+
+function decorateFloor() {
+  var v = IND.viewer;
+  if (!v.isLoaded()) { return; }
+  var floorId = IND.loadedFloorId;
+  v.clearRoomClass('is-selected');
+  v.clearRoomClass('is-start');
+  v.clearRoomClass('is-dest');
+  if (IND.start && IND.start.roomId) { v.setRoomClass(IND.start.roomId, 'is-start', true); }
+  if (IND.route && IND.route.destRoomId) { v.setRoomClass(IND.route.destRoomId, 'is-dest', true); }
+  if (IND.selectedRoomId) { v.setRoomClass(IND.selectedRoomId, 'is-selected', true); }
+
+  var routes = [];
+  var markers = [];
+  var i;
+  var photos = photosOnFloor(floorId);
+  for (i = 0; i < photos.length; i++) {
+    markers.push({ id: 'photo:' + photos[i].id, x: photos[i].x, y: photos[i].y, kind: 'photo', text: '◉', title: photos[i].caption || 'Photo' });
+  }
+
+  var r = IND.route;
+  if (r && r.steps && r.steps.length) {
+    var walks = [];
+    for (i = 0; i < r.steps.length; i++) { if (r.steps[i].kind === 'walk') { walks.push(r.steps[i]); } }
+    for (i = 0; i < r.steps.length; i++) {
+      var s = r.steps[i];
+      if (s.kind !== 'walk' || s.floorId !== floorId) { continue; }
+      routes.push({ points: s.points, dim: i !== IND.stepIndex });
+      if (s.exitType && s.points.length) {
+        var last = s.points[s.points.length - 1];
+        markers.push({ id: 'link:' + i, x: last[0], y: last[1], kind: 'link', text: s.exitType === 'elevator' ? 'E' : 'S', title: s.exitType === 'elevator' ? 'Elevator' : 'Stairs' });
+      }
+      if (s.entryType && s.points.length) {
+        markers.push({ id: 'link-in:' + i, x: s.points[0][0], y: s.points[0][1], kind: 'link', text: s.entryType === 'elevator' ? 'E' : 'S', title: s.entryType === 'elevator' ? 'Elevator' : 'Stairs' });
+      }
+    }
+    if (walks.length) {
+      var first = walks[0];
+      var end = walks[walks.length - 1];
+      if (first.floorId === floorId && first.points.length) {
+        markers.push({ id: 'start', x: first.points[0][0], y: first.points[0][1], kind: 'start', title: 'Start' });
+      }
+      if (end.floorId === floorId && end.points.length) {
+        var p = end.points[end.points.length - 1];
+        markers.push({ id: 'dest', x: p[0], y: p[1], kind: 'dest', title: 'Destination' });
+      }
+    }
+  } else if (IND.start && IND.start.kind === 'node') {
+    var n = APP.by.nodes[IND.start.nodeId];
+    if (n && n.floorId === floorId) { markers.push({ id: 'you', x: n.x, y: n.y, kind: 'you', title: 'You are here' }); }
+  }
+  v.setRoutes(routes);
+  v.setMarkers(markers);
+  updateStartChip();
+}
+
+function onViewerTap(hit) {
+  if (hit.markerId && hit.markerId.indexOf('photo:') === 0) {
+    var id = hit.markerId.substring(6);
+    var list = (APP.data && APP.data.photos) || [];
+    for (var i = 0; i < list.length; i++) { if (list[i].id === id) { showPanorama(list[i]); return; } }
+    return;
+  }
+  if (hit.roomId) {
+    selectRoom(hit.roomId, false, false);
+  } else {
+    closeRoomSheet();
+  }
+}
+
+/* Tell the viewer which edges floating sheets/panels cover, so focusing keeps content visible. */
+function updateViewerInsets() {
+  var host = $('viewer').getBoundingClientRect();
+  var ins = { left: 0, right: 0, top: 0, bottom: 0 };
+  var overlays = [$('room-sheet'), $('route-panel')];
+  for (var i = 0; i < overlays.length; i++) {
+    var o = overlays[i];
+    if (!o || o.hidden) { continue; }
+    var r = o.getBoundingClientRect();
+    if (r.bottom <= host.top || r.top >= host.bottom || r.right <= host.left || r.left >= host.right) { continue; }
+    if (r.left - host.left < 24 && r.width < host.width * 0.6) {
+      ins.left = Math.max(ins.left, r.right - host.left + 8);
+    } else if (host.bottom - r.bottom < 24) {
+      ins.bottom = Math.max(ins.bottom, host.bottom - r.top + 8);
+    }
+  }
+  ins.top = 56;
+  IND.viewer.setInsets(ins);
+}
+
+/* ---------- room sheet ---------- */
+function selectRoom(roomId, focusIt, moveFocus) {
+  var room = APP.by.rooms[roomId];
+  if (!room) { return; }
+  IND.selectedRoomId = roomId;
+  decorateFloor();
+  showRoomSheet(room, moveFocus);
+  if (focusIt) { updateViewerInsets(); IND.viewer.focusRoom(roomId); }
+}
+
+function showRoomSheet(room, moveFocus) {
+  var sheet = $('room-sheet');
+  var b = buildingOfFloor(room.floorId);
+  var use = MSCNSearch.useText(room);
+  var type = String(room.type || '');
+  var isStart = IND.start && IND.start.roomId === room.id;
+  var chips = '';
+  if (type && MSCNSearch.norm(type) !== MSCNSearch.norm(use)) { chips += '<span class="chip">' + escapeHtml(type) + '</span>'; }
+  if (isStart) { chips += '<span class="chip">Starting point</span>'; }
+  sheet.innerHTML =
+    '<div class="sheet-grip" aria-hidden="true"></div>' +
+    '<div class="sheet-head"><div>' +
+      '<div class="sheet-kicker">' + escapeHtml((b ? b.name + ' · ' : '') + floorLabel(room.floorId)) + '</div>' +
+      '<h2 id="room-sheet-title" tabindex="-1">' + escapeHtml(roomTitle(room)) + '</h2>' +
+      (use ? '<p>' + escapeHtml(use) + '</p>' : '') +
+      (chips ? '<div class="meta">' + chips + '</div>' : '') +
+    '</div><button type="button" class="sheet-close" id="room-sheet-close" aria-label="Close room details">' + ICONS.close + '</button></div>' +
+    '<div class="sheet-actions">' +
+      '<button type="button" class="btn btn-primary" id="room-nav">' + ICONS.navigate + 'Navigate here</button>' +
+      '<button type="button" class="btn btn-secondary" id="room-start">' + ICONS.start + (isStart ? 'Clear start' : 'Set as start') + '</button>' +
+    '</div>';
+  sheet.hidden = false;
+  $('room-sheet-close').onclick = function () { closeRoomSheet(); $('viewer').focus(); };
+  $('room-nav').onclick = function () { navigateToRoom(room.id); };
+  $('room-start').onclick = function () { if (isStart) { clearStart(); } else { setStartRoom(room.id); } };
+  if (moveFocus) { $('room-sheet-title').focus(); }
+}
+
+function closeRoomSheet(keepSelection) {
+  var sheet = $('room-sheet');
+  sheet.hidden = true;
+  sheet.innerHTML = '';
+  if (!keepSelection && IND.selectedRoomId) {
+    IND.selectedRoomId = null;
+    decorateFloor();
+  }
+}
+
+/* Open a room from search, schedule, or a deep link: switch tab, building, floor; select; optionally route. */
+function openRoom(roomId, opts) {
+  opts = opts || {};
+  var room = APP.by.rooms[roomId];
+  if (!room) { showError('That room is not in the campus data.'); return; }
+  if (!isPublicFloor(APP.by.floors[room.floorId])) { showError('That room is not on a public floor.'); return; }
+  switchToView('indoor');
+  showFloor(room.floorId, function () {
+    selectRoom(roomId, true, !!opts.moveFocus);
+    if (opts.navigate) { navigateToRoom(roomId); }
+  });
+}
+
+/* ---------- starting point ---------- */
+function setStartRoom(roomId) {
+  var room = APP.by.rooms[roomId];
+  if (!room) { return; }
+  IND.start = { kind: 'room', roomId: roomId, label: roomTitle(room) };
+  closeRoomSheet();
+  toast('Starting point set to ' + IND.start.label, 'success');
+  if (IND.routeDestId) { computeRoute(); } else { decorateFloor(); }
+}
+
+function setStartNode(nodeId, label) {
+  IND.start = { kind: 'node', nodeId: nodeId, label: label || 'Scanned location' };
+  if (IND.routeDestId) { computeRoute(); } else { decorateFloor(); }
+}
+
+function clearStart() {
+  IND.start = null;
+  if (IND.routeDestId) { computeRoute(); } else { decorateFloor(); }
+  if (IND.selectedRoomId && !$('room-sheet').hidden) { showRoomSheet(APP.by.rooms[IND.selectedRoomId], false); }
+}
+
+function updateStartChip() {
+  var chip = $('start-chip');
+  if (!IND.start) { chip.hidden = true; return; }
+  $('start-chip-text').textContent = 'From ' + IND.start.label;
+  chip.hidden = false;
+}
+
+/* ---------- routing ---------- */
+function roomCenter(room) {
+  var cx = Number(room.centerX);
+  var cy = Number(room.centerY);
+  if ((room.centerX === '' || !isFinite(cx)) && isArray(room.polygon) && room.polygon.length) {
+    cx = 0; cy = 0;
+    for (var i = 0; i < room.polygon.length; i++) { cx += Number(room.polygon[i][0]); cy += Number(room.polygon[i][1]); }
+    cx /= room.polygon.length;
+    cy /= room.polygon.length;
+  }
+  return { x: cx, y: cy };
+}
+
+function roomNodeIds(roomId) {
+  var ids = MSCNPath.nodesForRoom(APP.graph, roomId);
+  if (ids.length) { return ids; }
+  var room = APP.by.rooms[roomId];
+  if (!room) { return []; }
+  var c = roomCenter(room);
+  if (!isFinite(c.x) || !isFinite(c.y)) { return []; }
+  var n = MSCNPath.nearestNode(APP.graph, room.floorId, c.x, c.y, function (node) { return !MSCNPath.isTransitionType(node.type); });
+  return n ? [n.id] : [];
+}
+
+function resolveStart(destBuildingId) {
+  var g = APP.graph;
+  var s = IND.start;
+  if (s && s.kind === 'room') {
+    var room = APP.by.rooms[s.roomId];
+    var f = room ? APP.by.floors[room.floorId] : null;
+    return { ids: roomNodeIds(s.roomId), label: s.label, buildingId: f ? f.buildingId : null,
+      error: 'Your starting room is not connected to the navigation map yet.' };
+  }
+  if (s && s.kind === 'node') {
+    var ok = !!g.nodes[s.nodeId];
+    return { ids: ok ? [s.nodeId] : [], label: s.label, buildingId: ok ? MSCNPath.buildingOfNode(g, s.nodeId) : null,
+      error: 'Your scanned location is not on the public map.' };
+  }
+  var ents = MSCNPath.entranceIds(g, destBuildingId);
+  return { ids: ents, label: 'the building entrance', buildingId: destBuildingId,
+    error: 'No entrance is mapped for this building yet. Set a starting room with "Set as start" instead.' };
+}
+
+function transitionName(node) {
+  if (!node) { return ''; }
+  if (node.label) { return String(node.label); }
+  var room = node.roomId ? APP.by.rooms[node.roomId] : null;
+  var use = room ? MSCNSearch.useText(room) : '';
+  if (/^\s*(stairs?|stairway|stairwell|elevators?|lift)\s*$/i.test(use)) { return ''; }
+  return /stair|elevator|lift/i.test(use) ? use : '';
+}
+
+function entranceNameForNode(buildingId, nodeId) {
+  var b = APP.by.buildings[buildingId];
+  var ents = (b && b.entrances) || [];
+  for (var i = 0; i < ents.length; i++) { if (ents[i].nodeId === nodeId && ents[i].name) { return ents[i].name; } }
+  return 'the entrance';
+}
+
+function haversineMeters(a, b) {
+  if (!a || !b) { return 0; }
+  var R = 6371000;
+  var toRad = Math.PI / 180;
+  var dLat = (Number(b.lat) - Number(a.lat)) * toRad;
+  var dLng = (Number(b.lng) - Number(a.lng)) * toRad;
+  var h = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(Number(a.lat) * toRad) * Math.cos(Number(b.lat) * toRad) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+function walkStepsFor(route, destinationLabel) {
+  var g = APP.graph;
+  var segs = MSCNPath.segmentPath(g, route);
+  var raw = MSCNPath.buildSteps(g, segs, {
+    floorLabel: floorLabel,
+    destination: destinationLabel,
+    transitionName: transitionName
+  });
+  var out = [];
+  for (var i = 0; i < raw.length; i++) {
+    var pts = [];
+    for (var k = 0; k < segs[i].nodes.length; k++) { pts.push([Number(segs[i].nodes[k].x), Number(segs[i].nodes[k].y)]); }
+    out.push({
+      kind: 'walk', floorId: raw[i].floorId, title: raw[i].title, detail: raw[i].detail, distance: raw[i].distance,
+      points: pts, exitType: segs[i].exit ? segs[i].exit.type : null, entryType: segs[i].entry ? segs[i].entry.type : null
+    });
+  }
+  return out;
+}
+
+function navigateToRoom(roomId) {
+  IND.routeDestId = roomId;
+  computeRoute();
+}
+
+function computeRoute() {
+  var destId = IND.routeDestId;
+  var room = APP.by.rooms[destId];
+  if (!room) { endRoute(); return; }
+  var g = APP.graph;
+  var destFloor = APP.by.floors[room.floorId];
+  var destB = destFloor ? destFloor.buildingId : null;
+  var opts = { accessibleOnly: IND.avoidStairs };
+  var goals = roomNodeIds(destId);
+  var st = resolveStart(destB);
+  var route = { destRoomId: destId, destLabel: roomTitle(room), fromLabel: st.label, steps: [], meters: 0, error: null };
+  var noRouteMsg = IND.avoidStairs
+    ? 'No step-free route was found. Turn off "Avoid stairs" to include stairs.'
+    : 'No route was found between these points.';
+
+  if (!goals.length) {
+    route.error = 'This room is not connected to the navigation map yet.';
+  } else if (!st.ids.length) {
+    route.error = st.error;
+  } else if (st.buildingId && destB && st.buildingId !== destB) {
+    var exits = MSCNPath.entranceIds(g, st.buildingId);
+    var entries = MSCNPath.entranceIds(g, destB);
+    var leg1 = exits.length ? MSCNPath.findPath(g, st.ids, exits, opts) : null;
+    var leg2 = entries.length ? MSCNPath.findPath(g, entries, goals, opts) : null;
+    if (!leg2) {
+      route.error = entries.length ? noRouteMsg : 'No entrance is mapped for ' + buildingName(destB) + ' yet.';
+    } else {
+      if (leg1) {
+        var exitNode = leg1.nodeIds[leg1.nodeIds.length - 1];
+        var exitName = entranceNameForNode(st.buildingId, exitNode);
+        var s1 = walkStepsFor(leg1, exitName);
+        s1[s1.length - 1].title = 'Leave by ' + (exitName === 'the entrance' ? 'the nearest exit' : 'the ' + exitName);
+        route.steps = route.steps.concat(s1);
+        route.meters += leg1.distance;
+      }
+      var fromT = buildingTarget(st.buildingId, leg1 ? leg1.nodeIds[leg1.nodeIds.length - 1] : null);
+      var toT = buildingTarget(destB, leg2.nodeIds[0]);
+      var outdoorM = haversineMeters(fromT, toT);
+      route.steps.push({
+        kind: 'outdoor', title: 'Walk to ' + buildingName(destB),
+        detail: (outdoorM ? 'About ' + MSCNPath.formatMeters(outdoorM * 1.25) + ' outside' : 'Head outside') +
+          (toT ? ' to the ' + toT.name + '.' : '.'),
+        url: toT ? directionsUrl(toT.lat, toT.lng) : '', buildingId: destB
+      });
+      route.meters += outdoorM * 1.25;
+      route.steps = route.steps.concat(walkStepsFor(leg2, roomTitle(room)));
+      route.meters += leg2.distance;
+    }
+  } else {
+    var r = MSCNPath.findPath(g, st.ids, goals, opts);
+    if (r) {
+      route.steps = walkStepsFor(r, roomTitle(room));
+      route.meters = r.distance;
+    } else {
+      route.error = noRouteMsg;
+    }
+  }
+
+  IND.route = route;
+  IND.stepIndex = 0;
+  closeRoomSheet(true);
+  IND.selectedRoomId = null;
+  renderRoutePanel();
+  if (route.steps.length) {
+    goToStep(0);
+  } else {
+    renderFloorPicker();
+    decorateFloor();
+  }
+}
+
+function goToStep(i) {
+  var r = IND.route;
+  if (!r || !r.steps[i]) { return; }
+  IND.stepIndex = i;
+  renderRoutePanel();
+  var step = r.steps[i];
+  if (step.kind === 'walk') {
+    showFloor(step.floorId, function () {
+      decorateFloor();
+      updateViewerInsets();
+      IND.viewer.focusPoints(step.points);
+    });
+  } else {
+    decorateFloor();
+  }
+}
+
+function endRoute() {
+  IND.route = null;
+  IND.routeDestId = null;
+  IND.stepIndex = 0;
+  var p = $('route-panel');
+  p.hidden = true;
+  p.innerHTML = '';
+  renderFloorPicker();
+  decorateFloor();
+}
+
+function renderRoutePanel() {
+  var p = $('route-panel');
+  var r = IND.route;
+  if (!r) { p.hidden = true; return; }
+  var html = '<div class="route-head"><div class="ends"><span>Route to</span><strong id="route-dest">' + escapeHtml(r.destLabel) + '</strong>' +
+    '<span>From ' + escapeHtml(r.fromLabel) + '</span></div>' +
+    '<button type="button" class="sheet-close" id="route-close" aria-label="End route">' + ICONS.close + '</button></div>';
+  if (r.error) {
+    html += '<div class="route-step is-error" role="alert"><div class="title">No route</div><div class="detail">' + escapeHtml(r.error) + '</div></div>';
+  } else {
+    var step = r.steps[IND.stepIndex];
+    var n = r.steps.length;
+    html += '<div class="route-summary" id="route-summary">' + escapeHtml(MSCNPath.formatMeters(r.meters)) + ' · about ' +
+      escapeHtml(MSCNPath.formatMinutes(r.meters)) + ' · ' + n + (n === 1 ? ' step' : ' steps') + '</div>';
+    html += '<div class="route-step" id="route-step" aria-live="polite"><div class="count">Step ' + (IND.stepIndex + 1) + ' of ' + n +
+      (step.kind === 'walk' ? ' · ' + escapeHtml(floorLabel(step.floorId)) : ' · Outdoors') + '</div>' +
+      '<div class="title">' + escapeHtml(step.title) + '</div><div class="detail">' + escapeHtml(step.detail) +
+      (step.url ? ' <a href="' + escapeHtml(step.url) + '" target="_blank" rel="noopener">Open walking directions</a>' : '') +
+      '</div></div>';
+    var dots = '';
+    for (var i = 0; i < n; i++) { dots += '<span class="' + (i === IND.stepIndex ? 'on' : '') + '"></span>'; }
+    var lastStep = IND.stepIndex === n - 1;
+    html += '<div class="route-nav">' +
+      '<button type="button" class="btn btn-secondary" id="route-prev"' + (IND.stepIndex === 0 ? ' disabled' : '') + '>Previous</button>' +
+      (n > 1 ? '<div class="step-dots" aria-hidden="true">' + dots + '</div>' : '') +
+      '<button type="button" class="btn btn-primary" id="route-next">' + (lastStep ? 'Done' : 'Next') + '</button></div>';
+  }
+  html += '<div class="route-options"><label class="switch"><input type="checkbox" id="avoid-stairs"' + (IND.avoidStairs ? ' checked' : '') + '>' +
+    '<span class="track" aria-hidden="true"></span>Avoid stairs</label></div>';
+  p.innerHTML = html;
+  p.hidden = false;
+  $('route-close').onclick = function () { endRoute(); $('viewer').focus(); };
+  var prev = $('route-prev');
+  var next = $('route-next');
+  if (prev) { prev.onclick = function () { goToStep(IND.stepIndex - 1); focusSoon('route-prev'); }; }
+  if (next) {
+    next.onclick = function () {
+      if (IND.stepIndex >= IND.route.steps.length - 1) { endRoute(); $('viewer').focus(); return; }
+      goToStep(IND.stepIndex + 1);
+      focusSoon('route-next');
+    };
+  }
+  $('avoid-stairs').onchange = function (e) {
+    IND.avoidStairs = !!e.target.checked;
+    lsSet(LS_KEYS.avoidStairs, IND.avoidStairs ? '1' : '0');
+    computeRoute();
+    focusSoon('avoid-stairs');
+  };
+}
+
+function focusSoon(id) {
+  setTimeout(function () { var e = $(id); if (e && !e.disabled) { e.focus(); } }, 0);
+}
+
+/* ---------- QR location ---------- */
+function handleLocationPayload(payload) {
+  if (!payload) { return false; }
+  if (!MSCNPath.toBool(payload.permanent, true) && payload.expires) {
+    var exp = new Date(payload.expires);
+    if (!isNaN(exp.getTime()) && new Date() > exp) { showError('This QR code has expired.'); return false; }
+  }
+  var node = APP.graph.nodes[payload.nodeId];
+  if (!node) { showError('This QR location is not on the public map.'); return false; }
+  var label = payload.description || 'Scanned location';
+  setStartNode(node.id, label);
+  switchToView('indoor');
+  showFloor(node.floorId, function () {
+    decorateFloor();
+    IND.viewer.centerOn(node.x, node.y, 2.5);
+  });
+  toast('You are here: ' + label, 'success');
+  return true;
+}
+</script>
