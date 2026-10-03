@@ -1,0 +1,92 @@
+[
+ {
+  "id": "it-x001",
+  "from": "it-1-n0047",
+  "to": "it-2-n0064",
+  "distance": 10,
+  "floorChange": true,
+  "accessible": false,
+  "linkId": "it-stair-1"
+ },
+ {
+  "id": "it-x002",
+  "from": "it-1-n0030",
+  "to": "it-2-n0052",
+  "distance": 10,
+  "floorChange": true,
+  "accessible": false,
+  "linkId": "it-stair-2"
+ },
+ {
+  "id": "it-x003",
+  "from": "it-1-n0050",
+  "to": "it-2-n0062",
+  "distance": 14,
+  "floorChange": true,
+  "accessible": true,
+  "linkId": "it-elevator-1"
+ },
+ {
+  "id": "it-x004",
+  "from": "it-1-n0106",
+  "to": "it-2-n0050",
+  "distance": 14,
+  "floorChange": true,
+  "accessible": true,
+  "linkId": "it-elevator-2"
+ },
+ {
+  "id": "ep-x005",
+  "from": "ep-1-n0070",
+  "to": "ep-2-n0052",
+  "distance": 10,
+  "floorChange": true,
+  "accessible": false,
+  "linkId": "ep-stair-1"
+ },
+ {
+  "id": "ep-x006",
+  "from": "ep-1-n0074",
+  "to": "ep-2-n0062",
+  "distance": 10,
+  "floorChange": true,
+  "accessible": false,
+  "linkId": "ep-stair-2"
+ },
+ {
+  "id": "ep-x007",
+  "from": "ep-2-n0062",
+  "to": "ep-3-n0001",
+  "distance": 10,
+  "floorChange": true,
+  "accessible": false,
+  "linkId": "ep-stair-2"
+ },
+ {
+  "id": "ep-x008",
+  "from": "ep-1-n0067",
+  "to": "ep-2-n0047",
+  "distance": 10,
+  "floorChange": true,
+  "accessible": false,
+  "linkId": "ep-stair-3"
+ },
+ {
+  "id": "ep-x009",
+  "from": "ep-1-n0069",
+  "to": "ep-2-n0051",
+  "distance": 14,
+  "floorChange": true,
+  "accessible": true,
+  "linkId": "ep-elevator-1"
+ },
+ {
+  "id": "ep-x010",
+  "from": "ep-2-n0051",
+  "to": "ep-3-n0003",
+  "distance": 14,
+  "floorChange": true,
+  "accessible": true,
+  "linkId": "ep-elevator-1"
+ }
+]

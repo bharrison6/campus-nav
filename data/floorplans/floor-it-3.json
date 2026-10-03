@@ -1,0 +1,306 @@
+{
+ "floorId": "floor-it-3",
+ "buildingId": "bld-it",
+ "buildingCode": "IT",
+ "level": 3,
+ "label": "Mezzanine",
+ "public": false,
+ "source": "data/dwg/0135_3-bp.dwg",
+ "planAsset": "FP_floor_it_3",
+ "svgFile": "floor-it-3.svg",
+ "widthPx": 806.7,
+ "heightPx": 795.6,
+ "metersPerPixel": 0.0254,
+ "units": {
+  "insunits": 1,
+  "metersPerUnit": 0.0254,
+  "method": "$INSUNITS=1 (inches)",
+  "metersPerPixel": 0.0254,
+  "sanity": {
+   "medianDoorLeafUnits": 0,
+   "medianRoomAreaSqFt": 0,
+   "tagAreaAgreement": "1/1 rooms match their RMAREA tag (computed with inches)"
+  }
+ },
+ "frame": {
+  "x": -1720.810021,
+  "y": 3543.667972,
+  "note": "SVG (x, y) = (dwgX - origin.x, origin.y - dwgY)",
+  "sharedBuildingFrame": [
+   {
+    "floors": [
+     "floor-it-1",
+     "floor-it-2"
+    ],
+    "grossIoU": 0.841
+   },
+   {
+    "floors": [
+     "floor-it-2",
+     "floor-it-3"
+    ],
+    "grossIoU": 0.047
+   }
+  ]
+ },
+ "rooms": [
+  {
+   "id": "room-it-3-0301",
+   "number": "0301",
+   "label": "301",
+   "type": "other",
+   "typeEvidence": "no use text in the DWG and no geometric evidence",
+   "searchable": true,
+   "kind": "room",
+   "linkId": "",
+   "areaSqFt": 2314,
+   "tagAreaSqFt": 2313,
+   "useText": "",
+   "matchedBy": "xdata-number",
+   "closure": "closed-flag",
+   "center": [
+    270.5,
+    203.9
+   ],
+   "polygon": [
+    [
+     465.9,
+     752.3
+    ],
+    [
+     340.8,
+     752.3
+    ],
+    [
+     223.4,
+     709.5
+    ],
+    [
+     127.6,
+     629.2
+    ],
+    [
+     65.1,
+     520.9
+    ],
+    [
+     43.4,
+     397.8
+    ],
+    [
+     65.1,
+     274.7
+    ],
+    [
+     127.6,
+     166.4
+    ],
+    [
+     223.4,
+     86
+    ],
+    [
+     340.8,
+     43.3
+    ],
+    [
+     465.9,
+     43.3
+    ],
+    [
+     583.4,
+     86
+    ],
+    [
+     679.1,
+     166.4
+    ],
+    [
+     741.7,
+     274.7
+    ],
+    [
+     763.4,
+     397.8
+    ],
+    [
+     741.7,
+     520.9
+    ],
+    [
+     679.1,
+     629.2
+    ],
+    [
+     583.4,
+     709.5
+    ],
+    [
+     465.9,
+     752.3
+    ],
+    [
+     420.5,
+     558.9
+    ],
+    [
+     415.2,
+     498.5
+    ],
+    [
+     502.3,
+     448.2
+    ],
+    [
+     547.7,
+     471.3
+    ],
+    [
+     557.2,
+     448.4
+    ],
+    [
+     563.2,
+     424.3
+    ],
+    [
+     565.4,
+     399.6
+    ],
+    [
+     563.7,
+     374.8
+    ],
+    [
+     558.3,
+     350.6
+    ],
+    [
+     549.3,
+     327.4
+    ],
+    [
+     536.8,
+     306
+    ],
+    [
+     521.2,
+     286.6
+    ],
+    [
+     502.9,
+     269.9
+    ],
+    [
+     482.1,
+     256.2
+    ],
+    [
+     459.6,
+     245.9
+    ],
+    [
+     435.7,
+     239
+    ],
+    [
+     411.1,
+     236
+    ],
+    [
+     386.3,
+     236.7
+    ],
+    [
+     391.5,
+     297.1
+    ],
+    [
+     304.5,
+     347.4
+    ],
+    [
+     259,
+     324.2
+    ],
+    [
+     249.5,
+     347.2
+    ],
+    [
+     243.5,
+     371.3
+    ],
+    [
+     241.4,
+     396
+    ],
+    [
+     243,
+     420.8
+    ],
+    [
+     248.4,
+     445
+    ],
+    [
+     257.4,
+     468.1
+    ],
+    [
+     269.9,
+     489.6
+    ],
+    [
+     285.5,
+     508.9
+    ],
+    [
+     303.9,
+     525.6
+    ],
+    [
+     324.6,
+     539.3
+    ],
+    [
+     347.1,
+     549.7
+    ],
+    [
+     371,
+     556.5
+    ],
+    [
+     395.6,
+     559.6
+    ],
+    [
+     420.5,
+     558.9
+    ]
+   ]
+  }
+ ],
+ "doors": [],
+ "verticals": [],
+ "nav": {
+  "nodes": [
+   {
+    "id": "it-3-n0001",
+    "type": "room",
+    "x": 270.5,
+    "y": 203.9,
+    "roomId": "room-it-3-0301",
+    "linkId": ""
+   }
+  ],
+  "edges": []
+ },
+ "anomalies": [
+  {
+   "kind": "unreachable-room",
+   "number": "0301"
+  }
+ ]
+}
