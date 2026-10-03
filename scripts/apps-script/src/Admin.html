@@ -490,6 +490,108 @@
       background: #fef2f2;
     }
 
+    /* Shared v2 form and state styles */
+    .form-group input[type="password"],
+    .form-group input[type="number"] {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 14px;
+      font-family: inherit;
+      background: #fff;
+      color: var(--text);
+    }
+    .form-group input.readonly-input,
+    .form-group input[readonly] {
+      background: var(--light-gray);
+      color: var(--text-light);
+    }
+    .field-help {
+      font-size: 12px;
+      color: var(--text-light);
+      margin-top: 4px;
+    }
+    .form-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .form-row .form-group { flex: 1; min-width: 140px; }
+
+    .btn-danger {
+      background: #fff;
+      color: var(--error);
+      border: 1px solid var(--error);
+    }
+    .btn-danger:hover { background: #fef2f2; }
+    .btn:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .tag {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 1px 7px;
+      border-radius: 10px;
+      margin-left: 8px;
+      vertical-align: middle;
+    }
+    .tag-muted { background: var(--light-gray); color: var(--text-light); border: 1px solid var(--border); }
+    .tag-warn { background: #fffbeb; color: #b45309; border: 1px solid #fde68a; }
+    .tag-ok { background: #ecfdf5; color: var(--success); border: 1px solid #a7f3d0; }
+    .tag-bad { background: #fef2f2; color: var(--error); border: 1px solid #fecaca; }
+
+    .empty-state {
+      padding: 24px 16px;
+      text-align: center;
+      color: var(--text-light);
+      font-size: 14px;
+      background: var(--light-gray);
+      border: 1px dashed var(--border);
+      border-radius: 8px;
+    }
+
+    .status-list {
+      list-style: none;
+      padding: 0;
+      margin: 0 0 8px 0;
+    }
+    .status-list li {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--light-gray);
+      font-size: 14px;
+    }
+    .status-list li:last-child { border-bottom: none; }
+
+    .preview-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      margin: 8px 0 4px 0;
+    }
+    .preview-table th,
+    .preview-table td {
+      text-align: left;
+      padding: 6px 8px;
+      border-bottom: 1px solid var(--light-gray);
+    }
+    .preview-table th { color: var(--text-light); font-weight: 500; }
+
+    /* Keep status messages in view while working lower on the page */
+    #status-msg {
+      position: sticky;
+      top: 8px;
+      z-index: 50;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+
     /* Responsive */
     @media (max-width: 600px) {
       .header h1 { font-size: 17px; }
@@ -777,32 +879,38 @@
               </div>
             </div>
             <div class="form-group">
-              <label for="floors-imageUrl">Plan Image URL (Google Drive link)</label>
-              <input type="text" id="floors-imageUrl" placeholder="https://drive.google.com/file/d/...">
+              <label for="floors-planAsset">Plan Asset</label>
+              <input type="text" id="floors-planAsset" readonly class="readonly-input" placeholder="Assigned by the floor-plan pipeline">
+              <p class="field-help">The floor-plan SVG is generated from the CAD drawings by the pipeline and embedded in the Apps Script project. It cannot be changed here.</p>
+            </div>
+            <div class="form-group">
+              <div class="checkbox-group">
+                <input type="checkbox" id="floors-public" checked>
+                <label for="floors-public">Public (shown in the campus navigation app)</label>
+              </div>
             </div>
             <div style="display:flex;gap:10px;">
               <div class="form-group" style="flex:1;">
-                <label for="floors-widthPx">Width (px)</label>
-                <input type="text" id="floors-widthPx" placeholder="e.g. 2000">
+                <label for="floors-widthPx">Width (plan units)</label>
+                <input type="text" id="floors-widthPx" placeholder="e.g. 5000">
               </div>
               <div class="form-group" style="flex:1;">
-                <label for="floors-heightPx">Height (px)</label>
-                <input type="text" id="floors-heightPx" placeholder="e.g. 1500">
+                <label for="floors-heightPx">Height (plan units)</label>
+                <input type="text" id="floors-heightPx" placeholder="e.g. 3350">
               </div>
               <div class="form-group" style="flex:1;">
-                <label for="floors-metersPerPixel">Meters/Pixel</label>
-                <input type="text" id="floors-metersPerPixel" placeholder="e.g. 0.05">
+                <label for="floors-metersPerPixel">Meters per unit</label>
+                <input type="text" id="floors-metersPerPixel" placeholder="e.g. 0.0254">
               </div>
             </div>
-            <!-- Image preview -->
             <div id="floors-image-preview" style="margin-top:12px;display:none;">
               <p style="font-size:13px;color:var(--text-light);margin-bottom:6px;">Preview:</p>
-              <img id="floors-preview-img" style="max-width:100%;max-height:300px;border:1px solid var(--border);border-radius:6px;">
+              <img id="floors-preview-img" alt="Floor plan preview" style="max-width:100%;max-height:360px;border:1px solid var(--border);border-radius:6px;background:#fff;">
             </div>
             <div class="btn-row">
               <button class="btn btn-primary" onclick="saveFloorForm()">Save Floor</button>
               <button class="btn btn-outline" onclick="hideFloorForm()">Cancel</button>
-              <button class="btn btn-outline" onclick="previewFloorImage()">Preview Image</button>
+              <button class="btn btn-outline" id="floors-preview-btn" onclick="previewFloorImage()">Preview Plan</button>
             </div>
           </div>
 
@@ -1298,15 +1406,156 @@
     }
 
     /**
-     * Convert Google Drive sharing URLs to direct download URLs.
-     * If URL contains drive.google.com/file/d/, extracts file ID and returns
-     * direct download URL. Otherwise returns url unchanged.
+     * Call a server function through google.script.run. Reports a clear
+     * failure (instead of throwing) when the deployment lacks the function.
      */
-    function getDriveDirectUrl(url) {
-      if (!url) return '';
-      var match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
-      if (match) return 'https://drive.google.com/uc?export=view&id=' + match[1];
-      return url;
+    function runServer(fnName, args, onSuccess, onFailure) {
+      var fail = onFailure || function(err) {
+        showMessage((err && err.message) || String(err), 'error');
+      };
+      var runner = google.script.run
+        .withSuccessHandler(function(result) { if (onSuccess) onSuccess(result); })
+        .withFailureHandler(fail);
+      if (typeof runner[fnName] !== 'function') {
+        fail({ message: 'The server function ' + fnName + ' is not available in this deployment.' });
+        return;
+      }
+      runner[fnName].apply(runner, args || []);
+    }
+
+    /**
+     * Read a boolean from a sheet value (true/false, "TRUE"/"FALSE", 1/0, "yes"/"no").
+     * Blank values return defaultValue.
+     */
+    function toBool(value, defaultValue) {
+      if (value === true || value === false) return value;
+      if (value === undefined || value === null || value === '') return !!defaultValue;
+      var s = String(value).toLowerCase().trim();
+      if (s === 'true' || s === '1' || s === 'yes' || s === 'y') return true;
+      if (s === 'false' || s === '0' || s === 'no' || s === 'n') return false;
+      return !!defaultValue;
+    }
+
+    /**
+     * Look up a Config value from campusData.config, which may be an array of
+     * {key, value} rows or a plain object.
+     */
+    function getConfigValue(key) {
+      var config = campusData && campusData.config;
+      if (!config) return '';
+      if (Array.isArray(config)) {
+        for (var i = 0; i < config.length; i++) {
+          if (config[i] && config[i].key === key) return config[i].value;
+        }
+        return '';
+      }
+      return config[key] || '';
+    }
+
+    function findById(list, id) {
+      list = list || [];
+      for (var i = 0; i < list.length; i++) {
+        if (list[i] && list[i].id === id) return list[i];
+      }
+      return null;
+    }
+
+    function findFloor(floorId) {
+      return findById(campusData && campusData.floors, floorId);
+    }
+
+    function findBuilding(buildingId) {
+      return findById(campusData && campusData.buildings, buildingId);
+    }
+
+    /* ========================================================
+       FLOOR PLAN SVG LOADING
+       Floor plans are SVG files embedded in the Apps Script project
+       (planAsset FP_<floorId>), served as a string by getFloorPlanSvg.
+       The canvas editors draw them as an Image from a data URL.
+       ======================================================== */
+    var floorPlanCache = {};   // floorId -> { dataUrl, width, height }
+
+    /**
+     * Make a raw SVG string safe to load as an image: keep only the svg
+     * element, ensure the SVG namespace (required outside inline HTML) and
+     * explicit width/height (so the image has an intrinsic size).
+     */
+    function normalizeSvgForImage(svg, widthPx, heightPx) {
+      var text = String(svg || '');
+      var start = text.search(/<svg[\s>]/i);
+      var end = text.toLowerCase().lastIndexOf('</svg>');
+      if (start === -1 || end === -1) return null;
+      text = text.substring(start, end + 6);
+
+      var openEnd = text.indexOf('>');
+      var openTag = text.substring(0, openEnd);
+      var rest = text.substring(openEnd);
+
+      if (!/\sxmlns\s*=/.test(openTag)) {
+        openTag += ' xmlns="http://www.w3.org/2000/svg"';
+      }
+      if (!/\sxmlns:xlink\s*=/.test(openTag) && /xlink:/.test(rest)) {
+        openTag += ' xmlns:xlink="http://www.w3.org/1999/xlink"';
+      }
+
+      var w = Number(widthPx) || 0;
+      var h = Number(heightPx) || 0;
+      if (!w || !h) {
+        var vb = openTag.match(/viewBox\s*=\s*["']\s*([-\d.eE]+)[\s,]+([-\d.eE]+)[\s,]+([-\d.eE]+)[\s,]+([-\d.eE]+)/);
+        if (vb) {
+          w = w || Number(vb[3]);
+          h = h || Number(vb[4]);
+        }
+      }
+      if (w && h) {
+        openTag = openTag.replace(/\s(width|height)\s*=\s*("[^"]*"|'[^']*')/g, '');
+        openTag += ' width="' + w + '" height="' + h + '"';
+      }
+      return { svg: openTag + rest, width: w, height: h };
+    }
+
+    /**
+     * Base64-encode a string as UTF-8 (btoa alone only accepts Latin-1).
+     */
+    function utf8ToBase64(str) {
+      return btoa(unescape(encodeURIComponent(str)));
+    }
+
+    /**
+     * Fetch a floor's SVG through getFloorPlanSvg and decode it into an Image.
+     * callback(img, info, errorMessage): img is null on failure; info carries
+     * {width, height} in SVG units (the floor's widthPx/heightPx when set).
+     */
+    function loadFloorPlanImage(floor, callback) {
+      if (!floor || !floor.id) { callback(null, null, 'No floor selected.'); return; }
+
+      function decode(entry) {
+        var img = new Image();
+        img.onload = function() { callback(img, entry, null); };
+        img.onerror = function() { callback(null, entry, 'The browser could not draw this floor plan SVG.'); };
+        img.src = entry.dataUrl;
+      }
+
+      var cached = floorPlanCache[floor.id];
+      if (cached) { decode(cached); return; }
+
+      runServer('getFloorPlanSvg', [floor.id], function(svg) {
+        var norm = normalizeSvgForImage(svg, floor.widthPx, floor.heightPx);
+        if (!norm) {
+          callback(null, null, 'The floor plan for ' + (floor.label || floor.id) + ' is not a valid SVG.');
+          return;
+        }
+        var entry = {
+          dataUrl: 'data:image/svg+xml;base64,' + utf8ToBase64(norm.svg),
+          width: norm.width,
+          height: norm.height
+        };
+        floorPlanCache[floor.id] = entry;
+        decode(entry);
+      }, function(err) {
+        callback(null, null, (err && err.message) || 'Floor plan unavailable.');
+      });
     }
 
     /**
@@ -1411,6 +1660,18 @@
         var nameSpan = document.createElement('span');
         nameSpan.className = 'item-name';
         nameSpan.textContent = (f.label || 'Floor ' + f.level) + ' (Level ' + f.level + ')';
+        if (!toBool(f['public'], true)) {
+          var hiddenTag = document.createElement('span');
+          hiddenTag.className = 'tag tag-muted';
+          hiddenTag.textContent = 'Not public';
+          nameSpan.appendChild(hiddenTag);
+        }
+        if (!f.planAsset) {
+          var noPlanTag = document.createElement('span');
+          noPlanTag.className = 'tag tag-warn';
+          noPlanTag.textContent = 'No plan';
+          nameSpan.appendChild(noPlanTag);
+        }
         li.appendChild(nameSpan);
 
         var actionsDiv = document.createElement('div');
@@ -1443,52 +1704,22 @@
      * If floorId is provided, populate for editing; otherwise clear for new floor.
      */
     function showFloorForm(floorId) {
-      var formTitle = document.getElementById('floors-form-title');
-      var formIdField = document.getElementById('floors-form-id');
-      var levelInput = document.getElementById('floors-level');
-      var labelInput = document.getElementById('floors-label');
-      var imageUrlInput = document.getElementById('floors-imageUrl');
-      var widthInput = document.getElementById('floors-widthPx');
-      var heightInput = document.getElementById('floors-heightPx');
-      var mppInput = document.getElementById('floors-metersPerPixel');
-      var previewDiv = document.getElementById('floors-image-preview');
+      var floor = floorId ? findFloor(floorId) : null;
 
-      // Hide preview
-      previewDiv.style.display = 'none';
+      document.getElementById('floors-form-title').textContent = floor ? 'Edit Floor' : 'Add Floor';
+      document.getElementById('floors-form-id').value = floor ? floor.id : '';
+      document.getElementById('floors-level').value = floor ? (floor.level === 0 ? '0' : (floor.level || '')) : '';
+      document.getElementById('floors-label').value = floor ? (floor.label || '') : '';
+      document.getElementById('floors-planAsset').value = floor ? (floor.planAsset || '') : '';
+      document.getElementById('floors-public').checked = floor ? toBool(floor['public'], true) : true;
+      document.getElementById('floors-widthPx').value = floor ? (floor.widthPx || '') : '';
+      document.getElementById('floors-heightPx').value = floor ? (floor.heightPx || '') : '';
+      document.getElementById('floors-metersPerPixel').value = floor ? (floor.metersPerPixel || '') : '';
 
-      if (floorId) {
-        // Editing existing floor
-        formTitle.textContent = 'Edit Floor';
-        formIdField.value = floorId;
-
-        var floor = null;
-        var floors = (campusData && campusData.floors) || [];
-        for (var i = 0; i < floors.length; i++) {
-          if (floors[i].id === floorId) {
-            floor = floors[i];
-            break;
-          }
-        }
-
-        if (floor) {
-          levelInput.value = floor.level || '';
-          labelInput.value = floor.label || '';
-          imageUrlInput.value = floor.planImageUrl || '';
-          widthInput.value = floor.widthPx || '';
-          heightInput.value = floor.heightPx || '';
-          mppInput.value = floor.metersPerPixel || '';
-        }
-      } else {
-        // Adding new floor
-        formTitle.textContent = 'Add Floor';
-        formIdField.value = '';
-        levelInput.value = '';
-        labelInput.value = '';
-        imageUrlInput.value = '';
-        widthInput.value = '';
-        heightInput.value = '';
-        mppInput.value = '';
-      }
+      // Preview is only possible for a saved floor that has a plan asset
+      document.getElementById('floors-image-preview').style.display = 'none';
+      document.getElementById('floors-preview-img').removeAttribute('src');
+      document.getElementById('floors-preview-btn').style.display = (floor && floor.planAsset) ? '' : 'none';
 
       document.getElementById('floors-form').style.display = '';
     }
@@ -1513,21 +1744,15 @@
      * Shows confirm() dialog, then calls deleteFloor on the server.
      */
     function deleteFloorConfirm(floorId) {
-      // Find floor label for the confirm message
-      var floorLabel = floorId;
-      var floors = (campusData && campusData.floors) || [];
-      for (var i = 0; i < floors.length; i++) {
-        if (floors[i].id === floorId) {
-          floorLabel = floors[i].label || ('Level ' + floors[i].level);
-          break;
-        }
-      }
+      var floor = findFloor(floorId);
+      var floorLabel = floor ? (floor.label || ('Level ' + floor.level)) : floorId;
 
       if (!confirm('Delete floor "' + floorLabel + '"? This cannot be undone.')) return;
 
       google.script.run
         .withSuccessHandler(function() {
           var buildingId = document.getElementById('floors-building-select').value;
+          delete floorPlanCache[floorId];
           refreshCampusData(function() {
             renderFloorsList(buildingId);
           });
@@ -1543,13 +1768,14 @@
     /**
      * Save the floor form (create or update).
      * If the hidden id field has a value, updates; otherwise creates new.
+     * planAsset is never edited here; an update sends back the stored value.
      */
     function saveFloorForm() {
       var id = document.getElementById('floors-form-id').value;
       var buildingId = document.getElementById('floors-building-select').value;
       var level = document.getElementById('floors-level').value.trim();
       var label = document.getElementById('floors-label').value.trim();
-      var imageUrl = document.getElementById('floors-imageUrl').value.trim();
+      var isPublic = document.getElementById('floors-public').checked;
       var widthPx = document.getElementById('floors-widthPx').value.trim();
       var heightPx = document.getElementById('floors-heightPx').value.trim();
       var metersPerPixel = document.getElementById('floors-metersPerPixel').value.trim();
@@ -1558,15 +1784,18 @@
       if (!level) { showMessage('Level is required.', 'error'); return; }
       if (!label) { showMessage('Label is required.', 'error'); return; }
 
+      var existing = id ? findFloor(id) : null;
+
       var data = {
         pin: adminPin,
         buildingId: buildingId,
         level: level,
         label: label,
-        planImageUrl: imageUrl,
-        widthPx: parseInt(widthPx, 10) || 0,
-        heightPx: parseInt(heightPx, 10) || 0,
-        metersPerPixel: parseFloat(metersPerPixel) || 0
+        planAsset: existing ? (existing.planAsset || '') : '',
+        widthPx: parseFloat(widthPx) || 0,
+        heightPx: parseFloat(heightPx) || 0,
+        metersPerPixel: parseFloat(metersPerPixel) || 0,
+        'public': isPublic
       };
 
       if (id) {
@@ -1592,7 +1821,7 @@
               renderFloorsList(buildingId);
             });
             hideFloorForm();
-            showMessage('Floor created successfully.', 'success');
+            showMessage('Floor created. Its plan drawing comes from the floor-plan pipeline.', 'success');
           })
           .withFailureHandler(function(err) {
             showMessage('Failed to create floor: ' + (err.message || String(err)), 'error');
@@ -1602,25 +1831,30 @@
     }
 
     /**
-     * Preview a floor plan image by converting the URL and showing it
-     * in the preview area below the form.
+     * Preview the floor's plan SVG (served by getFloorPlanSvg) below the form.
      */
     function previewFloorImage() {
-      var url = document.getElementById('floors-imageUrl').value.trim();
-      if (!url) { showMessage('Please enter an image URL first.', 'error'); return; }
+      var id = document.getElementById('floors-form-id').value;
+      var floor = id ? findFloor(id) : null;
+      if (!floor) { showMessage('Save the floor first; previews load from the stored plan asset.', 'error'); return; }
 
-      var directUrl = getDriveDirectUrl(url);
       var img = document.getElementById('floors-preview-img');
       var previewDiv = document.getElementById('floors-image-preview');
+      var btn = document.getElementById('floors-preview-btn');
+      btn.disabled = true;
+      btn.textContent = 'Loading...';
 
-      img.onerror = function() {
-        previewDiv.style.display = 'none';
-        showMessage('Failed to load image. Check the URL and sharing permissions.', 'error');
-      };
-      img.onload = function() {
+      loadFloorPlanImage(floor, function(loaded, info, errorMessage) {
+        btn.disabled = false;
+        btn.textContent = 'Preview Plan';
+        if (!loaded) {
+          previewDiv.style.display = 'none';
+          showMessage('Could not load the floor plan: ' + (errorMessage || 'unknown error'), 'error');
+          return;
+        }
+        img.src = loaded.src;
         previewDiv.style.display = '';
-      };
-      img.src = directUrl;
+      });
     }
 
     /* ========================================================
@@ -1690,6 +1924,7 @@
 
       if (!buildingId || !campusData || !campusData.floors) {
         roomsCurrentFloor = null;
+        if (roomsCanvas) roomsCanvas.loadFloor(null);
         updateRoomsCount();
         return;
       }
@@ -1705,6 +1940,7 @@
 
       if (floors.length === 0) {
         roomsCurrentFloor = null;
+        if (roomsCanvas) roomsCanvas.loadFloor(null);
         updateRoomsCount();
         return;
       }
@@ -1763,17 +1999,8 @@
         });
       }
 
-      // Load floor plan image
-      if (floor && floor.planImageUrl) {
-        roomsCanvas.loadImage(floor.planImageUrl, function() {
-          roomsCanvas.fitImage();
-        });
-      } else {
-        // No image — clear and render empty
-        roomsCanvas.image = null;
-        roomsCanvas.imageLoaded = false;
-        roomsCanvas.resetView();
-      }
+      // Load the floor plan SVG (overlays render even if the SVG is missing)
+      roomsCanvas.loadFloor(floor);
 
       updateRoomsCount();
     }
@@ -2521,6 +2748,7 @@
 
       if (!buildingId || !campusData || !campusData.floors) {
         navCurrentFloor = null;
+        if (navCanvas) navCanvas.loadFloor(null);
         updateNavCount();
         return;
       }
@@ -2536,6 +2764,7 @@
 
       if (floors.length === 0) {
         navCurrentFloor = null;
+        if (navCanvas) navCanvas.loadFloor(null);
         updateNavCount();
         return;
       }
@@ -2595,16 +2824,8 @@
         });
       }
 
-      // Load floor plan image
-      if (floor && floor.planImageUrl) {
-        navCanvas.loadImage(floor.planImageUrl, function() {
-          navCanvas.fitImage();
-        });
-      } else {
-        navCanvas.image = null;
-        navCanvas.imageLoaded = false;
-        navCanvas.resetView();
-      }
+      // Load the floor plan SVG (overlays render even if the SVG is missing)
+      navCanvas.loadFloor(floor);
 
       updateNavCount();
     }
@@ -4185,26 +4406,33 @@
 
     /* ========================================================
        ADMIN CANVAS CONTROLLER — Reusable pan/zoom/tap canvas controller
-       Ported from WebApp.html's setupCanvasInteraction pattern.
+       Draws a floor plan (SVG decoded into an Image) in the floor's own
+       coordinate space (SVG units = widthPx x heightPx), with overlays drawn
+       by the onRender callback in that same space.
 
        Usage:
          var ctrl = new AdminCanvasController('rooms-canvas', {
-           onTap: function(canvasX, canvasY) { ... },
+           onTap: function(x, y, event) { ... },
            onRender: function(ctx, scale, offsetX, offsetY) { ... }
          });
-         ctrl.loadImage(url, function() { ctrl.render(); });
+         ctrl.loadFloor(floorObject);
          ctrl.render();
-         ctrl.resetView();
        ======================================================== */
     function AdminCanvasController(canvasId, opts) {
       this.canvas = document.getElementById(canvasId);
       this.ctx = this.canvas.getContext('2d');
       this.opts = opts || {};
       this.scale = 1;
+      this.minScale = 0.05;
+      this.maxScale = 5;
       this.offsetX = 0;
       this.offsetY = 0;
       this.image = null;
       this.imageLoaded = false;
+      this.planWidth = 0;    // floor width in SVG units
+      this.planHeight = 0;   // floor height in SVG units
+      this.statusText = '';  // empty-state / error text drawn when there is no image
+      this._loadToken = 0;
 
       // Internal drag state
       this._isDragging = false;
@@ -4216,22 +4444,59 @@
       this._tapStartTime = 0;
 
       this._setupEvents();
+      this.syncSize();
     }
 
     /**
-     * Attach touch (start/move/end) and mouse (down/move/up/click/wheel) events.
+     * Match the canvas backing store to its displayed size (and the device
+     * pixel ratio, so lines and text stay crisp).
+     */
+    AdminCanvasController.prototype.syncSize = function() {
+      var wrap = this.canvas.parentElement;
+      if (!wrap || !wrap.clientWidth || !wrap.clientHeight) return false;
+      var dpr = window.devicePixelRatio || 1;
+      var w = Math.round(wrap.clientWidth * dpr);
+      var h = Math.round(wrap.clientHeight * dpr);
+      if (this.canvas.width !== w || this.canvas.height !== h) {
+        this.canvas.width = w;
+        this.canvas.height = h;
+      }
+      this.cssWidth = wrap.clientWidth;
+      this.cssHeight = wrap.clientHeight;
+      this.dpr = dpr;
+      return true;
+    };
+
+    /**
+     * Zoom by factor around a point given in canvas CSS pixels.
+     */
+    AdminCanvasController.prototype.zoomAt = function(factor, px, py) {
+      var newScale = Math.max(this.minScale, Math.min(this.maxScale, this.scale * factor));
+      var applied = newScale / this.scale;
+      this.offsetX = px - (px - this.offsetX) * applied;
+      this.offsetY = py - (py - this.offsetY) * applied;
+      this.scale = newScale;
+      this.render();
+    };
+
+    /**
+     * Attach touch (start/move/end) and mouse (down/move/up/wheel) events.
      * Touch: single-finger pan, two-finger pinch zoom, tap detection (< 300ms, < 10px).
-     * Mouse: drag to pan, click tap detection, wheel zoom (0.9/1.1, clamped 0.3-5.0).
+     * Mouse: drag to pan, click tap detection, wheel zoom around the pointer.
      */
     AdminCanvasController.prototype._setupEvents = function() {
       var self = this;
       var canvas = this.canvas;
 
-      // --- Helper: get distance between two touches ---
       function getTouchDistance(touches) {
         var dx = touches[0].clientX - touches[1].clientX;
         var dy = touches[0].clientY - touches[1].clientY;
         return Math.sqrt(dx * dx + dy * dy);
+      }
+
+      function localPoint(clientX, clientY) {
+        var rect = canvas.getBoundingClientRect();
+        return { x: clientX - rect.left, y: clientY - rect.top };
       }
 
       // --- Touch events ---
@@ -4252,22 +4517,21 @@
 
       canvas.addEventListener('touchmove', function(e) {
         if (e.touches.length === 1 && self._isDragging) {
-          var dx = e.touches[0].clientX - self._lastX;
-          var dy = e.touches[0].clientY - self._lastY;
-          self.offsetX += dx;
-          self.offsetY += dy;
+          self.offsetX += e.touches[0].clientX - self._lastX;
+          self.offsetY += e.touches[0].clientY - self._lastY;
           self._lastX = e.touches[0].clientX;
           self._lastY = e.touches[0].clientY;
           self.render();
         } else if (e.touches.length === 2) {
           var dist = getTouchDistance(e.touches);
           if (self._lastDist > 0) {
-            var scaleDelta = dist / self._lastDist;
-            self.scale *= scaleDelta;
-            self.scale = Math.max(0.3, Math.min(5.0, self.scale));
+            var mid = localPoint(
+              (e.touches[0].clientX + e.touches[1].clientX) / 2,
+              (e.touches[0].clientY + e.touches[1].clientY) / 2
+            );
+            self.zoomAt(dist / self._lastDist, mid.x, mid.y);
           }
           self._lastDist = dist;
-          self.render();
         }
         e.preventDefault();
       }, { passive: false });
@@ -4279,9 +4543,7 @@
           var moveY = Math.abs(e.changedTouches[0].clientY - self._tapStartY);
           if (elapsed < 300 && moveX < 10 && moveY < 10) {
             var coords = self.toCanvasCoords(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
-            if (self.opts.onTap) {
-              self.opts.onTap(coords.x, coords.y, e);
-            }
+            if (self.opts.onTap) self.opts.onTap(coords.x, coords.y, e);
           }
         }
         self._isDragging = false;
@@ -4307,10 +4569,8 @@
 
       canvas.addEventListener('mousemove', function(e) {
         if (!mouseDragging) return;
-        var dx = e.clientX - mouseStartX;
-        var dy = e.clientY - mouseStartY;
-        self.offsetX += dx;
-        self.offsetY += dy;
+        self.offsetX += e.clientX - mouseStartX;
+        self.offsetY += e.clientY - mouseStartY;
         mouseStartX = e.clientX;
         mouseStartY = e.clientY;
         self.render();
@@ -4320,15 +4580,12 @@
       canvas.addEventListener('mouseup', function(e) {
         if (!mouseDragging) return;
         mouseDragging = false;
-        // Detect tap: short duration, minimal movement
         var elapsed = Date.now() - mouseTapStartTime;
         var moveX = Math.abs(e.clientX - mouseTapStartX);
         var moveY = Math.abs(e.clientY - mouseTapStartY);
         if (elapsed < 300 && moveX < 10 && moveY < 10) {
           var coords = self.toCanvasCoords(e.clientX, e.clientY);
-          if (self.opts.onTap) {
-            self.opts.onTap(coords.x, coords.y, e);
-          }
+          if (self.opts.onTap) self.opts.onTap(coords.x, coords.y, e);
         }
         e.preventDefault();
       });
@@ -4337,88 +4594,98 @@
         mouseDragging = false;
       });
 
-      // --- Mouse wheel zoom ---
+      // --- Mouse wheel zoom (around the pointer) ---
       canvas.addEventListener('wheel', function(e) {
         e.preventDefault();
-        var delta = e.deltaY > 0 ? 0.9 : 1.1;
-        self.scale *= delta;
-        self.scale = Math.max(0.3, Math.min(5.0, self.scale));
-        self.render();
+        var p = localPoint(e.clientX, e.clientY);
+        self.zoomAt(e.deltaY > 0 ? 0.9 : 1.1, p.x, p.y);
       }, { passive: false });
+
+      // Keep the backing store matched to the layout
+      window.addEventListener('resize', function() {
+        if (self.syncSize()) self.render();
+      });
     };
 
     /**
-     * Load an image from a URL (handles Google Drive conversion).
-     * On load, sizes canvas to match wrap dimensions and calls callback().
+     * Load a floor's plan. The view is sized from the floor's widthPx/heightPx
+     * (falling back to the SVG's own size); overlays still render when the SVG
+     * itself is missing. callback(errorMessage) runs after the first render.
      */
-    AdminCanvasController.prototype.loadImage = function(url, callback) {
+    AdminCanvasController.prototype.loadFloor = function(floor, callback) {
       var self = this;
-      function onImageReady(img) {
+      var token = ++this._loadToken;
+
+      this.image = null;
+      this.imageLoaded = false;
+      this.planWidth = Number(floor && floor.widthPx) || 0;
+      this.planHeight = Number(floor && floor.heightPx) || 0;
+      this.statusText = floor ? 'Loading floor plan...' : 'Select a building and floor.';
+      this.fitImage();
+
+      if (!floor) {
+        if (typeof callback === 'function') callback(null);
+        return;
+      }
+
+      loadFloorPlanImage(floor, function(img, info, errorMessage) {
+        if (token !== self._loadToken) return; // a newer floor was selected meanwhile
         if (img) {
           self.image = img;
           self.imageLoaded = true;
+          self.statusText = '';
+          if (!self.planWidth || !self.planHeight) {
+            self.planWidth = (info && info.width) || img.naturalWidth || img.width;
+            self.planHeight = (info && info.height) || img.naturalHeight || img.height;
+          }
         } else {
-          self.image = null;
-          self.imageLoaded = false;
+          var reason = String(errorMessage || 'unavailable').replace(/[.\s]+$/, '');
+          self.statusText = 'No floor plan drawing (' + reason + '). Rooms and nodes are still shown and editable.';
         }
-        var wrap = self.canvas.parentElement;
-        if (wrap) {
-          self.canvas.width = wrap.clientWidth;
-          self.canvas.height = wrap.clientHeight;
-        }
-        if (typeof callback === 'function') callback();
-      }
-      var match = url ? url.match(/\/d\/([a-zA-Z0-9_-]+)/) : null;
-      if (match) {
-        // Fetch via server to bypass CORS
-        google.script.run
-          .withSuccessHandler(function(result) {
-            var img = new Image();
-            img.onload = function() { onImageReady(img); };
-            img.onerror = function() { onImageReady(null); };
-            img.src = 'data:' + result.mimeType + ';base64,' + result.base64;
-          })
-          .withFailureHandler(function() {
-            // Fallback to direct URL
-            var img = new Image();
-            img.crossOrigin = 'anonymous';
-            img.onload = function() { onImageReady(img); };
-            img.onerror = function() { onImageReady(null); };
-            img.src = getDriveDirectUrl(url);
-          })
-          .getFloorPlanFile(match[1]);
-      } else {
-        var img = new Image();
-        img.crossOrigin = 'anonymous';
-        img.onload = function() { onImageReady(img); };
-        img.onerror = function() { onImageReady(null); };
-        img.src = getDriveDirectUrl(url);
-      }
+        self.fitImage();
+        if (typeof callback === 'function') callback(img ? null : errorMessage);
+      });
     };
 
     /**
-     * Render the canvas. Clears, draws image with pan/zoom transform,
-     * then calls onRender callback for overlay drawing.
+     * Render the canvas: clear, draw the plan with the pan/zoom transform,
+     * then call onRender for overlays in plan coordinates.
      */
     AdminCanvasController.prototype.render = function() {
       var ctx = this.ctx;
-      var canvas = this.canvas;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      var dpr = this.dpr || 1;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
+      ctx.save();
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.translate(this.offsetX, this.offsetY);
+      ctx.scale(this.scale, this.scale);
+      if (this.planWidth && this.planHeight) {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, this.planWidth, this.planHeight);
+      }
       if (this.imageLoaded && this.image) {
+        ctx.drawImage(this.image, 0, 0, this.planWidth || this.image.width, this.planHeight || this.image.height);
+      }
+      if (this.opts.onRender) {
+        this.opts.onRender(ctx, this.scale, this.offsetX, this.offsetY);
+      }
+      ctx.restore();
+
+      if (this.statusText) {
         ctx.save();
-        ctx.translate(this.offsetX, this.offsetY);
-        ctx.scale(this.scale, this.scale);
-        ctx.drawImage(this.image, 0, 0);
-        if (this.opts.onRender) {
-          this.opts.onRender(ctx, this.scale, this.offsetX, this.offsetY);
-        }
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.font = '13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        var maxW = Math.max(120, (this.cssWidth || 300) - 24);
+        var tw = Math.min(ctx.measureText(this.statusText).width, maxW);
+        ctx.fillStyle = 'rgba(255,255,255,0.92)';
+        ctx.fillRect(8, 8, tw + 16, 26);
+        ctx.fillStyle = '#374151';
+        ctx.fillText(this.statusText, 16, 14, maxW);
         ctx.restore();
-      } else {
-        // No image — call onRender with identity transform
-        if (this.opts.onRender) {
-          this.opts.onRender(ctx, 1, 0, 0);
-        }
       }
     };
 
@@ -4427,41 +4694,46 @@
      */
     AdminCanvasController.prototype.resetView = function() {
       this.scale = 1;
+      this.minScale = 0.05;
+      this.maxScale = 5;
       this.offsetX = 0;
       this.offsetY = 0;
       this.render();
     };
 
     /**
-     * Fit the loaded image within the canvas, centered, then render.
+     * Fit the floor plan within the canvas, centered, then render.
+     * Zoom limits are set relative to the fitted scale.
      */
     AdminCanvasController.prototype.fitImage = function() {
-      if (!this.imageLoaded || !this.image) return;
-      var canvas = this.canvas;
-      var imgW = this.image.width;
-      var imgH = this.image.height;
-      if (imgW === 0 || imgH === 0) return;
-
-      var scaleX = canvas.width / imgW;
-      var scaleY = canvas.height / imgH;
-      this.scale = Math.min(scaleX, scaleY);
-
-      // Center the image
-      this.offsetX = (canvas.width - imgW * this.scale) / 2;
-      this.offsetY = (canvas.height - imgH * this.scale) / 2;
-
+      this.syncSize();
+      var w = this.planWidth;
+      var h = this.planHeight;
+      var cw = this.cssWidth || 0;
+      var ch = this.cssHeight || 0;
+      if (!w || !h || !cw || !ch) {
+        this.resetView();
+        return;
+      }
+      var fit = Math.min(cw / w, ch / h) * 0.95;
+      this.scale = fit;
+      this.minScale = fit * 0.5;
+      this.maxScale = Math.max(fit * 40, 5);
+      this.offsetX = (cw - w * fit) / 2;
+      this.offsetY = (ch - h * fit) / 2;
       this.render();
     };
 
     /**
-     * Convert client (screen) coordinates to canvas (image) coordinates.
-     * Returns {x: canvasX, y: canvasY}.
+     * Convert client (screen) coordinates to plan coordinates.
+     * Returns {x, y}.
      */
     AdminCanvasController.prototype.toCanvasCoords = function(clientX, clientY) {
       var rect = this.canvas.getBoundingClientRect();
-      var canvasX = (clientX - rect.left - this.offsetX) / this.scale;
-      var canvasY = (clientY - rect.top - this.offsetY) / this.scale;
-      return { x: canvasX, y: canvasY };
+      return {
+        x: (clientX - rect.left - this.offsetX) / this.scale,
+        y: (clientY - rect.top - this.offsetY) / this.scale
+      };
     };
 
     /* ========================================================
