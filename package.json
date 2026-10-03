@@ -12,7 +12,7 @@
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:ui": "playwright test --ui",
     "pipeline": "node scripts/floorplan-pipeline/run.mjs --in data/dwg --out data/floorplans",
-    "test:pipeline": "node --test scripts/floorplan-pipeline/test/"
+    "test:pipeline": "node --test \"scripts/floorplan-pipeline/test/*.test.mjs\""
   },
   "repository": {
     "type": "git",

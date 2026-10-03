@@ -319,7 +319,7 @@
  ],
  "doors": [
   {
-   "nodeId": "ep-3-n0021",
+   "nodeId": "ep-3-n0019",
    "kind": "door",
    "exterior": false,
    "x": 408.4,
@@ -332,7 +332,7 @@
    "doorNo": "3100A"
   },
   {
-   "nodeId": "ep-3-n0022",
+   "nodeId": "ep-3-n0020",
    "kind": "door",
    "exterior": false,
    "x": 856,
@@ -345,7 +345,7 @@
    "doorNo": "3100B"
   },
   {
-   "nodeId": "ep-3-n0024",
+   "nodeId": "ep-3-n0022",
    "kind": "door",
    "exterior": true,
    "x": 1855.5,
@@ -358,7 +358,7 @@
    "doorNo": "3100"
   },
   {
-   "nodeId": "ep-3-n0025",
+   "nodeId": "ep-3-n0023",
    "kind": "inferred",
    "exterior": false,
    "x": 770,
@@ -533,22 +533,6 @@
    },
    {
     "id": "ep-3-n0019",
-    "type": "waypoint",
-    "x": 238.1,
-    "y": 200.8,
-    "roomId": "",
-    "linkId": ""
-   },
-   {
-    "id": "ep-3-n0020",
-    "type": "waypoint",
-    "x": 1325.9,
-    "y": 470.6,
-    "roomId": "",
-    "linkId": ""
-   },
-   {
-    "id": "ep-3-n0021",
     "type": "door",
     "x": 408.4,
     "y": 206.8,
@@ -556,7 +540,7 @@
     "linkId": ""
    },
    {
-    "id": "ep-3-n0022",
+    "id": "ep-3-n0020",
     "type": "door",
     "x": 856,
     "y": 740.6,
@@ -564,7 +548,7 @@
     "linkId": ""
    },
    {
-    "id": "ep-3-n0023",
+    "id": "ep-3-n0021",
     "type": "waypoint",
     "x": 849.1,
     "y": 462.7,
@@ -572,7 +556,7 @@
     "linkId": ""
    },
    {
-    "id": "ep-3-n0024",
+    "id": "ep-3-n0022",
     "type": "entrance",
     "x": 1855.5,
     "y": 704.6,
@@ -580,7 +564,7 @@
     "linkId": ""
    },
    {
-    "id": "ep-3-n0025",
+    "id": "ep-3-n0023",
     "type": "door",
     "x": 770,
     "y": 791.4,
@@ -588,7 +572,7 @@
     "linkId": ""
    },
    {
-    "id": "ep-3-n0026",
+    "id": "ep-3-n0024",
     "type": "waypoint",
     "x": 761.9,
     "y": 464.8,
@@ -672,14 +656,14 @@
    {
     "id": "ep-3-e0010",
     "from": "ep-3-n0005",
-    "to": "ep-3-n0019",
+    "to": "ep-3-n0001",
     "distance": 2.17,
     "floorChange": false,
     "accessible": true
    },
    {
     "id": "ep-3-e0011",
-    "from": "ep-3-n0019",
+    "from": "ep-3-n0001",
     "to": "ep-3-n0007",
     "distance": 1.7,
     "floorChange": false,
@@ -687,111 +671,95 @@
    },
    {
     "id": "ep-3-e0012",
-    "from": "ep-3-n0001",
-    "to": "ep-3-n0019",
-    "distance": 0,
-    "floorChange": false,
-    "accessible": true
-   },
-   {
-    "id": "ep-3-e0013",
     "from": "ep-3-n0017",
-    "to": "ep-3-n0020",
+    "to": "ep-3-n0002",
     "distance": 3.47,
     "floorChange": false,
     "accessible": true
    },
    {
-    "id": "ep-3-e0014",
-    "from": "ep-3-n0020",
+    "id": "ep-3-e0013",
+    "from": "ep-3-n0002",
     "to": "ep-3-n0018",
     "distance": 1.21,
     "floorChange": false,
     "accessible": true
    },
    {
-    "id": "ep-3-e0015",
-    "from": "ep-3-n0002",
-    "to": "ep-3-n0020",
-    "distance": 0,
-    "floorChange": false,
-    "accessible": true
-   },
-   {
-    "id": "ep-3-e0016",
-    "from": "ep-3-n0021",
+    "id": "ep-3-e0014",
+    "from": "ep-3-n0019",
     "to": "ep-3-n0006",
     "distance": 1.47,
     "floorChange": false,
     "accessible": true
    },
    {
-    "id": "ep-3-e0017",
-    "from": "ep-3-n0021",
+    "id": "ep-3-e0015",
+    "from": "ep-3-n0019",
     "to": "ep-3-n0009",
     "distance": 1.66,
     "floorChange": false,
     "accessible": true
    },
    {
-    "id": "ep-3-e0018",
-    "from": "ep-3-n0023",
+    "id": "ep-3-e0016",
+    "from": "ep-3-n0021",
     "to": "ep-3-n0015",
     "distance": 2.09,
     "floorChange": false,
     "accessible": true
    },
    {
-    "id": "ep-3-e0019",
-    "from": "ep-3-n0022",
-    "to": "ep-3-n0023",
+    "id": "ep-3-e0017",
+    "from": "ep-3-n0020",
+    "to": "ep-3-n0021",
     "distance": 7.06,
     "floorChange": false,
     "accessible": true
    },
    {
-    "id": "ep-3-e0020",
-    "from": "ep-3-n0022",
+    "id": "ep-3-e0018",
+    "from": "ep-3-n0020",
     "to": "ep-3-n0004",
     "distance": 0.41,
     "floorChange": false,
     "accessible": true
    },
    {
-    "id": "ep-3-e0021",
-    "from": "ep-3-n0024",
+    "id": "ep-3-e0019",
+    "from": "ep-3-n0022",
     "to": "ep-3-n0010",
     "distance": 9.63,
     "floorChange": false,
     "accessible": true
    },
    {
-    "id": "ep-3-e0022",
+    "id": "ep-3-e0020",
     "from": "ep-3-n0014",
-    "to": "ep-3-n0026",
+    "to": "ep-3-n0024",
     "distance": 1.84,
     "floorChange": false,
     "accessible": true
    },
    {
-    "id": "ep-3-e0023",
-    "from": "ep-3-n0026",
-    "to": "ep-3-n0023",
+    "id": "ep-3-e0021",
+    "from": "ep-3-n0024",
+    "to": "ep-3-n0021",
     "distance": 2.22,
     "floorChange": false,
     "accessible": true
    },
    {
-    "id": "ep-3-e0024",
-    "from": "ep-3-n0025",
-    "to": "ep-3-n0026",
+    "id": "ep-3-e0022",
+    "from": "ep-3-n0023",
+    "to": "ep-3-n0024",
     "distance": 8.3,
     "floorChange": false,
     "accessible": true
    },
    {
-    "id": "ep-3-e0025",
-    "from": "ep-3-n0025",
+    "id": "ep-3-e0023",
+    "from": "ep-3-n0023",
     "to": "ep-3-n0003",
     "distance": 1.3,
     "floorChange": false,

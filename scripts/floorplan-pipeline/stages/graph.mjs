@@ -109,6 +109,15 @@ export function buildFloorGraph(fp, openings, wallIndex, { idPrefix }) {
     for (const cand of cands.slice(0, 6)) {
       if (!lineOfSight(node.p, cand.q, wallIndex)) continue;
       const [a, b] = cand.s;
+      if (cand.d < 2 && dist(node.p, a.p) >= 1 && dist(node.p, b.p) >= 1) {
+        // The node already lies on the centerline (a room hub on its own room's axis): splice it in.
+        removeEdge(a, b);
+        addEdge(a, node);
+        addEdge(node, b);
+        c.segs.splice(c.segs.indexOf(cand.s), 1, [a, node], [node, b]);
+        c.nodes.push(node);
+        return true;
+      }
       let target;
       if (dist(cand.q, a.p) <= SNAP) target = a;
       else if (dist(cand.q, b.p) <= SNAP) target = b;

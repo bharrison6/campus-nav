@@ -19,8 +19,8 @@
     "inferredPassages": 4,
     "entrances": 6,
     "verticals": 4,
-    "nodes": 502,
-    "edges": 535,
+    "nodes": 499,
+    "edges": 532,
     "blindCorridorAttachments": 4,
     "unreachableRooms": 0,
     "isolatedEntrances": 0,
@@ -73,8 +73,8 @@
     "inferredPassages": 6,
     "entrances": 5,
     "verticals": 4,
-    "nodes": 570,
-    "edges": 607,
+    "nodes": 563,
+    "edges": 600,
     "blindCorridorAttachments": 7,
     "unreachableRooms": 0,
     "isolatedEntrances": 0,
@@ -172,8 +172,8 @@
     "inferredPassages": 4,
     "entrances": 8,
     "verticals": 4,
-    "nodes": 372,
-    "edges": 398,
+    "nodes": 371,
+    "edges": 397,
     "blindCorridorAttachments": 12,
     "unreachableRooms": 1,
     "isolatedEntrances": 1,
@@ -190,7 +190,7 @@
    ],
    "isolatedEntrances": [
     {
-     "nodeId": "ep-1-n0366",
+     "nodeId": "ep-1-n0365",
      "rooms": [
       "1322"
      ]
@@ -238,8 +238,8 @@
     "inferredPassages": 2,
     "entrances": 0,
     "verticals": 4,
-    "nodes": 369,
-    "edges": 385,
+    "nodes": 367,
+    "edges": 383,
     "blindCorridorAttachments": 5,
     "unreachableRooms": 0,
     "isolatedEntrances": 0,
@@ -282,8 +282,8 @@
     "inferredPassages": 1,
     "entrances": 1,
     "verticals": 2,
-    "nodes": 26,
-    "edges": 25,
+    "nodes": 24,
+    "edges": 23,
     "blindCorridorAttachments": 1,
     "unreachableRooms": 0,
     "isolatedEntrances": 0,
@@ -508,5 +508,5 @@
   ]
  },
  "crossFloorEdges": 10,
- "seedFloorDataBytes": 373498
+ "seedFloorDataBytes": 371637
 }
