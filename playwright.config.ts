@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 const appUrl =
   process.env.APP_URL ||
-  'https://script.google.com/macros/s/AKfycbxM-sMOC8CQQf2ckPX6MgZHZsnWu-oAWKp0DeuqbEp3idjSKGZUY288zN_KhXlwbhy53Q/exec';
+  'https://script.google.com/macros/s/AKfycbwK7uZ5SDu_PIDrUfWYj7866Y4gbs68cbQxxLZN4kQs0iv5EpiKeR62qBGOfk75CEo/exec';
 
 export default defineConfig({
   testDir: './tests',
