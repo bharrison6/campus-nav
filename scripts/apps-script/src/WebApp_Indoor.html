@@ -239,7 +239,7 @@ function decorateFloor() {
   var i;
   var photos = photosOnFloor(floorId);
   for (i = 0; i < photos.length; i++) {
-    markers.push({ id: 'photo:' + photos[i].id, x: photos[i].x, y: photos[i].y, kind: 'photo', text: '◉', title: photos[i].caption || 'Photo' });
+    markers.push({ id: 'photo:' + photos[i].id, x: photos[i].x, y: photos[i].y, kind: 'photo', title: photos[i].caption || 'Photo' });
   }
 
   var r = IND.route;
