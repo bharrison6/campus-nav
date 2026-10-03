@@ -1,119 +1,368 @@
 /**
- * AdminAPI.gs — Admin operations for managing campus data.
- * All write operations require admin PIN authentication.
+ * AdminAPI.gs — Admin operations (contract v2). Every write requires the admin PIN.
+ *
+ * Rows are built from the tab's v2 headers (Init.gs getSheetDefinitions_), so a
+ * record is passed as an object keyed by column name. Updates MERGE: a field
+ * that is absent (undefined) keeps its stored value; null or '' clears it.
+ *
+ * Helpers end with an underscore so google.script.run cannot call them.
  */
 
+// ============================================================================
+// PIN, lockout, and the admin-operation wrapper
+// ============================================================================
+
+var PIN_FAILURE_LIMIT_ = 10;
+var PIN_LOCKOUT_SECONDS_ = 600;
+
 /**
- * Verifies the admin PIN against the value stored in Script Properties.
- * Set the PIN via: Script Editor → Project Settings → Script Properties → Add "ADMIN_PIN".
- * @param {string} pin - The PIN to verify.
+ * Verifies the admin PIN against Script Property ADMIN_PIN.
+ * After 10 failed attempts within 10 minutes all PIN checks are refused for
+ * 10 minutes (the web app is anonymous, so the lockout is global).
+ * @param {string} pin
  * @return {boolean} True if valid.
  */
 function verifyAdminPin(pin) {
   var stored = PropertiesService.getScriptProperties().getProperty('ADMIN_PIN');
   if (!stored) {
-    throw new Error('Admin PIN not configured. Set ADMIN_PIN in Script Properties.');
+    throw new Error('Admin PIN not configured. Run ?action=init once; the generated PIN is then in the Apps Script editor under Project Settings > Script Properties (ADMIN_PIN).');
   }
-  return pin === stored;
+  var cache = CacheService.getScriptCache();
+  var failures = parseInt(cache.get('adminPinFailures') || '0', 10);
+  if (failures >= PIN_FAILURE_LIMIT_) {
+    throw new Error('Too many failed PIN attempts. Try again in 10 minutes.');
+  }
+  if (pin !== undefined && pin !== null && pin !== '' && String(pin) === String(stored)) {
+    cache.remove('adminPinFailures');
+    return true;
+  }
+  cache.put('adminPinFailures', String(failures + 1), PIN_LOCKOUT_SECONDS_);
+  return false;
 }
 
-/**
- * Saves a new QR location to the QRLocations sheet.
- * Requires admin PIN for authorization.
- * @param {Object} data - QR location data with pin, buildingId, floorId, nodeId, description, permanent, expires.
- * @return {Object} The created QR location id.
- */
-function saveQrLocation(data) {
-  // Authenticate
-  if (!data || !verifyAdminPin(data.pin)) {
+function requirePin_(pin) {
+  if (!verifyAdminPin(pin)) {
     throw new Error('Invalid admin PIN');
   }
-
-  // Validate required fields
-  if (!data.buildingId || typeof data.buildingId !== 'string') {
-    throw new Error('buildingId is required');
-  }
-  if (!data.nodeId || typeof data.nodeId !== 'string') {
-    throw new Error('nodeId is required');
-  }
-  if (!data.description || typeof data.description !== 'string') {
-    throw new Error('description is required');
-  }
-  if (data.description.length > 500) {
-    throw new Error('description must be 500 characters or less');
-  }
-  if (data.expires && isNaN(Date.parse(data.expires))) {
-    throw new Error('expires must be a valid date');
-  }
-
-  var ss = _getSpreadsheet();
-  var sheet = ss.getSheetByName('QRLocations');
-  var id = 'qrloc-' + Date.now();
-  sheet.appendRow([
-    id,
-    data.buildingId,
-    data.floorId || '',
-    data.nodeId,
-    data.description,
-    data.permanent ? 'TRUE' : 'FALSE',
-    data.expires || '',
-    new Date().toISOString()
-  ]);
-
-  // Increment data version so clients refresh
-  _incrementDataVersion(ss);
-
-  return { id: id };
 }
 
 /**
- * Increments the dataVersion in Config sheet so clients know to re-fetch.
- * Creates the dataVersion row if it does not exist.
- * @param {Spreadsheet} ss - The backing spreadsheet.
+ * Verifies data.pin, takes the script lock, opens the spreadsheet, runs the
+ * callback, bumps dataVersion, and returns the callback's result.
  */
-function _incrementDataVersion(ss) {
+function adminOp_(data, callback) {
+  requirePin_(data ? data.pin : '');
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var ss = getSpreadsheet_();
+    var result = callback(ss);
+    incrementDataVersion_(ss);
+    return result;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Increments Config dataVersion so clients re-fetch; creates the row if missing. */
+function incrementDataVersion_(ss) {
   var configSheet = ss.getSheetByName('Config');
   var data = configSheet.getDataRange().getValues();
   for (var i = 1; i < data.length; i++) {
     if (data[i][0] === 'dataVersion') {
-      var newVersion = (parseInt(data[i][1]) || 0) + 1;
-      configSheet.getRange(i + 1, 2).setValue(String(newVersion));
+      configSheet.getRange(i + 1, 2).setValue(String((parseInt(data[i][1], 10) || 0) + 1));
       return;
     }
   }
-  // dataVersion row not found — create it
   configSheet.appendRow(['dataVersion', '1']);
 }
 
 // ============================================================================
-// Floor plan file operations (Drive access)
+// Settings (secrets live only in Script Properties; values never returned)
 // ============================================================================
 
 /**
- * Fetches a file from Google Drive and returns it as base64 string.
- * Used to bypass CORS when loading floor plan images from Drive.
- * No PIN required — read-only operation on files already shared.
- * @param {string} fileId - Google Drive file ID.
- * @return {Object} Base64 content and MIME type.
+ * Settings status for the admin Settings tab: booleans and the key's source,
+ * never values. The admin page calls it after PIN login; a pin argument, when
+ * passed, is verified.
+ * @param {string=} pin
+ * @return {Object} { mapsApiKeyConfigured, mapsApiKeySource, adminPinConfigured }
+ */
+function getSettingsStatus(pin) {
+  if (pin !== undefined && pin !== null && pin !== '') requirePin_(pin);
+  return settingsStatus_();
+}
+
+/**
+ * Stores the Google Maps browser key in Script Property mapsApiKey.
+ * An empty key removes the property (the Config sheet fallback then applies).
+ * @param {string} pin
+ * @param {string} key
+ * @return {Object} settings status (booleans only)
+ */
+function setMapsApiKey(pin, key) {
+  requirePin_(pin);
+  var value = String(key === undefined || key === null ? '' : key).replace(/^\s+|\s+$/g, '');
+  var props = PropertiesService.getScriptProperties();
+  if (value === '') {
+    props.deleteProperty('mapsApiKey');
+  } else {
+    if (!/^[A-Za-z0-9_-]{20,128}$/.test(value)) {
+      throw new Error('That does not look like a Google Maps API key (letters, digits, - and _, 20 to 128 characters).');
+    }
+    props.setProperty('mapsApiKey', value);
+  }
+  try { incrementDataVersion_(getSpreadsheet_()); } catch (e) { /* not initialized yet */ }
+  return settingsStatus_();
+}
+
+/**
+ * Changes ADMIN_PIN. The new PIN must be 6 to 12 digits.
+ * @param {string} pin - Current PIN.
+ * @param {string} newPin
+ * @return {Object} { changed: true }
+ */
+function changeAdminPin(pin, newPin) {
+  requirePin_(pin);
+  var value = String(newPin === undefined || newPin === null ? '' : newPin).replace(/^\s+|\s+$/g, '');
+  if (!/^[0-9]{6,12}$/.test(value)) {
+    throw new Error('The new PIN must be 6 to 12 digits.');
+  }
+  PropertiesService.getScriptProperties().setProperty('ADMIN_PIN', value);
+  CacheService.getScriptCache().remove('adminPinFailures');
+  return { changed: true };
+}
+
+// ============================================================================
+// Generic header-driven row helpers
+// ============================================================================
+
+function tab_(ss, name) {
+  var sheet = ss.getSheetByName(name);
+  if (!sheet) throw new Error('Sheet tab missing: ' + name + '. Run ?action=init.');
+  return { sheet: sheet, def: getSheetDefinition_(name) };
+}
+
+/** Builds a stored row from an object; absent fields keep existingRow's values. */
+function objectToRow_(def, obj, existingRow) {
+  var row = [];
+  for (var c = 0; c < def.headers.length; c++) {
+    var h = def.headers[c];
+    if (obj && obj.hasOwnProperty(h) && obj[h] !== undefined) {
+      row.push(toCell_(def, h, obj[h]));
+    } else {
+      row.push(existingRow ? existingRow[c] : '');
+    }
+  }
+  return row;
+}
+
+/** Accepts a row array (v2 header order) or an object keyed by header. */
+function toRow_(def, item) {
+  if (Object.prototype.toString.call(item) === '[object Array]') {
+    if (item.length !== def.headers.length) {
+      throw new Error(def.name + ' row has ' + item.length + ' columns; contract v2 expects ' + def.headers.length + '.');
+    }
+    return normalizeRow_(def, item);
+  }
+  return objectToRow_(def, item, null);
+}
+
+/** Scans column A for an id. @return {number} 1-based row index, or -1. */
+function findRowById_(sheet, id) {
+  var last = sheet.getLastRow();
+  if (last < 2) return -1;
+  var ids = sheet.getRange(2, 1, last - 1, 1).getValues();
+  for (var i = 0; i < ids.length; i++) {
+    if (String(ids[i][0]) === String(id)) return i + 2;
+  }
+  return -1;
+}
+
+/** Appends stored rows below the last row, growing the sheet and text formats as needed. */
+function appendRows_(sheet, def, rows) {
+  if (!rows.length) return;
+  var start = sheet.getLastRow() + 1;
+  var needed = start + rows.length - 1;
+  if (needed > sheet.getMaxRows()) {
+    sheet.insertRowsAfter(sheet.getMaxRows(), needed - sheet.getMaxRows());
+  }
+  formatTextRange_(sheet, def, start, rows.length);
+  sheet.getRange(start, 1, rows.length, def.headers.length).setValues(rows);
+}
+
+/** Replaces all data rows of a tab with the given stored rows. */
+function rewriteRows_(sheet, def, rows) {
+  var last = sheet.getLastRow();
+  if (last > 1) {
+    sheet.getRange(2, 1, last - 1, Math.max(sheet.getLastColumn(), def.headers.length)).clearContent();
+  }
+  if (!rows.length) return;
+  if (rows.length + 1 > sheet.getMaxRows()) {
+    sheet.insertRowsAfter(sheet.getMaxRows(), rows.length + 1 - sheet.getMaxRows());
+  }
+  formatTextRange_(sheet, def, 2, rows.length);
+  sheet.getRange(2, 1, rows.length, def.headers.length).setValues(rows);
+}
+
+function formatTextRange_(sheet, def, startRow, count) {
+  if (!def.text) return;
+  for (var i = 0; i < def.text.length; i++) {
+    var col = def.headers.indexOf(def.text[i]);
+    if (col !== -1) sheet.getRange(startRow, col + 1, count, 1).setNumberFormat('@');
+  }
+}
+
+/** All stored data rows of a tab (header excluded). */
+function dataRows_(sheet, def) {
+  var last = sheet.getLastRow();
+  if (last < 2) return [];
+  return sheet.getRange(2, 1, last - 1, def.headers.length).getValues();
+}
+
+function newId_(sheet, data, prefix) {
+  if (data && data.id !== undefined && data.id !== null && data.id !== '') {
+    var id = String(data.id);
+    if (!/^[A-Za-z0-9_.-]+$/.test(id)) throw new Error('Invalid id: ' + id);
+    if (findRowById_(sheet, id) !== -1) throw new Error('Id already exists: ' + id);
+    return id;
+  }
+  return prefix + new Date().getTime();
+}
+
+/** Creates one record; returns { id }. */
+function createRecord_(ss, tabName, data, prefix, required, forced) {
+  validateRequired_(data, required);
+  var t = tab_(ss, tabName);
+  var obj = shallowCopy_(data);
+  obj.id = newId_(t.sheet, data, prefix);
+  if (forced) {
+    for (var k in forced) if (forced.hasOwnProperty(k)) obj[k] = forced[k];
+  }
+  appendRows_(t.sheet, t.def, [objectToRow_(t.def, obj, null)]);
+  return { id: obj.id };
+}
+
+/** Merges data into the record with data.id; returns { updated: true }. */
+function updateRecord_(ss, tabName, data, label) {
+  validateRequired_(data, ['id']);
+  var t = tab_(ss, tabName);
+  var rowIndex = findRowById_(t.sheet, data.id);
+  if (rowIndex === -1) throw new Error(label + ' not found: ' + data.id);
+  var existing = t.sheet.getRange(rowIndex, 1, 1, t.def.headers.length).getValues()[0];
+  var row = objectToRow_(t.def, data, existing);
+  row[0] = existing[0];
+  formatTextRange_(t.sheet, t.def, rowIndex, 1);
+  t.sheet.getRange(rowIndex, 1, 1, row.length).setValues([row]);
+  return { updated: true };
+}
+
+function deleteRecord_(ss, tabName, data, label) {
+  validateRequired_(data, ['id']);
+  var t = tab_(ss, tabName);
+  var rowIndex = findRowById_(t.sheet, data.id);
+  if (rowIndex === -1) throw new Error(label + ' not found: ' + data.id);
+  t.sheet.deleteRow(rowIndex);
+  return { deleted: true };
+}
+
+/** Creates many records in one write; returns { count, ids }. */
+function createBatch_(ss, tabName, items, prefix, forced) {
+  var t = tab_(ss, tabName);
+  var base = new Date().getTime();
+  var ids = [];
+  var rows = [];
+  for (var i = 0; i < items.length; i++) {
+    var obj = shallowCopy_(items[i]);
+    if (obj.id === undefined || obj.id === null || obj.id === '') obj.id = prefix + (base + i);
+    if (forced) {
+      for (var k in forced) if (forced.hasOwnProperty(k)) obj[k] = forced[k];
+    }
+    ids.push(String(obj.id));
+    rows.push(objectToRow_(t.def, obj, null));
+  }
+  appendRows_(t.sheet, t.def, rows);
+  return { count: ids.length, ids: ids };
+}
+
+function shallowCopy_(o) {
+  var out = {};
+  if (o) for (var k in o) if (o.hasOwnProperty(k)) out[k] = o[k];
+  return out;
+}
+
+/** Throws when any listed field is missing (undefined, null, or ''). */
+function validateRequired_(data, fields) {
+  var missing = [];
+  for (var i = 0; i < fields.length; i++) {
+    if (!data || data[fields[i]] === undefined || data[fields[i]] === null || data[fields[i]] === '') {
+      missing.push(fields[i]);
+    }
+  }
+  if (missing.length > 0) {
+    throw new Error('Missing required fields: ' + missing.join(', '));
+  }
+}
+
+function requireNonEmptyArray_(value, name) {
+  if (Object.prototype.toString.call(value) !== '[object Array]' || value.length === 0) {
+    throw new Error(name + ' must be a non-empty array');
+  }
+}
+
+// ============================================================================
+// QR locations
+// ============================================================================
+
+/**
+ * @param {Object} data - pin, buildingId, floorId, nodeId, description, permanent, expires.
+ * @return {Object} { id }
+ */
+function saveQrLocation(data) {
+  return adminOp_(data, function (ss) {
+    validateRequired_(data, ['buildingId', 'nodeId', 'description']);
+    if (typeof data.description !== 'string' || data.description.length > 500) {
+      throw new Error('description must be a string of 500 characters or less');
+    }
+    if (data.expires && isNaN(Date.parse(data.expires))) {
+      throw new Error('expires must be a valid date');
+    }
+    return createRecord_(ss, 'QRLocations', {
+      buildingId: data.buildingId,
+      floorId: data.floorId || '',
+      nodeId: data.nodeId,
+      description: data.description,
+      permanent: !!data.permanent,
+      expires: data.expires || '',
+      createdDate: new Date().toISOString()
+    }, 'qrloc-', []);
+  });
+}
+
+// ============================================================================
+// Floor plan files
+// ============================================================================
+
+/**
+ * Legacy: returns a Drive file referenced by a Floors row as base64. v2 floor
+ * plans are embedded SVGs served by getFloorPlanSvg(floorId) instead.
+ * @param {string} fileId
+ * @return {Object} { base64, mimeType, name }
  */
 function getFloorPlanFile(fileId) {
   if (!fileId || typeof fileId !== 'string') {
     throw new Error('fileId is required');
   }
-  // Validate that this file ID is referenced in Floors sheet planImageUrl
-  var ss = _getSpreadsheet();
-  var floorsSheet = ss.getSheetByName('Floors');
-  var data = floorsSheet.getDataRange().getValues();
+  var floors = sheetToObjects_(getSpreadsheet_(), 'Floors');
   var allowed = false;
-  for (var i = 1; i < data.length; i++) {
-    var url = String(data[i][4]); // planImageUrl column
-    if (url.indexOf(fileId) !== -1) { allowed = true; break; }
+  for (var i = 0; i < floors.length; i++) {
+    var ref = String(floors[i].planAsset || '') + ' ' + String(floors[i].planImageUrl || '');
+    if (ref.indexOf(fileId) !== -1) { allowed = true; break; }
   }
   if (!allowed) {
     throw new Error('File not found in floor plan data');
   }
   var file = DriveApp.getFileById(fileId);
-  // Guard against oversized files (base64 + google.script.run ~6.75MB limit)
   if (file.getSize() > 5 * 1024 * 1024) {
     throw new Error('File too large for server-side fetch');
   }
@@ -126,17 +375,14 @@ function getFloorPlanFile(fileId) {
 }
 
 /**
- * Uploads a file to Google Drive from base64 content.
- * Sets sharing to anyone with link can view.
- * Requires admin PIN.
- * @param {Object} data - Must contain pin, content (base64), mimeType, filename.
- * @return {Object} File ID and Drive URL.
+ * Uploads a file to Drive (anyone with the link can view). Legacy path.
+ * @param {Object} data - pin, content (base64), mimeType, filename.
+ * @return {Object} { fileId, url }
  */
 function uploadFloorPlanFile(data) {
-  return _adminOp(data, function(ss) {
-    _validateRequired(data, ['content', 'mimeType', 'filename']);
-    var bytes = Utilities.base64Decode(data.content);
-    var blob = Utilities.newBlob(bytes, data.mimeType, data.filename);
+  return adminOp_(data, function () {
+    validateRequired_(data, ['content', 'mimeType', 'filename']);
+    var blob = Utilities.newBlob(Utilities.base64Decode(data.content), data.mimeType, data.filename);
     var file = DriveApp.createFile(blob);
     file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     return {
@@ -147,565 +393,311 @@ function uploadFloorPlanFile(data) {
 }
 
 // ============================================================================
-// Task 0A: Generic CRUD helpers
+// Floors: id, buildingId, level, label, planAsset, widthPx, heightPx, metersPerPixel, public
 // ============================================================================
 
-/**
- * Admin operation wrapper. Verifies PIN, opens spreadsheet, runs callback,
- * increments data version, and returns the callback's result.
- * @param {Object} data - Must contain data.pin for authentication.
- * @param {Function} callback - Receives the spreadsheet; return value is passed through.
- * @return {*} The callback's return value.
- */
-function _adminOp(data, callback) {
-  if (!data || !verifyAdminPin(data.pin)) {
-    throw new Error('Invalid admin PIN');
-  }
-  var ss = _getSpreadsheet();
-  var result = callback(ss);
-  _incrementDataVersion(ss);
-  return result;
-}
-
-/**
- * Scans column A of a sheet for a matching ID (skips header row).
- * @param {Sheet} sheet - The sheet to search.
- * @param {string} id - The ID value to find.
- * @return {number} 1-based row index, or -1 if not found.
- */
-function _findRowById(sheet, id) {
-  var data = sheet.getDataRange().getValues();
-  for (var i = 1; i < data.length; i++) {
-    if (String(data[i][0]) === String(id)) {
-      return i + 1; // 1-based row index
-    }
-  }
-  return -1;
-}
-
-/**
- * Updates a specific row with the given values array.
- * @param {Sheet} sheet - The sheet to update.
- * @param {number} rowIndex - 1-based row index.
- * @param {Array} values - Array of values matching the row's columns.
- */
-function _updateRow(sheet, rowIndex, values) {
-  sheet.getRange(rowIndex, 1, 1, values.length).setValues([values]);
-}
-
-/**
- * Deletes a row at the given 1-based index.
- * @param {Sheet} sheet - The sheet to modify.
- * @param {number} rowIndex - 1-based row index.
- */
-function _deleteRow(sheet, rowIndex) {
-  sheet.deleteRow(rowIndex);
-}
-
-/**
- * Validates that all required fields are present in data.
- * @param {Object} data - The data object to validate.
- * @param {Array} fields - Array of required field name strings.
- * @throws {Error} If any fields are missing.
- */
-function _validateRequired(data, fields) {
-  var missing = [];
-  for (var i = 0; i < fields.length; i++) {
-    if (data[fields[i]] === undefined || data[fields[i]] === null || data[fields[i]] === '') {
-      missing.push(fields[i]);
-    }
-  }
-  if (missing.length > 0) {
-    throw new Error('Missing required fields: ' + missing.join(', '));
-  }
-}
-
-// ============================================================================
-// Task 0B: Floor CRUD
-// Columns: id, buildingId, level, label, planImageUrl, widthPx, heightPx, metersPerPixel
-// ============================================================================
-
-/**
- * Creates a new floor record.
- * @param {Object} data - Floor data with pin, buildingId, level, label, and optional fields.
- * @return {Object} The created floor id.
- */
 function saveFloor(data) {
-  return _adminOp(data, function(ss) {
-    _validateRequired(data, ['buildingId', 'level', 'label']);
-    var sheet = ss.getSheetByName('Floors');
-    var id = 'floor-' + Date.now();
-    sheet.appendRow([
-      id,
-      data.buildingId,
-      data.level,
-      data.label,
-      data.planImageUrl || '',
-      data.widthPx || '',
-      data.heightPx || '',
-      data.metersPerPixel || ''
-    ]);
-    return { id: id };
+  return adminOp_(data, function (ss) {
+    return createRecord_(ss, 'Floors', data, 'floor-', ['buildingId', 'level', 'label']);
   });
 }
 
-/**
- * Updates an existing floor record.
- * @param {Object} data - Floor data with pin, id, and fields to update.
- * @return {Object} Confirmation.
- */
 function updateFloor(data) {
-  return _adminOp(data, function(ss) {
-    _validateRequired(data, ['id']);
-    var sheet = ss.getSheetByName('Floors');
-    var rowIndex = _findRowById(sheet, data.id);
-    if (rowIndex === -1) {
-      throw new Error('Floor not found: ' + data.id);
-    }
-    _updateRow(sheet, rowIndex, [
-      data.id,
-      data.buildingId || '',
-      data.level || '',
-      data.label || '',
-      data.planImageUrl || '',
-      data.widthPx || '',
-      data.heightPx || '',
-      data.metersPerPixel || ''
-    ]);
-    return { updated: true };
-  });
+  return adminOp_(data, function (ss) { return updateRecord_(ss, 'Floors', data, 'Floor'); });
 }
 
-/**
- * Deletes a floor record.
- * @param {Object} data - Must contain pin and id.
- * @return {Object} Confirmation.
- */
 function deleteFloor(data) {
-  return _adminOp(data, function(ss) {
-    _validateRequired(data, ['id']);
-    var sheet = ss.getSheetByName('Floors');
-    var rowIndex = _findRowById(sheet, data.id);
-    if (rowIndex === -1) {
-      throw new Error('Floor not found: ' + data.id);
-    }
-    _deleteRow(sheet, rowIndex);
-    return { deleted: true };
-  });
+  return adminOp_(data, function (ss) { return deleteRecord_(ss, 'Floors', data, 'Floor'); });
 }
 
 // ============================================================================
-// Task 0C: Room CRUD + batch
-// Columns: id, floorId, number, label, polygon, centerX, centerY
+// Rooms: id, floorId, number, label, type, polygon, centerX, centerY, searchable
 // ============================================================================
 
-/**
- * Creates a new room record.
- * @param {Object} data - Room data with pin, floorId, number, and optional fields.
- * @return {Object} The created room id.
- */
 function saveRoom(data) {
-  return _adminOp(data, function(ss) {
-    _validateRequired(data, ['floorId', 'number']);
-    var sheet = ss.getSheetByName('Rooms');
-    var id = 'room-' + Date.now();
-    var polygon = data.polygon ? JSON.stringify(data.polygon) : '';
-    sheet.appendRow([
-      id,
-      data.floorId,
-      data.number,
-      data.label || '',
-      polygon,
-      data.centerX || '',
-      data.centerY || ''
-    ]);
-    return { id: id };
+  return adminOp_(data, function (ss) {
+    return createRecord_(ss, 'Rooms', data, 'room-', ['floorId', 'number']);
   });
 }
 
-/**
- * Updates an existing room record.
- * @param {Object} data - Room data with pin, id, and fields to update.
- * @return {Object} Confirmation.
- */
 function updateRoom(data) {
-  return _adminOp(data, function(ss) {
-    _validateRequired(data, ['id']);
-    var sheet = ss.getSheetByName('Rooms');
-    var rowIndex = _findRowById(sheet, data.id);
-    if (rowIndex === -1) {
-      throw new Error('Room not found: ' + data.id);
-    }
-    var polygon = data.polygon ? JSON.stringify(data.polygon) : '';
-    _updateRow(sheet, rowIndex, [
-      data.id,
-      data.floorId || '',
-      data.number || '',
-      data.label || '',
-      polygon,
-      data.centerX || '',
-      data.centerY || ''
-    ]);
-    return { updated: true };
-  });
+  return adminOp_(data, function (ss) { return updateRecord_(ss, 'Rooms', data, 'Room'); });
 }
 
-/**
- * Deletes a room record.
- * @param {Object} data - Must contain pin and id.
- * @return {Object} Confirmation.
- */
 function deleteRoom(data) {
-  return _adminOp(data, function(ss) {
-    _validateRequired(data, ['id']);
-    var sheet = ss.getSheetByName('Rooms');
-    var rowIndex = _findRowById(sheet, data.id);
-    if (rowIndex === -1) {
-      throw new Error('Room not found: ' + data.id);
-    }
-    _deleteRow(sheet, rowIndex);
-    return { deleted: true };
-  });
+  return adminOp_(data, function (ss) { return deleteRecord_(ss, 'Rooms', data, 'Room'); });
 }
 
-/**
- * Batch-creates multiple room records in a single API call.
- * @param {Object} data - Must contain pin, floorId, and rooms (array of room objects).
- * @return {Object} Count and array of created IDs.
- */
+/** @param {Object} data - pin, floorId, rooms (array of room objects). */
 function saveBatchRooms(data) {
-  return _adminOp(data, function(ss) {
-    _validateRequired(data, ['floorId', 'rooms']);
-    if (!Array.isArray(data.rooms) || data.rooms.length === 0) {
-      throw new Error('rooms must be a non-empty array');
-    }
-    var sheet = ss.getSheetByName('Rooms');
-    var ids = [];
-    var rows = [];
-    for (var i = 0; i < data.rooms.length; i++) {
-      var room = data.rooms[i];
-      var id = 'room-' + (Date.now() + i);
-      ids.push(id);
-      var polygon = room.polygon ? JSON.stringify(room.polygon) : '';
-      rows.push([
-        id,
-        data.floorId,
-        room.number || '',
-        room.label || '',
-        polygon,
-        room.centerX || '',
-        room.centerY || ''
-      ]);
-    }
-    var startRow = sheet.getLastRow() + 1;
-    sheet.getRange(startRow, 1, rows.length, 7).setValues(rows);
-    return { count: ids.length, ids: ids };
+  return adminOp_(data, function (ss) {
+    validateRequired_(data, ['floorId', 'rooms']);
+    requireNonEmptyArray_(data.rooms, 'rooms');
+    return createBatch_(ss, 'Rooms', data.rooms, 'room-', { floorId: data.floorId });
   });
 }
 
 // ============================================================================
-// Task 0D: NavNode/Edge CRUD + batch
-// NavNodes columns: id, floorId, x, y, type, roomId
-// NavEdges columns: id, fromNodeId, toNodeId, distance, floorChange
+// NavNodes: id, floorId, x, y, type, roomId, linkId
+// NavEdges: id, fromNodeId, toNodeId, distance, floorChange, accessible
 // ============================================================================
 
-/**
- * Creates a new navigation node.
- * @param {Object} data - Node data with pin, floorId, x, y, and optional type/roomId.
- * @return {Object} The created node id.
- */
 function saveNavNode(data) {
-  return _adminOp(data, function(ss) {
-    _validateRequired(data, ['floorId', 'x', 'y']);
-    var sheet = ss.getSheetByName('NavNodes');
-    var id = 'nav-' + Date.now();
-    sheet.appendRow([
-      id,
-      data.floorId,
-      data.x,
-      data.y,
-      data.type || 'waypoint',
-      data.roomId || ''
-    ]);
-    return { id: id };
+  return adminOp_(data, function (ss) {
+    var d = shallowCopy_(data);
+    if (!d.type) d.type = 'waypoint';
+    return createRecord_(ss, 'NavNodes', d, 'nav-', ['floorId', 'x', 'y']);
   });
 }
 
-/**
- * Updates an existing navigation node.
- * @param {Object} data - Node data with pin, id, and fields to update.
- * @return {Object} Confirmation.
- */
 function updateNavNode(data) {
-  return _adminOp(data, function(ss) {
-    _validateRequired(data, ['id']);
-    var sheet = ss.getSheetByName('NavNodes');
-    var rowIndex = _findRowById(sheet, data.id);
-    if (rowIndex === -1) {
-      throw new Error('NavNode not found: ' + data.id);
-    }
-    _updateRow(sheet, rowIndex, [
-      data.id,
-      data.floorId || '',
-      data.x || '',
-      data.y || '',
-      data.type || 'waypoint',
-      data.roomId || ''
-    ]);
-    return { updated: true };
-  });
+  return adminOp_(data, function (ss) { return updateRecord_(ss, 'NavNodes', data, 'NavNode'); });
 }
 
-/**
- * Deletes a navigation node and cascades to remove connected edges.
- * @param {Object} data - Must contain pin and id.
- * @return {Object} Confirmation with count of edges removed.
- */
+/** Deletes a node and every edge touching it. @return {Object} { deleted, edgesRemoved } */
 function deleteNavNode(data) {
-  return _adminOp(data, function(ss) {
-    _validateRequired(data, ['id']);
-    var nodeSheet = ss.getSheetByName('NavNodes');
-    var rowIndex = _findRowById(nodeSheet, data.id);
-    if (rowIndex === -1) {
-      throw new Error('NavNode not found: ' + data.id);
-    }
+  return adminOp_(data, function (ss) {
+    validateRequired_(data, ['id']);
+    var nodes = tab_(ss, 'NavNodes');
+    var rowIndex = findRowById_(nodes.sheet, data.id);
+    if (rowIndex === -1) throw new Error('NavNode not found: ' + data.id);
 
-    // CASCADE: Delete connected edges
-    var edgeSheet = ss.getSheetByName('NavEdges');
-    var edgeData = edgeSheet.getDataRange().getValues();
-    var edgesRemoved = 0;
-    // Delete from bottom to top to preserve row indices
-    for (var i = edgeData.length - 1; i >= 1; i--) {
-      if (String(edgeData[i][1]) === String(data.id) || String(edgeData[i][2]) === String(data.id)) {
-        edgeSheet.deleteRow(i + 1); // 1-based row index
-        edgesRemoved++;
-      }
+    var edges = tab_(ss, 'NavEdges');
+    var rows = dataRows_(edges.sheet, edges.def);
+    var kept = [];
+    for (var i = 0; i < rows.length; i++) {
+      if (String(rows[i][1]) !== String(data.id) && String(rows[i][2]) !== String(data.id)) kept.push(rows[i]);
     }
+    var edgesRemoved = rows.length - kept.length;
+    if (edgesRemoved > 0) rewriteRows_(edges.sheet, edges.def, kept);
 
-    // Delete the node itself
-    // Re-find in case row indices shifted (they shouldn't since it's a different sheet)
-    _deleteRow(nodeSheet, rowIndex);
+    nodes.sheet.deleteRow(rowIndex);
     return { deleted: true, edgesRemoved: edgesRemoved };
   });
 }
 
-/**
- * Batch-creates multiple navigation nodes in a single API call.
- * @param {Object} data - Must contain pin, floorId, and nodes (array of node objects).
- * @return {Object} Count and array of created IDs.
- */
+/** @param {Object} data - pin, floorId, nodes (array of node objects). */
 function saveBatchNavNodes(data) {
-  return _adminOp(data, function(ss) {
-    _validateRequired(data, ['floorId', 'nodes']);
-    if (!Array.isArray(data.nodes) || data.nodes.length === 0) {
-      throw new Error('nodes must be a non-empty array');
-    }
-    var sheet = ss.getSheetByName('NavNodes');
-    var ids = [];
-    var rows = [];
+  return adminOp_(data, function (ss) {
+    validateRequired_(data, ['floorId', 'nodes']);
+    requireNonEmptyArray_(data.nodes, 'nodes');
+    var items = [];
     for (var i = 0; i < data.nodes.length; i++) {
-      var node = data.nodes[i];
-      var id = 'nav-' + (Date.now() + i);
-      ids.push(id);
-      rows.push([
-        id,
-        data.floorId,
-        node.x || '',
-        node.y || '',
-        node.type || 'waypoint',
-        node.roomId || ''
-      ]);
+      var n = shallowCopy_(data.nodes[i]);
+      if (!n.type) n.type = 'waypoint';
+      items.push(n);
     }
-    var startRow = sheet.getLastRow() + 1;
-    sheet.getRange(startRow, 1, rows.length, 6).setValues(rows);
-    return { count: ids.length, ids: ids };
+    return createBatch_(ss, 'NavNodes', items, 'nav-', { floorId: data.floorId });
   });
 }
 
-/**
- * Creates a new navigation edge.
- * @param {Object} data - Edge data with pin, fromNodeId, toNodeId, and optional distance/floorChange.
- * @return {Object} The created edge id.
- */
 function saveNavEdge(data) {
-  return _adminOp(data, function(ss) {
-    _validateRequired(data, ['fromNodeId', 'toNodeId']);
-    var sheet = ss.getSheetByName('NavEdges');
-    var id = 'edge-' + Date.now();
-    sheet.appendRow([
-      id,
-      data.fromNodeId,
-      data.toNodeId,
-      data.distance || '',
-      data.floorChange || ''
-    ]);
-    return { id: id };
+  return adminOp_(data, function (ss) {
+    return createRecord_(ss, 'NavEdges', data, 'edge-', ['fromNodeId', 'toNodeId']);
   });
 }
 
-/**
- * Deletes a navigation edge.
- * @param {Object} data - Must contain pin and id.
- * @return {Object} Confirmation.
- */
+function updateNavEdge(data) {
+  return adminOp_(data, function (ss) { return updateRecord_(ss, 'NavEdges', data, 'NavEdge'); });
+}
+
 function deleteNavEdge(data) {
-  return _adminOp(data, function(ss) {
-    _validateRequired(data, ['id']);
-    var sheet = ss.getSheetByName('NavEdges');
-    var rowIndex = _findRowById(sheet, data.id);
-    if (rowIndex === -1) {
-      throw new Error('NavEdge not found: ' + data.id);
-    }
-    _deleteRow(sheet, rowIndex);
-    return { deleted: true };
-  });
+  return adminOp_(data, function (ss) { return deleteRecord_(ss, 'NavEdges', data, 'NavEdge'); });
 }
 
-/**
- * Batch-creates multiple navigation edges in a single API call.
- * @param {Object} data - Must contain pin and edges (array of edge objects).
- * @return {Object} Count and array of created IDs.
- */
+/** @param {Object} data - pin, edges (array of edge objects). */
 function saveBatchNavEdges(data) {
-  return _adminOp(data, function(ss) {
-    _validateRequired(data, ['edges']);
-    if (!Array.isArray(data.edges) || data.edges.length === 0) {
-      throw new Error('edges must be a non-empty array');
-    }
-    var sheet = ss.getSheetByName('NavEdges');
-    var ids = [];
-    var rows = [];
-    for (var i = 0; i < data.edges.length; i++) {
-      var edge = data.edges[i];
-      var id = 'edge-' + (Date.now() + i);
-      ids.push(id);
-      rows.push([
-        id,
-        edge.fromNodeId || '',
-        edge.toNodeId || '',
-        edge.distance || '',
-        edge.floorChange || ''
-      ]);
-    }
-    var startRow = sheet.getLastRow() + 1;
-    sheet.getRange(startRow, 1, rows.length, 5).setValues(rows);
-    return { count: ids.length, ids: ids };
+  return adminOp_(data, function (ss) {
+    validateRequired_(data, ['edges']);
+    requireNonEmptyArray_(data.edges, 'edges');
+    return createBatch_(ss, 'NavEdges', data.edges, 'edge-', null);
   });
 }
 
 // ============================================================================
-// Reseed: Clear and repopulate campus data
+// Floor import (pipeline JSON) and reseed
 // ============================================================================
 
 /**
- * Clears and re-seeds Buildings, Floors, and Rooms sheets.
- * Preserves headers. Requires admin PIN.
- * @param {Object} data - Must contain pin.
- * @return {Object} Confirmation.
+ * Bulk-replaces one floor's rooms, nav nodes and nav edges from the floor
+ * pipeline's JSON (data/floorplans/<floorId>.json).
+ *
+ * payload (object or JSON string):
+ *   floorId            required (or floor.id)
+ *   floor              optional Floors record to upsert (object keyed by header)
+ *   rooms              array of room objects (or v2 row arrays)
+ *   navNodes | nodes   array of node objects (or v2 row arrays)
+ *   navEdges | edges   array of edge objects (or v2 row arrays); may include
+ *                      cross-floor edges to nodes on other floors
+ * Extra fields (area, doors, use text) are ignored.
+ *
+ * Replacement rule: every room and node on the floor is removed; every edge
+ * touching a removed or imported node, or sharing an id with an imported edge,
+ * is removed; then the payload rows are written.
+ *
+ * @param {string} pin
+ * @param {Object|string} payload
+ * @return {Object} counts written and removed, danglingEdges, floorUpserted
  */
-function reseedCampusData(data) {
-  return _adminOp(data, function(ss) {
-    var sheetNames = ['Buildings', 'Floors', 'Rooms'];
-    for (var i = 0; i < sheetNames.length; i++) {
-      var sheet = ss.getSheetByName(sheetNames[i]);
-      if (sheet && sheet.getLastRow() > 1) {
-        sheet.deleteRows(2, sheet.getLastRow() - 1);
+function importFloorData(pin, payload) {
+  requirePin_(pin);
+  var p = typeof payload === 'string' ? JSON.parse(payload) : payload;
+  if (!p || typeof p !== 'object') throw new Error('importFloorData: payload must be an object or JSON string');
+  var floorId = p.floorId || (p.floor && p.floor.id);
+  if (typeof floorId !== 'string' || !/^[A-Za-z0-9-]+$/.test(floorId)) {
+    throw new Error('importFloorData: floorId is required');
+  }
+
+  var roomDef = getSheetDefinition_('Rooms');
+  var nodeDef = getSheetDefinition_('NavNodes');
+  var edgeDef = getSheetDefinition_('NavEdges');
+  var newRooms = importRows_(roomDef, p.rooms || [], floorId, 1);
+  var newNodes = importRows_(nodeDef, p.navNodes || p.nodes || [], floorId, 1);
+  var newEdges = importRows_(edgeDef, p.navEdges || p.edges || [], null, -1);
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var ss = getSpreadsheet_();
+    var floorUpserted = false;
+    if (p.floor) {
+      var floorObj = shallowCopy_(p.floor);
+      floorObj.id = floorId;
+      var floors = tab_(ss, 'Floors');
+      var fRow = findRowById_(floors.sheet, floorId);
+      if (fRow === -1) {
+        appendRows_(floors.sheet, floors.def, [objectToRow_(floors.def, floorObj, null)]);
+      } else {
+        var existing = floors.sheet.getRange(fRow, 1, 1, floors.def.headers.length).getValues()[0];
+        formatTextRange_(floors.sheet, floors.def, fRow, 1);
+        floors.sheet.getRange(fRow, 1, 1, floors.def.headers.length).setValues([objectToRow_(floors.def, floorObj, existing)]);
+      }
+      floorUpserted = true;
+    }
+
+    var rooms = tab_(ss, 'Rooms');
+    var roomRows = dataRows_(rooms.sheet, rooms.def);
+    var keptRooms = filterRows_(roomRows, function (r) { return String(r[1]) !== floorId; });
+    rewriteRows_(rooms.sheet, rooms.def, keptRooms.concat(newRooms));
+
+    var nodes = tab_(ss, 'NavNodes');
+    var nodeRows = dataRows_(nodes.sheet, nodes.def);
+    var touched = {};
+    var keptNodes = filterRows_(nodeRows, function (r) {
+      if (String(r[1]) === floorId) { touched[String(r[0])] = true; return false; }
+      return true;
+    });
+    for (var n = 0; n < newNodes.length; n++) touched[String(newNodes[n][0])] = true;
+    rewriteRows_(nodes.sheet, nodes.def, keptNodes.concat(newNodes));
+
+    var newEdgeIds = {};
+    for (var e = 0; e < newEdges.length; e++) newEdgeIds[String(newEdges[e][0])] = true;
+    var edges = tab_(ss, 'NavEdges');
+    var edgeRows = dataRows_(edges.sheet, edges.def);
+    var keptEdges = filterRows_(edgeRows, function (r) {
+      return !touched[String(r[1])] && !touched[String(r[2])] && !newEdgeIds[String(r[0])];
+    });
+    rewriteRows_(edges.sheet, edges.def, keptEdges.concat(newEdges));
+
+    var allNodes = {};
+    for (var k = 0; k < keptNodes.length; k++) allNodes[String(keptNodes[k][0])] = true;
+    for (var m = 0; m < newNodes.length; m++) allNodes[String(newNodes[m][0])] = true;
+    var dangling = 0;
+    for (var d = 0; d < newEdges.length; d++) {
+      if (!allNodes[String(newEdges[d][1])] || !allNodes[String(newEdges[d][2])]) dangling++;
+    }
+
+    incrementDataVersion_(ss);
+    return {
+      floorId: floorId,
+      floorUpserted: floorUpserted,
+      written: { rooms: newRooms.length, navNodes: newNodes.length, navEdges: newEdges.length },
+      removed: {
+        rooms: roomRows.length - keptRooms.length,
+        navNodes: nodeRows.length - keptNodes.length,
+        navEdges: edgeRows.length - keptEdges.length
+      },
+      danglingEdges: dangling
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Converts import items to stored rows; enforces ids, uniqueness, and (when
+ * floorCol >= 0) that every row belongs to floorId (filled in when blank).
+ */
+function importRows_(def, items, floorId, floorCol) {
+  if (Object.prototype.toString.call(items) !== '[object Array]') {
+    throw new Error('importFloorData: ' + def.name + ' must be an array');
+  }
+  var rows = [];
+  var seen = {};
+  for (var i = 0; i < items.length; i++) {
+    var row = toRow_(def, items[i]);
+    if (floorCol >= 0) {
+      if (row[floorCol] === '' || row[floorCol] === null) row[floorCol] = floorId;
+      if (String(row[floorCol]) !== floorId) {
+        throw new Error('importFloorData: ' + def.name + ' ' + row[0] + ' belongs to ' + row[floorCol] + ', not ' + floorId);
       }
     }
-    seedAllCampusData(ss);
-    return { reseeded: true };
+    if (!row[0]) throw new Error('importFloorData: ' + def.name + ' item ' + (i + 1) + ' has no id');
+    if (seen[row[0]]) throw new Error('importFloorData: duplicate ' + def.name + ' id ' + row[0]);
+    seen[row[0]] = true;
+    rows.push(row);
+  }
+  return rows;
+}
+
+function filterRows_(rows, keep) {
+  var out = [];
+  for (var i = 0; i < rows.length; i++) if (keep(rows[i])) out.push(rows[i]);
+  return out;
+}
+
+/**
+ * Clears and re-seeds Buildings, Floors, Rooms, NavNodes and NavEdges from
+ * SeedData.gs / SeedFloorData.gs. Seeds are validated before anything is cleared.
+ * @param {Object} data - pin.
+ * @return {Object} { reseeded: true, seeded }
+ */
+function reseedCampusData(data) {
+  return adminOp_(data, function (ss) {
+    var datasets = getSeedDatasets_();
+    for (var v = 0; v < datasets.length; v++) validateSeedRows_(datasets[v].name, datasets[v].rows);
+    for (var i = 0; i < datasets.length; i++) {
+      var sheet = ss.getSheetByName(datasets[i].name);
+      if (sheet && sheet.getLastRow() > 1) {
+        sheet.getRange(2, 1, sheet.getLastRow() - 1, Math.max(sheet.getLastColumn(), 1)).clearContent();
+      }
+    }
+    return { reseeded: true, seeded: seedAllCampusData(ss) };
   });
 }
 
 // ============================================================================
-// Task 0E: Building CRUD
-// Columns: id, name, lat, lng, entrances, photoUrl
+// Buildings: id, name, code, number, lat, lng, entrances, photoUrl, hasIndoor
 // ============================================================================
 
-/**
- * Creates a new building record.
- * @param {Object} data - Building data with pin, name. Optional: lat, lng, photoUrl.
- * @return {Object} The created building id.
- */
 function saveBuilding(data) {
-  return _adminOp(data, function(ss) {
-    _validateRequired(data, ['name']);
-    var sheet = ss.getSheetByName('Buildings');
-    var id = 'bld-' + Date.now();
-    sheet.appendRow([
-      id,
-      data.name,
-      data.lat || '',
-      data.lng || '',
-      '',
-      data.photoUrl || ''
-    ]);
-    return { id: id };
+  return adminOp_(data, function (ss) {
+    return createRecord_(ss, 'Buildings', data, 'bld-', ['name']);
   });
 }
 
-/**
- * Deletes a building record.
- * @param {Object} data - Must contain pin and id.
- * @return {Object} Confirmation.
- */
 function deleteBuilding(data) {
-  return _adminOp(data, function(ss) {
-    _validateRequired(data, ['id']);
-    var sheet = ss.getSheetByName('Buildings');
-    var rowIndex = _findRowById(sheet, data.id);
-    if (rowIndex === -1) {
-      throw new Error('Building not found: ' + data.id);
-    }
-    _deleteRow(sheet, rowIndex);
-    return { deleted: true };
-  });
+  return adminOp_(data, function (ss) { return deleteRecord_(ss, 'Buildings', data, 'Building'); });
 }
 
-/**
- * Updates an existing building record.
- * @param {Object} data - Building data with pin, id, and fields to update.
- * @return {Object} Confirmation.
- */
 function updateBuilding(data) {
-  return _adminOp(data, function(ss) {
-    _validateRequired(data, ['id']);
-    var sheet = ss.getSheetByName('Buildings');
-    var rowIndex = _findRowById(sheet, data.id);
-    if (rowIndex === -1) {
-      throw new Error('Building not found: ' + data.id);
-    }
-    var entrances = data.entrances ? JSON.stringify(data.entrances) : '';
-    _updateRow(sheet, rowIndex, [
-      data.id,
-      data.name || '',
-      data.lat || '',
-      data.lng || '',
-      entrances,
-      data.photoUrl || ''
-    ]);
-    return { updated: true };
-  });
+  return adminOp_(data, function (ss) { return updateRecord_(ss, 'Buildings', data, 'Building'); });
 }
 
-/**
- * Updates only the entrances field for a building.
- * Does NOT use _adminOp — handles PIN check and version increment directly.
- * @param {Object} data - Must contain pin, id, and entrances (array).
- * @return {Object} Confirmation.
- */
+/** @param {Object} data - pin, id, entrances (array). */
 function updateBuildingEntrances(data) {
-  if (!data || !verifyAdminPin(data.pin)) {
-    throw new Error('Invalid admin PIN');
-  }
-  _validateRequired(data, ['id', 'entrances']);
-  var ss = _getSpreadsheet();
-  var sheet = ss.getSheetByName('Buildings');
-  var rowIndex = _findRowById(sheet, data.id);
-  if (rowIndex === -1) {
-    throw new Error('Building not found: ' + data.id);
-  }
-  sheet.getRange(rowIndex, 5).setValue(JSON.stringify(data.entrances));
-  _incrementDataVersion(ss);
-  return { updated: true };
+  return adminOp_(data, function (ss) {
+    validateRequired_(data, ['id', 'entrances']);
+    return updateRecord_(ss, 'Buildings', { id: data.id, entrances: data.entrances }, 'Building');
+  });
 }

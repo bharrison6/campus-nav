@@ -1,16 +1,18 @@
 /**
- * SeedData.gs — Campus building, floor, and room seed data
- * for Murray State University.
+ * SeedData.gs — Campus seed data for Murray State Campus Navigation (contract v2).
  *
- * 89 building coordinates sourced from campus-maps.com interactive map.
- * Room data extracted from EP and IT floor plan PDFs.
+ * Buildings: 89 building coordinates sourced from the campus-maps.com
+ * interactive map, kept here by hand.
+ * Floors, Rooms, NavNodes, NavEdges: generated from the CAD floor plans by
+ * scripts/floorplan-pipeline into SeedFloorData.gs (getGenerated*Seed()).
+ * The old PDF-derived floor and room rows were removed in v2.
  */
 
 /**
- * Returns seed data for all 89 campus buildings.
- * Each row: [id, name, lat, lng, entrances, photoUrl]
+ * Hand-maintained building base rows: [id, name, lat, lng, entrances, photoUrl].
+ * getBuildingsSeedRows_() expands them to the v2 Buildings header order.
  */
-function _getBuildingsSeedData() {
+function getBuildingsBaseRows_() {
   return [
     ['bld-ac',              'Sid Easley Alumni Center',                                      36.619429, -88.315557, '', ''],
     ['bld-al',              'Alexander Hall',                                                36.614003, -88.324877, '', ''],
@@ -105,159 +107,181 @@ function _getBuildingsSeedData() {
 }
 
 /**
- * Returns seed data for floors with floor plan data.
- * Only EP and IT have floor plans; other buildings are map markers only.
- * Each row: [id, buildingId, level, label, planImageUrl, widthPx, heightPx, metersPerPixel]
+ * Per-building v2 fields. Buildings not listed get code '', number '',
+ * hasIndoor false (outdoor map marker only).
+ * number is the university facilities building number from the CAD title block.
  */
-function _getFloorsSeedData() {
+function getBuildingOverrides_() {
+  return {
+    'bld-it': { code: 'IT', number: '0135', hasIndoor: true },
+    'bld-ep': { name: 'Engineering and Physics Building', code: 'EP', number: '0174', hasIndoor: true }
+  };
+}
+
+/**
+ * @return {Array} Building rows in v2 header order:
+ *   [id, name, code, number, lat, lng, entrances, photoUrl, hasIndoor]
+ */
+function getBuildingsSeedRows_() {
+  var base = getBuildingsBaseRows_();
+  var overrides = getBuildingOverrides_();
+  var rows = [];
+  for (var i = 0; i < base.length; i++) {
+    var b = base[i];
+    var o = overrides[b[0]] || {};
+    rows.push([
+      b[0],
+      o.name || b[1],
+      o.code || '',
+      o.number || '',
+      b[2],
+      b[3],
+      b[4],
+      b[5],
+      o.hasIndoor === true
+    ]);
+  }
+  return rows;
+}
+
+/**
+ * Which generated floor seed is present: 'generated', 'placeholder-empty', or 'absent'.
+ */
+function floorSeedSource_() {
+  if (typeof getGeneratedFloorsSeed !== 'function') return 'absent';
+  var floors = getGeneratedFloorsSeed();
+  return floors && floors.length ? 'generated' : 'placeholder-empty';
+}
+
+/** Calls a generated seed function by name when it exists; [] otherwise. */
+function generatedRows_(fnName) {
+  var fns = {
+    getGeneratedFloorsSeed: typeof getGeneratedFloorsSeed === 'function' ? getGeneratedFloorsSeed : null,
+    getGeneratedRoomsSeed: typeof getGeneratedRoomsSeed === 'function' ? getGeneratedRoomsSeed : null,
+    getGeneratedNavNodesSeed: typeof getGeneratedNavNodesSeed === 'function' ? getGeneratedNavNodesSeed : null,
+    getGeneratedNavEdgesSeed: typeof getGeneratedNavEdgesSeed === 'function' ? getGeneratedNavEdgesSeed : null
+  };
+  var fn = fns[fnName];
+  return fn ? (fn() || []) : [];
+}
+
+/**
+ * The seed datasets, in write order, as { name, rows }.
+ */
+function getSeedDatasets_() {
   return [
-    ['floor-ep-1', 'bld-ep', 1, '1st Floor', 'https://drive.google.com/file/d/1ZiY0elQQWgTPjxQIUPNuYuLtA1iSgTOw/view', 1404, 921, '0.045'],
-    ['floor-ep-2', 'bld-ep', 2, '2nd Floor', 'https://drive.google.com/file/d/14njXbeWiq8y5VqedK08O2F7PMkTTCORR/view', 1469, 962, '0.045'],
-    ['floor-it-1', 'bld-it', 1, '1st Floor', 'https://drive.google.com/file/d/1aRrMmSnr696JiI9FlSGbz2Q-MPxsVNbU/view', 1714, 1127, '0.040'],
-    ['floor-it-2', 'bld-it', 2, '2nd Floor', 'https://drive.google.com/file/d/1pVW0MIXXIyYvdetAaJfl7wFqG87E_yb3/view', 1714, 1084, '0.040']
+    { name: 'Buildings', rows: getBuildingsSeedRows_() },
+    { name: 'Floors', rows: generatedRows_('getGeneratedFloorsSeed') },
+    { name: 'Rooms', rows: generatedRows_('getGeneratedRoomsSeed') },
+    { name: 'NavNodes', rows: generatedRows_('getGeneratedNavNodesSeed') },
+    { name: 'NavEdges', rows: generatedRows_('getGeneratedNavEdgesSeed') }
   ];
 }
 
 /**
- * Returns seed data for rooms extracted from floor plan PDFs.
- * centerX, centerY populated from PDF text extraction (EP) and visual estimation (IT).
- * polygon left blank — drawn via Room Polygon Editor.
- * Each row: [id, floorId, number, label, polygon, centerX, centerY]
- */
-function _getRoomsSeedData() {
-  return [
-    // ── EP Floor 1 (19 rooms) ──────────────────────────────────────────
-    ['room-ep-1-1301',      'floor-ep-1', 'EP 1301',   'Classroom',                        '', '863', '248'],
-    ['room-ep-1-1303',      'floor-ep-1', 'EP 1303',   'Lecture Hall',                      '', '659', '236'],
-    ['room-ep-1-1330',      'floor-ep-1', 'EP 1330',   'Fluid Mechanics Lab',               '', '582', '353'],
-    ['room-ep-1-1331',      'floor-ep-1', 'EP 1331',   'Senior Design Lab',                 '', '732', '500'],
-    ['room-ep-1-1340',      'floor-ep-1', 'EP 1340',   'Classroom',                        '', '882', '377'],
-    ['room-ep-1-1346',      'floor-ep-1', 'EP 1346',   'E&M Physics Lab',                   '', '888', '549'],
-    ['room-ep-1-1347',      'floor-ep-1', 'EP 1347',   'Mechanics Physics Lab',             '', '729', '647'],
-    ['room-ep-1-1355',      'floor-ep-1', 'EP 1355',   'Standards & Digital Electronics Lab','', '1048', '728'],
-    ['room-ep-1-highbay',   'floor-ep-1', 'HIGH BAY',  'Engineering Systems Lab',           '', '556', '495'],
-    ['room-ep-1-optics',    'floor-ep-1', 'OPTICS',    'Optics Classroom/Lab',              '', '754', '806'],
-    ['room-ep-1-physics-ofc','floor-ep-1','PHYS OFC',  'Physics Faculty Offices',           '', '464', '250'],
-    ['room-ep-1-ioe-ofc',   'floor-ep-1', 'IOE OFC',  'Institute of Engineering Office',   '', '1006', '326'],
-    ['room-ep-1-egr-ofc',   'floor-ep-1', 'EGR OFC',  'Engineering Faculty Offices',       '', '1017', '586'],
-    ['room-ep-1-conf',      'floor-ep-1', 'CONF',      'Conference Room',                   '', '1098', '419'],
-    ['room-ep-1-study',     'floor-ep-1', 'STUDY',     'Student Study/Research',            '', '704', '342'],
-    ['room-ep-1-jones',     'floor-ep-1', 'JONES',     'Jones Office',                      '', '1089', '308'],
-    ['room-ep-1-claiborne', 'floor-ep-1', 'CLAIBORNE', 'Claiborne Office',                  '', '1085', '362'],
-    ['room-ep-1-rr-m',      'floor-ep-1', 'RR-M',     'Men\'s Restroom',                   '', '869', '685'],
-    ['room-ep-1-rr-w',      'floor-ep-1', 'RR-W',     'Women\'s Restroom',                 '', '441', '376'],
-
-    // ── EP Floor 2 (24 rooms) ──────────────────────────────────────────
-    ['room-ep-2-2301',       'floor-ep-2', 'EP 2301',   'Biology Classroom',                '', '907', '260'],
-    ['room-ep-2-2303',       'floor-ep-2', 'EP 2303',   'Biology Lecture Hall',             '', '695', '259'],
-    ['room-ep-2-2328',       'floor-ep-2', 'EP 2328',   'Physical Chemistry Lab',           '', '608', '379'],
-    ['room-ep-2-2340',       'floor-ep-2', 'EP 2340',   'Biology Classroom',                '', '919', '396'],
-    ['room-ep-2-2361',       'floor-ep-2', 'EP 2361',   'Astronomy Classroom and Lab',      '', '1109', '772'],
-    ['room-ep-2-2371',       'floor-ep-2', 'EP 2371',   'Computer Classroom',               '', '1104', '367'],
-    ['room-ep-2-boggess',    'floor-ep-2', 'BOGGESS',   'Boggess Science Resource Center',  '', '1109', '451'],
-    ['room-ep-2-bio-ofc',    'floor-ep-2', 'BIO OFC',   'Biology Offices',                  '', '471', '258'],
-    ['room-ep-2-thiede-lab', 'floor-ep-2', 'THIEDE',    'Thiede Research Lab',              '', '773', '492'],
-    ['room-ep-2-bunget-lab', 'floor-ep-2', 'BUNGET',    'Bunget Research Lab',              '', '767', '586'],
-    ['room-ep-2-leedy-lab',  'floor-ep-2', 'LEEDY',     'Leedy Research Lab',               '', '773', '683'],
-    ['room-ep-2-kobraei-lab','floor-ep-2', 'KOBRAEI',   'Kobraei Research Lab',             '', '943', '581'],
-    ['room-ep-2-ridley-lab', 'floor-ep-2', 'RIDLEY',    'Ridley Research Lab',              '', '1116', '651'],
-    ['room-ep-2-rogers-lab', 'floor-ep-2', 'ROGERS',    'Rogers Research Lab',              '', '878', '851'],
-    ['room-ep-2-hereford-lab','floor-ep-2','HEREFORD',  'Hereford Research Lab',            '', '786', '854'],
-    ['room-ep-2-cobb-lab',   'floor-ep-2', 'COBB',      'Cobb Research Lab',                '', '973', '852'],
-    ['room-ep-2-williams-lab','floor-ep-2','WILLIAMS',  'Williams Research Lab',            '', '933', '469'],
-    ['room-ep-2-woods',      'floor-ep-2', 'WOODS',     'Woods Lab',                        '', '1141', '558'],
-    ['room-ep-2-research',   'floor-ep-2', 'RESEARCH',  'Research Lab',                     '', '943', '659'],
-    ['room-ep-2-rapid-proto','floor-ep-2', 'RAPID',     'Rapid Prototype Center',           '', '615', '593'],
-    ['room-ep-2-bio-res',    'floor-ep-2', 'BIO RES',   'Biology Research Labs',            '', '301', '555'],
-    ['room-ep-2-chem-res',   'floor-ep-2', 'CHEM RES',  'Chemistry Research Lab',           '', '735', '355'],
-    ['room-ep-2-rr-m',       'floor-ep-2', 'RR-M',      'Men\'s Restroom',                  '', '911', '728'],
-    ['room-ep-2-rr-w',       'floor-ep-2', 'RR-W',      'Women\'s Restroom',                '', '1017', '423'],
-
-    // ── IT Floor 1 (29 rooms) ──────────────────────────────────────────
-    ['room-it-1-121',  'floor-it-1', '121',  'Materials and Process Lab',             '', '505', '426'],
-    ['room-it-1-122',  'floor-it-1', '122',  'Phone Room',                            '', '405', '325'],
-    ['room-it-1-123',  'floor-it-1', '123',  'Interior Design Studio',                '', '655', '427'],
-    ['room-it-1-124',  'floor-it-1', '124',  'Architectural/Construction Design Lab', '', '805', '428'],
-    ['room-it-1-125',  'floor-it-1', '125',  'Engineering Graphics and Design Lab',   '', '955', '429'],
-    ['room-it-1-126',  'floor-it-1', '126',  'Emergency Medical Training Lab',        '', '1105', '380'],
-    ['room-it-1-127',  'floor-it-1', '127',  'Design and Painting Lab',               '', '1255', '381'],
-    ['room-it-1-130',  'floor-it-1', '130',  'Classroom/Student Lounge',              '', '704', '577'],
-    ['room-it-1-131',  'floor-it-1', '131',  'OSH Lab',                               '', '554', '576'],
-    ['room-it-1-132',  'floor-it-1', '132',  'Classroom',                             '', '853', '628'],
-    ['room-it-1-133',  'floor-it-1', '133',  'Industrial Hygiene and Acoustics Lab',  '', '703', '677'],
-    ['room-it-1-134',  'floor-it-1', '134',  'Machine Tool Processes',                '', '453', '675'],
-    ['room-it-1-135',  'floor-it-1', '135',  'Fire Safety Lab',                       '', '354', '574'],
-    ['room-it-1-141',  'floor-it-1', '141',  'Office',                                '', '1304', '461'],
-    ['room-it-1-142',  'floor-it-1', '142',  'Office',                                '', '1354', '511'],
-    ['room-it-1-144',  'floor-it-1', '144',  'Office',                                '', '1404', '462'],
-    ['room-it-1-145',  'floor-it-1', '145',  'Office',                                '', '1454', '512'],
-    ['room-it-1-146',  'floor-it-1', '146',  'OSH Training Center',                   '', '1204', '560'],
-    ['room-it-1-147',  'floor-it-1', '147',  'Office',                                '', '1303', '611'],
-    ['room-it-1-148',  'floor-it-1', '148',  'Office',                                '', '1353', '661'],
-    ['room-it-1-149',  'floor-it-1', '149',  'Office',                                '', '1403', '612'],
-    ['room-it-1-150',  'floor-it-1', '150',  'Office',                                '', '1453', '662'],
-    ['room-it-1-153',  'floor-it-1', '153',  'Office',                                '', '1504', '563'],
-    ['room-it-1-155',  'floor-it-1', '155',  'Classroom',                             '', '1102', '760'],
-    ['room-it-1-156',  'floor-it-1', '156',  'Classroom',                             '', '952', '759'],
-    ['room-it-1-157',  'floor-it-1', '157',  'Office Suite (Chair OSH)',              '', '1302', '811'],
-    ['room-it-1-161',  'floor-it-1', '161',  'Office',                                '', '1202', '860'],
-    ['room-it-1-rr-w', 'floor-it-1', 'RR-W', 'Women\'s Restroom',                    '', '1004', '459'],
-    ['room-it-1-rr-m', 'floor-it-1', 'RR-M', 'Men\'s Restroom',                      '', '1054', '459'],
-
-    // ── IT Floor 2 (30 rooms) ──────────────────────────────────────────
-    ['room-it-2-215',  'floor-it-2', '215',  'Information Systems Operations',        '', '213', '381'],
-    ['room-it-2-217',  'floor-it-2', '217',  'Grad Assistants',                       '', '212', '441'],
-    ['room-it-2-221',  'floor-it-2', '221',  'Industrial Networks and Communications','', '363', '283'],
-    ['room-it-2-222',  'floor-it-2', '222',  'Telecommunications Electronics',        '', '493', '283'],
-    ['room-it-2-223',  'floor-it-2', '223',  'Network/Security Lab',                  '', '613', '284'],
-    ['room-it-2-224',  'floor-it-2', '224',  'CyberCave',                             '', '733', '285'],
-    ['room-it-2-225',  'floor-it-2', '225',  'Telecommunications Networking',          '', '863', '286'],
-    ['room-it-2-226',  'floor-it-2', '226',  'Telephony/Wireless',                    '', '993', '287'],
-    ['room-it-2-227',  'floor-it-2', '227',  'ICT Technician',                        '', '1113', '288'],
-    ['room-it-2-228',  'floor-it-2', '228',  'ENV Research',                           '', '1013', '387'],
-    ['room-it-2-229',  'floor-it-2', '229',  'Classroom',                             '', '572', '404'],
-    ['room-it-2-230',  'floor-it-2', '230',  'General Computer Lab',                  '', '712', '405'],
-    ['room-it-2-231',  'floor-it-2', '231',  'Fred M. Card Auditorium',               '', '494', '133'],
-    ['room-it-2-233',  'floor-it-2', '233',  'Fluid Power and Motion Control',        '', '862', '406'],
-    ['room-it-2-234',  'floor-it-2', '234',  'Environmental Lab',                     '', '462', '523'],
-    ['room-it-2-235',  'floor-it-2', '235',  'Radio Comm. Lab',                       '', '612', '524'],
-    ['room-it-2-237',  'floor-it-2', '237',  'Classroom',                             '', '762', '525'],
-    ['room-it-2-241',  'floor-it-2', '241',  'Office',                                '', '1262', '409'],
-    ['room-it-2-243',  'floor-it-2', '243',  'Classroom',                             '', '912', '526'],
-    ['room-it-2-244',  'floor-it-2', '244',  'Power and Motor Control',               '', '1062', '527'],
-    ['room-it-2-247',  'floor-it-2', '247',  'Student Lounge (IET)',                   '', '1312', '529'],
-    ['room-it-2-253a', 'floor-it-2', '253A', 'Chair IET Office',                      '', '1362', '470'],
-    ['room-it-2-253r', 'floor-it-2', '253R', 'Student Work Area',                     '', '1412', '530'],
-    ['room-it-2-255',  'floor-it-2', '255',  'Computer Aided Design Lab',             '', '212', '521'],
-    ['room-it-2-259',  'floor-it-2', '259',  'Computer Graphics Lab',                 '', '211', '641'],
-    ['room-it-2-263a', 'floor-it-2', '263A', 'Student Lounge',                        '', '1361', '610'],
-    ['room-it-2-251',  'floor-it-2', '251',  'Men\'s Restroom',                       '', '762', '465'],
-    ['room-it-2-252',  'floor-it-2', '252',  'Women\'s Restroom',                     '', '812', '466'],
-    ['room-it-2-242',  'floor-it-2', '242',  'Office',                                '', '1212', '458'],
-    ['room-it-2-rr-w', 'floor-it-2', 'RR-W', 'Women\'s Restroom (South)',            '', '1011', '557']
-  ];
-}
-
-/**
- * Writes all campus seed data to the Buildings, Floors, and Rooms sheets.
- * Idempotent: only writes if each sheet has no data rows (header-only).
- * Uses batch setValues() for efficiency.
+ * Writes seed data to every seeded tab that has no data rows (header only).
+ * Validates every dataset against the v2 header width before writing anything,
+ * so a malformed generated file fails loudly without a half-seeded sheet.
+ *
  * @param {Spreadsheet} ss - The backing spreadsheet.
+ * @return {Object} Rows written per tab; tabs that already had data report 'kept'.
  */
 function seedAllCampusData(ss) {
-  var datasets = [
-    { name: 'Buildings', getData: _getBuildingsSeedData },
-    { name: 'Floors',    getData: _getFloorsSeedData },
-    { name: 'Rooms',     getData: _getRoomsSeedData }
-  ];
+  if (!ss || typeof ss.getSheetByName !== 'function') {
+    throw new Error('seedAllCampusData needs the backing spreadsheet; call ?action=init instead.');
+  }
+  var datasets = getSeedDatasets_();
+  for (var v = 0; v < datasets.length; v++) {
+    validateSeedRows_(datasets[v].name, datasets[v].rows);
+  }
 
+  var result = {};
   for (var i = 0; i < datasets.length; i++) {
-    var sheet = ss.getSheetByName(datasets[i].name);
-    if (sheet && sheet.getLastRow() <= 1) {
-      var rows = datasets[i].getData();
-      if (rows.length > 0) {
-        sheet.getRange(2, 1, rows.length, rows[0].length).setValues(rows);
+    var ds = datasets[i];
+    var sheet = ss.getSheetByName(ds.name);
+    if (!sheet) {
+      result[ds.name] = 'missing-tab';
+    } else if (sheet.getLastRow() > 1) {
+      result[ds.name] = 'kept';
+    } else {
+      writeRows_(sheet, getSheetDefinition_(ds.name), ds.rows);
+      result[ds.name] = ds.rows.length;
+    }
+  }
+  return result;
+}
+
+/** Throws when a dataset's rows do not match its tab's v2 header width. */
+function validateSeedRows_(name, rows) {
+  var def = getSheetDefinition_(name);
+  var width = def.headers.length;
+  var seen = {};
+  for (var r = 0; r < rows.length; r++) {
+    var row = rows[r];
+    if (!row || row.length !== width) {
+      throw new Error('Seed ' + name + ' row ' + (r + 1) + ' has ' + (row ? row.length : 0) +
+        ' columns; contract v2 expects ' + width + ' (' + def.headers.join(', ') + ').');
+    }
+    if (!row[0]) {
+      throw new Error('Seed ' + name + ' row ' + (r + 1) + ' has no id.');
+    }
+    if (seen[row[0]]) {
+      throw new Error('Seed ' + name + ' has a duplicate id: ' + row[0]);
+    }
+    seen[row[0]] = true;
+    for (var c = 0; c < width; c++) {
+      if (typeof row[c] === 'string' && row[c].length > 49000) {
+        throw new Error('Seed ' + name + ' row ' + row[0] + ' column ' + def.headers[c] +
+          ' exceeds the 50,000-character Sheets cell limit.');
       }
     }
   }
+}
+
+/**
+ * Normalizes and writes rows below the header (text columns as strings, JSON
+ * columns stringified, boolean columns as booleans). Applies text formats first.
+ */
+function writeRows_(sheet, def, rows) {
+  if (!rows.length) return;
+  var out = [];
+  for (var r = 0; r < rows.length; r++) {
+    out.push(normalizeRow_(def, rows[r]));
+  }
+  rewriteRows_(sheet, def, out); // AdminAPI.gs: grows the sheet and applies text formats
+}
+
+/** Converts one row array to its stored form per the tab definition. */
+function normalizeRow_(def, row) {
+  var out = [];
+  for (var c = 0; c < def.headers.length; c++) {
+    out.push(toCell_(def, def.headers[c], row[c]));
+  }
+  return out;
+}
+
+/** Converts one value to its stored cell form for column h of tab def. */
+function toCell_(def, h, v) {
+  if (v === undefined || v === null) return '';
+  if (def.json && def.json.indexOf(h) !== -1) {
+    return typeof v === 'string' ? v : JSON.stringify(v);
+  }
+  if (def.bools && def.bools.hasOwnProperty(h)) {
+    if (v === '') return '';
+    return toBool_(v, def.bools[h]);
+  }
+  if (def.text && def.text.indexOf(h) !== -1) {
+    return String(v);
+  }
+  return v;
+}
+
+/** Interprets true/'true'/'TRUE'/1/'1'/'yes' as true; blank uses the default. */
+function toBool_(v, dflt) {
+  if (v === true || v === false) return v;
+  if (v === '' || v === null || v === undefined) return dflt;
+  var s = String(v).toLowerCase();
+  if (s === 'true' || s === '1' || s === 'yes') return true;
+  if (s === 'false' || s === '0' || s === 'no') return false;
+  return dflt;
 }
