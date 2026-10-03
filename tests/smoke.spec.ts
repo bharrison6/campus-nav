@@ -1,8 +1,7 @@
 import { expect, test } from '@playwright/test';
 
-// Live smoke test against a deployed web app. Set APP_URL to the /exec URL:
-//   APP_URL=https://script.google.com/macros/s/<id>/exec npx playwright test tests/smoke.spec.ts
-// Skipped when APP_URL is unset, so the dead v1 deployment URL is never exercised.
+// Live smoke test against a deployed web app: APP_URL=<the /exec URL> npm run test:smoke
+// (playwright.config.ts refuses to start without APP_URL; the skip below guards direct runs).
 const APP_URL = process.env.APP_URL;
 
 test.skip(!APP_URL, 'APP_URL is not set; the live smoke test needs a deployed /exec URL');
