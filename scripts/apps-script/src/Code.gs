@@ -1,46 +1,84 @@
 /**
- * Code.gs — Main router for Murray State Campus Navigation
- * Routes doGet/doPost requests by ?action= parameter.
+ * Code.gs — Main router for Murray State Campus Navigation.
+ * doGet serves the WebApp and Admin pages as templates (so pages can
+ * include() partials) and routes ?action= JSON requests.
  */
+
+var PAGES_ = {
+  web: { file: 'WebApp', title: 'Murray State Campus Nav' },
+  admin: { file: 'Admin', title: 'Campus Nav Admin' }
+};
 
 function doGet(e) {
   var params = e ? (e.parameter || {}) : {};
   var action = params.action || '';
 
-  // Admin page
-  if (action === 'admin') {
-    return HtmlService.createHtmlOutputFromFile('Admin')
-      .setTitle('Campus Nav Admin')
-      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
-  }
+  if (!action || action === 'web') return servePage_(PAGES_.web);
+  if (action === 'admin') return servePage_(PAGES_.admin);
 
-  // Serve the web app (default when no action specified)
-  if (!action || action === 'web') {
-    return HtmlService.createHtmlOutputFromFile('WebApp')
-      .setTitle('Murray State Campus Nav')
-      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
-  }
-
-  // API routes
   try {
-    var data = routeAction(action, params);
-    return jsonResponse({ ok: true, data: data });
+    return jsonResponse_({ ok: true, data: routeAction_(action, params) });
   } catch (err) {
-    return jsonResponse({ ok: false, error: err.message });
+    return jsonResponse_({ ok: false, error: err.message });
   }
 }
 
 function doPost(e) {
   try {
     var body = JSON.parse(e.postData.contents);
-    var data = routeAction(body.action, body);
-    return jsonResponse({ ok: true, data: data });
+    return jsonResponse_({ ok: true, data: routeAction_(body.action, body) });
   } catch (err) {
-    return jsonResponse({ ok: false, error: err.message });
+    return jsonResponse_({ ok: false, error: err.message });
   }
 }
 
-function routeAction(action, params) {
+function servePage_(page) {
+  return HtmlService.createTemplateFromFile(page.file)
+    .evaluate()
+    .setTitle(page.title)
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+/**
+ * Template helper: <?!= include('WebApp_styles') ?> inlines another project
+ * HTML file's content.
+ * @param {string} name - Project HTML file name without extension.
+ * @return {string}
+ */
+function include(name) {
+  if (typeof name !== 'string' || !/^[A-Za-z0-9_]+$/.test(name)) {
+    throw new Error('include: invalid file name');
+  }
+  return HtmlService.createHtmlOutputFromFile(name).getContent();
+}
+
+/**
+ * Returns a floor's SVG floor plan (the raw <svg> string) from the embedded
+ * project file FP_<floorId with hyphens as underscores>, for example
+ * floor-it-1 -> FP_floor_it_1. Callable through google.script.run and as
+ * ?action=getFloorPlanSvg&floorId=floor-it-1.
+ * @param {string} floorId
+ * @return {string}
+ */
+function getFloorPlanSvg(floorId) {
+  if (typeof floorId !== 'string' || !/^[A-Za-z0-9-]+$/.test(floorId)) {
+    throw new Error('getFloorPlanSvg: floorId is required (letters, digits, hyphens)');
+  }
+  var asset = 'FP_' + floorId.replace(/-/g, '_');
+  var content;
+  try {
+    content = HtmlService.createHtmlOutputFromFile(asset).getContent();
+  } catch (e) {
+    throw new Error('Floor plan asset ' + asset + ' not found for floor ' + floorId);
+  }
+  if (!content || content.indexOf('<svg') === -1) {
+    throw new Error('Floor plan asset ' + asset + ' holds no <svg> for floor ' + floorId);
+  }
+  return content;
+}
+
+function routeAction_(action, params) {
   switch (action) {
     case 'ping':
       return 'pong';
@@ -48,14 +86,20 @@ function routeAction(action, params) {
       return initSystem();
     case 'getAllCampusData':
       return getAllCampusData();
+    case 'getPublicCampusData':
+      return getPublicCampusData();
+    case 'getCampusDataStats':
+      return getCampusDataStats();
     case 'getDataVersion':
       return getDataVersion();
+    case 'getFloorPlanSvg':
+      return getFloorPlanSvg(params.floorId);
     default:
       throw new Error('Unknown action: ' + action);
   }
 }
 
-function jsonResponse(obj) {
+function jsonResponse_(obj) {
   return ContentService
     .createTextOutput(JSON.stringify(obj))
     .setMimeType(ContentService.MimeType.JSON);
