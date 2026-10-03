@@ -1,4 +1,4 @@
-// Guards the GAS rules for every served WebApp*.html: client JS stays ES5 (no let/const, arrow
+// Guards the GAS rules for every served page file (WebApp*.html and Admin.html): client JS stays ES5 (no let/const, arrow
 // functions, template literals, classes, spread, async), includes carry no template scriptlets,
 // and no Google Maps key literal ever lands in the page.
 import test from 'node:test';
@@ -8,7 +8,8 @@ import { join } from 'node:path';
 import vm from 'node:vm';
 import { SRC, scriptBodies } from './load-include.mjs';
 
-const files = readdirSync(SRC).filter((f) => /^WebApp.*\.html$/.test(f));
+const files = readdirSync(SRC).filter((f) => /^(WebApp.*|Admin)\.html$/.test(f));
+const shells = ['WebApp.html', 'Admin.html']; // page templates: the only files that may hold scriptlets
 
 // Blank out comments, strings and regex literals well enough to scan the remaining code tokens.
 function codeOnly(js) {
@@ -80,14 +81,14 @@ for (const f of files) {
 
   test(`${f}: no scriptlets except in the page shell, no key literals`, () => {
     const html = readFileSync(join(SRC, f), 'utf8');
-    if (f !== 'WebApp.html') assert.equal(/<\?/.test(html), false, 'includes are inlined verbatim; scriptlets would not run');
+    if (!shells.includes(f)) assert.equal(/<\?/.test(html), false, 'includes are inlined verbatim; scriptlets would not run');
     assert.equal(/AIza[0-9A-Za-z_-]{20,}/.test(html), false, 'Google API key literal');
   });
 }
 
 test('page shell includes every module', () => {
   const html = readFileSync(join(SRC, 'WebApp.html'), 'utf8');
-  for (const f of files.filter((x) => x !== 'WebApp.html')) {
+  for (const f of files.filter((x) => !shells.includes(x))) {
     assert.ok(html.includes(`include('${f.replace(/\.html$/, '')}')`), `WebApp.html includes ${f}`);
   }
 });
