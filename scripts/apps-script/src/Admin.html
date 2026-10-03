@@ -643,6 +643,8 @@
         <button class="tab-btn" data-tab="floors" onclick="switchTab('floors')">Floor Plans</button>
         <button class="tab-btn" data-tab="rooms" onclick="switchTab('rooms')">Room Editor</button>
         <button class="tab-btn" data-tab="navgraph" onclick="switchTab('navgraph')">Nav Graph</button>
+        <button class="tab-btn" data-tab="import" onclick="switchTab('import')">Import</button>
+        <button class="tab-btn" data-tab="settings" onclick="switchTab('settings')">Settings</button>
       </div>
 
       <!-- ===================== LOCATION QR TAB ===================== -->
@@ -1061,6 +1063,124 @@
         </div>
       </div>
 
+      <!-- ===================== IMPORT TAB ===================== -->
+      <div id="tab-import" class="tab-panel">
+        <div class="card">
+          <h2>Import Floor Data</h2>
+          <p style="color:var(--text-light);margin-bottom:16px;">
+            Load one floor's output from the floor-plan pipeline (<code>data/floorplans/&lt;floorId&gt;.json</code>).
+            Importing <strong>replaces</strong> that floor's rooms, nav nodes and nav edges. Buildings, floors and
+            QR codes are not changed. For small additions, use Import JSON in the Room Editor or Nav Graph tabs instead.
+          </p>
+
+          <div class="form-group">
+            <label for="import-floor-select">Target floor</label>
+            <select id="import-floor-select" onchange="onImportFloorChange()">
+              <option value="">Select floor...</option>
+            </select>
+            <p class="field-help">Chosen automatically when the file names a known floor.</p>
+          </div>
+
+          <div class="form-group">
+            <label for="import-file">Pipeline JSON file</label>
+            <input type="file" id="import-file" accept=".json,application/json" onchange="onImportFileChosen(this)">
+          </div>
+
+          <div class="form-group">
+            <label for="import-json">Or paste the JSON</label>
+            <textarea id="import-json" spellcheck="false" placeholder='{"floorId":"floor-it-1","rooms":[...],"navNodes":[...],"navEdges":[...]}'></textarea>
+          </div>
+
+          <div class="btn-row">
+            <button class="btn btn-primary" onclick="previewFloorImport()">Preview Import</button>
+            <button class="btn btn-outline" onclick="resetFloorImport()">Clear</button>
+          </div>
+
+          <div id="import-preview" class="card" style="display:none;margin-top:20px;background:#f9fafb;">
+            <h3 style="font-size:14px;margin-bottom:8px;color:var(--navy);">Preview</h3>
+            <div id="import-preview-body"></div>
+            <div class="btn-row">
+              <button class="btn btn-gold" id="import-confirm-btn" onclick="confirmFloorImport()">Replace Floor Data</button>
+              <button class="btn btn-outline" onclick="resetFloorImport()">Cancel</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===================== SETTINGS TAB ===================== -->
+      <div id="tab-settings" class="tab-panel">
+        <div class="card">
+          <h2>Settings</h2>
+          <p style="color:var(--text-light);margin-bottom:12px;">
+            The Google Maps API key and the admin PIN are stored only in the Apps Script project's
+            Script Properties. This page can replace them but never displays them, and they are not
+            kept in the spreadsheet or in the code repository.
+          </p>
+          <ul class="status-list" id="settings-status-list">
+            <li><span>Google Maps API key</span><span id="settings-key-status" class="tag tag-muted">Checking...</span></li>
+            <li><span>Admin PIN</span><span id="settings-pin-status" class="tag tag-muted">Checking...</span></li>
+          </ul>
+          <div class="btn-row" style="margin-top:4px;">
+            <button class="btn btn-outline" onclick="loadSettingsStatus()">Refresh Status</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Google Maps API Key</h2>
+          <p style="color:var(--text-light);font-size:14px;margin-bottom:12px;">
+            Used for the campus map in the navigation app and in the Buildings tab. Without a key the app
+            still works: it lists buildings with "Open in Google Maps" walking links. Use a browser key
+            restricted to this web app's address (HTTP referrer restriction) and to the Maps JavaScript API.
+          </p>
+          <form onsubmit="saveMapsApiKey();return false;" autocomplete="off">
+            <div class="form-group">
+              <label for="settings-maps-key">New key</label>
+              <input type="password" id="settings-maps-key" autocomplete="off" spellcheck="false" placeholder="Paste the new key">
+              <p class="field-help">Saving replaces the stored key. The field is cleared after saving.</p>
+            </div>
+            <div class="btn-row">
+              <button type="submit" class="btn btn-primary" id="settings-key-btn">Save Key</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="card">
+          <h2>Change Admin PIN</h2>
+          <form onsubmit="saveAdminPin();return false;" autocomplete="off">
+            <div class="form-group">
+              <label for="settings-pin-current">Current PIN</label>
+              <input type="password" id="settings-pin-current" autocomplete="off" maxlength="20">
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="settings-pin-new">New PIN</label>
+                <input type="password" id="settings-pin-new" autocomplete="new-password" maxlength="20">
+              </div>
+              <div class="form-group">
+                <label for="settings-pin-confirm">Confirm new PIN</label>
+                <input type="password" id="settings-pin-confirm" autocomplete="new-password" maxlength="20">
+              </div>
+            </div>
+            <p class="field-help" style="margin-bottom:8px;">6 to 20 characters, no spaces. Everyone who uses the admin page will need the new PIN.</p>
+            <div class="btn-row">
+              <button type="submit" class="btn btn-primary" id="settings-pin-btn">Change PIN</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="card">
+          <h2>Where these values live</h2>
+          <p style="font-size:14px;margin-bottom:8px;">
+            In the Apps Script editor, open <strong>Project Settings</strong> and scroll to <strong>Script Properties</strong>:
+            <code>mapsApiKey</code> holds the Maps key and <code>ADMIN_PIN</code> holds the PIN.
+          </p>
+          <p style="font-size:14px;color:var(--text-light);">
+            A new deployment generates a random PIN the first time it is initialized; the project owner reads it there.
+            If the PIN is forgotten, the project owner can read or replace <code>ADMIN_PIN</code> in the same place.
+          </p>
+        </div>
+      </div>
+
     </div><!-- /main-content -->
   </div><!-- /container -->
 
@@ -1200,6 +1320,8 @@
       if (tabName === 'floors' && campusData) initFloorsTab();
       if (tabName === 'rooms' && campusData) initRoomsTab();
       if (tabName === 'navgraph' && campusData) initNavTab();
+      if (tabName === 'import' && campusData) initImportTab();
+      if (tabName === 'settings') loadSettingsStatus();
     }
 
     /* ========================================================
@@ -4627,6 +4749,385 @@
           id: buildingId,
           entrances: entrancesArray
         });
+    }
+
+    /* ========================================================
+       IMPORT TAB — replace one floor's rooms, nav nodes and nav edges
+       from floor-plan pipeline output via importFloorData(pin, payload).
+       Payload sent: { floorId, rooms, navNodes, navEdges[, floor] }, the
+       item objects passed through as the pipeline wrote them.
+       ======================================================== */
+    var importPending = null;   // { floorId, payload, stats } awaiting confirmation
+
+    function initImportTab() {
+      var sel = document.getElementById('import-floor-select');
+      var currentVal = sel.value;
+      sel.innerHTML = '<option value="">Select floor...</option>';
+      var floors = ((campusData && campusData.floors) || []).slice();
+      floors.sort(function(a, b) {
+        var ba = String(a.buildingId), bb = String(b.buildingId);
+        if (ba !== bb) return ba < bb ? -1 : 1;
+        return (Number(a.level) || 0) - (Number(b.level) || 0);
+      });
+      for (var i = 0; i < floors.length; i++) {
+        var f = floors[i];
+        var b = findBuilding(f.buildingId);
+        var opt = document.createElement('option');
+        opt.value = f.id;
+        opt.textContent = (b ? (b.code || b.name || b.id) : f.buildingId) + ' - ' +
+          (f.label || ('Floor ' + f.level)) + ' (' + f.id + ')';
+        sel.appendChild(opt);
+      }
+      if (currentVal) sel.value = currentVal;
+    }
+
+    function onImportFloorChange() {
+      // A different target invalidates an existing preview
+      if (importPending) previewFloorImport();
+    }
+
+    function onImportFileChosen(input) {
+      var file = input.files && input.files[0];
+      if (!file) return;
+      if (file.size > 20 * 1024 * 1024) {
+        showMessage('That file is larger than 20 MB; a single floor should be far smaller.', 'error');
+        return;
+      }
+      var reader = new FileReader();
+      reader.onload = function() {
+        document.getElementById('import-json').value = String(reader.result || '');
+        previewFloorImport();
+      };
+      reader.onerror = function() {
+        showMessage('Could not read the file.', 'error');
+      };
+      reader.readAsText(file);
+    }
+
+    function resetFloorImport() {
+      importPending = null;
+      document.getElementById('import-json').value = '';
+      document.getElementById('import-file').value = '';
+      document.getElementById('import-preview').style.display = 'none';
+      document.getElementById('import-preview-body').innerHTML = '';
+    }
+
+    function firstArray() {
+      for (var i = 0; i < arguments.length; i++) {
+        if (Array.isArray(arguments[i])) return arguments[i];
+      }
+      return null;
+    }
+
+    /**
+     * Parse pipeline JSON into an import payload plus counts and warnings.
+     * Returns { error } or { floorId, payload, stats, warnings }.
+     */
+    function parseFloorImport(text) {
+      var parsed;
+      try {
+        parsed = JSON.parse(text);
+      } catch (e) {
+        return { error: 'The JSON could not be parsed: ' + e.message };
+      }
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return { error: 'Expected one floor\'s JSON object with rooms, navNodes and navEdges.' };
+      }
+
+      var graph = parsed.graph || {};
+      var rooms = firstArray(parsed.rooms);
+      var navNodes = firstArray(parsed.navNodes, parsed.nodes, graph.navNodes, graph.nodes);
+      var navEdges = firstArray(parsed.navEdges, parsed.edges, graph.navEdges, graph.edges);
+      if (!rooms && !navNodes && !navEdges) {
+        return { error: 'No rooms, navNodes or navEdges arrays were found in this JSON.' };
+      }
+      rooms = rooms || [];
+      navNodes = navNodes || [];
+      navEdges = navEdges || [];
+
+      var fileFloorId = parsed.floorId || (parsed.floor && parsed.floor.id) ||
+        (typeof parsed.id === 'string' && parsed.id.indexOf('floor-') === 0 ? parsed.id : '');
+
+      var warnings = [];
+      var badRooms = 0;
+      for (var i = 0; i < rooms.length; i++) {
+        var r = rooms[i] || {};
+        var poly = r.polygon;
+        if (typeof poly === 'string') {
+          try { poly = JSON.parse(poly); } catch (e1) { poly = null; }
+        }
+        if (!Array.isArray(poly) || poly.length < 3) badRooms++;
+      }
+      if (badRooms) warnings.push(badRooms + ' room' + (badRooms !== 1 ? 's have' : ' has') + ' no usable polygon.');
+
+      var nodeIds = {};
+      var badNodes = 0;
+      for (var n = 0; n < navNodes.length; n++) {
+        var nd = navNodes[n] || {};
+        if (nd.id !== undefined) nodeIds[nd.id] = true;
+        if (isNaN(Number(nd.x)) || isNaN(Number(nd.y)) || nd.x === '' || nd.y === '') badNodes++;
+      }
+      if (badNodes) warnings.push(badNodes + ' node' + (badNodes !== 1 ? 's lack' : ' lacks') + ' numeric x/y.');
+
+      var crossFloor = 0, inaccessible = 0;
+      for (var e = 0; e < navEdges.length; e++) {
+        var ed = navEdges[e] || {};
+        var from = ed.fromNodeId !== undefined ? ed.fromNodeId : ed.from;
+        var to = ed.toNodeId !== undefined ? ed.toNodeId : ed.to;
+        if (toBool(ed.floorChange, false) || !nodeIds[from] || !nodeIds[to]) crossFloor++;
+        if (!toBool(ed.accessible, true)) inaccessible++;
+      }
+
+      var payload = { floorId: fileFloorId, rooms: rooms, navNodes: navNodes, navEdges: navEdges };
+      if (parsed.floor && typeof parsed.floor === 'object') payload.floor = parsed.floor;
+
+      return {
+        fileFloorId: fileFloorId,
+        payload: payload,
+        warnings: warnings,
+        stats: {
+          rooms: rooms.length,
+          navNodes: navNodes.length,
+          navEdges: navEdges.length,
+          crossFloor: crossFloor,
+          inaccessible: inaccessible
+        }
+      };
+    }
+
+    /** Current counts on a floor (what an import would replace). */
+    function countFloorData(floorId) {
+      var counts = { rooms: 0, navNodes: 0, navEdges: 0 };
+      var nodeSet = {};
+      var rooms = (campusData && campusData.rooms) || [];
+      var nodes = (campusData && campusData.navNodes) || [];
+      var edges = (campusData && campusData.navEdges) || [];
+      for (var i = 0; i < rooms.length; i++) if (rooms[i].floorId === floorId) counts.rooms++;
+      for (var j = 0; j < nodes.length; j++) {
+        if (nodes[j].floorId === floorId) { counts.navNodes++; nodeSet[nodes[j].id] = true; }
+      }
+      for (var k = 0; k < edges.length; k++) {
+        if (nodeSet[edges[k].fromNodeId] || nodeSet[edges[k].toNodeId]) counts.navEdges++;
+      }
+      return counts;
+    }
+
+    function previewFloorImport() {
+      var previewEl = document.getElementById('import-preview');
+      var bodyEl = document.getElementById('import-preview-body');
+      var confirmBtn = document.getElementById('import-confirm-btn');
+      importPending = null;
+
+      var text = document.getElementById('import-json').value.trim();
+      if (!text) {
+        previewEl.style.display = 'none';
+        showMessage('Choose a file or paste the JSON first.', 'error');
+        return;
+      }
+
+      var result = parseFloorImport(text);
+      if (result.error) {
+        previewEl.style.display = 'none';
+        showMessage(result.error, 'error');
+        return;
+      }
+
+      var sel = document.getElementById('import-floor-select');
+      if (!sel.value && result.fileFloorId && findFloor(result.fileFloorId)) {
+        sel.value = result.fileFloorId;
+      }
+      var targetId = sel.value;
+      var warnings = result.warnings.slice();
+      if (result.fileFloorId && targetId && result.fileFloorId !== targetId) {
+        warnings.unshift('The file is for ' + result.fileFloorId + ' but the target floor is ' + targetId + '. Its room and node ids will not match the target floor.');
+      }
+      if (result.fileFloorId && !findFloor(result.fileFloorId)) {
+        warnings.push('The file\'s floor ' + result.fileFloorId + ' is not in the Floors list.');
+      }
+
+      var current = targetId ? countFloorData(targetId) : null;
+      var s = result.stats;
+
+      bodyEl.innerHTML = '';
+      var table = document.createElement('table');
+      table.className = 'preview-table';
+      var rowsHtml =
+        '<tr><th></th><th>In file</th><th>Now on target floor</th></tr>' +
+        '<tr><td>Rooms</td><td>' + s.rooms + '</td><td>' + (current ? current.rooms : '-') + '</td></tr>' +
+        '<tr><td>Nav nodes</td><td>' + s.navNodes + '</td><td>' + (current ? current.navNodes : '-') + '</td></tr>' +
+        '<tr><td>Nav edges</td><td>' + s.navEdges + '</td><td>' + (current ? current.navEdges : '-') + '</td></tr>';
+      table.innerHTML = rowsHtml;
+      bodyEl.appendChild(table);
+
+      var info = document.createElement('p');
+      info.className = 'field-help';
+      info.textContent = s.crossFloor + ' edge' + (s.crossFloor !== 1 ? 's' : '') + ' cross to other floors; ' +
+        s.inaccessible + ' ' + (s.inaccessible !== 1 ? 'are' : 'is') + ' not step-free.' +
+        (result.fileFloorId ? ' File floor: ' + result.fileFloorId + '.' : ' The file does not name its floor.');
+      bodyEl.appendChild(info);
+
+      for (var w = 0; w < warnings.length; w++) {
+        var warn = document.createElement('div');
+        warn.className = 'status-msg visible error';
+        warn.style.position = 'static';
+        warn.style.boxShadow = 'none';
+        warn.style.margin = '8px 0 0 0';
+        warn.textContent = warnings[w];
+        bodyEl.appendChild(warn);
+      }
+
+      if (!targetId) {
+        var need = document.createElement('p');
+        need.style.cssText = 'font-size:13px;margin-top:8px;color:var(--error);';
+        need.textContent = 'Select the target floor to continue.';
+        bodyEl.appendChild(need);
+      }
+
+      confirmBtn.disabled = !targetId;
+      previewEl.style.display = '';
+
+      if (targetId) {
+        var payload = result.payload;
+        payload.floorId = targetId;
+        importPending = { floorId: targetId, payload: payload, stats: s, current: current };
+      }
+    }
+
+    function confirmFloorImport() {
+      if (!importPending) { showMessage('Preview the import first.', 'error'); return; }
+      var p = importPending;
+      var floor = findFloor(p.floorId);
+      var floorName = floor ? (floor.label || floor.id) : p.floorId;
+      var msg = 'Replace all rooms, nav nodes and nav edges on ' + floorName + ' (' + p.floorId + ')?\n\n' +
+        'Now: ' + p.current.rooms + ' rooms, ' + p.current.navNodes + ' nodes, ' + p.current.navEdges + ' edges.\n' +
+        'After: ' + p.stats.rooms + ' rooms, ' + p.stats.navNodes + ' nodes, ' + p.stats.navEdges + ' edges.\n\n' +
+        'This cannot be undone from the admin page.';
+      if (!confirm(msg)) return;
+
+      var btn = document.getElementById('import-confirm-btn');
+      btn.disabled = true;
+      btn.textContent = 'Importing...';
+      showMessage('Importing floor data...', 'info');
+
+      runServer('importFloorData', [adminPin, p.payload], function(result) {
+        btn.disabled = false;
+        btn.textContent = 'Replace Floor Data';
+        resetFloorImport();
+        var summary = 'Imported floor data for ' + p.floorId + '.';
+        if (result && typeof result === 'object') {
+          var parts = [];
+          if (result.rooms !== undefined) parts.push(result.rooms + ' rooms');
+          if (result.navNodes !== undefined) parts.push(result.navNodes + ' nodes');
+          if (result.navEdges !== undefined) parts.push(result.navEdges + ' edges');
+          if (parts.length) summary = 'Imported ' + parts.join(', ') + ' for ' + p.floorId + '.';
+        }
+        refreshCampusData(function() {
+          initImportTab();
+          showMessage(summary, 'success');
+        });
+      }, function(err) {
+        btn.disabled = false;
+        btn.textContent = 'Replace Floor Data';
+        showMessage('Import failed: ' + ((err && err.message) || String(err)), 'error');
+      });
+    }
+
+    /* ========================================================
+       SETTINGS TAB — Maps key and admin PIN live only in Script
+       Properties. Status is booleans only; values are never shown,
+       logged, or kept beyond the request that sets them.
+       ======================================================== */
+    function readStatusFlag(status, names) {
+      if (!status || typeof status !== 'object') return null;
+      for (var i = 0; i < names.length; i++) {
+        if (status.hasOwnProperty(names[i])) return !!status[names[i]];
+      }
+      return null;
+    }
+
+    function setStatusTag(el, flag) {
+      if (flag === true) { el.className = 'tag tag-ok'; el.textContent = 'Configured'; }
+      else if (flag === false) { el.className = 'tag tag-bad'; el.textContent = 'Not configured'; }
+      else { el.className = 'tag tag-muted'; el.textContent = 'Unknown'; }
+    }
+
+    function loadSettingsStatus() {
+      var keyEl = document.getElementById('settings-key-status');
+      var pinEl = document.getElementById('settings-pin-status');
+      keyEl.className = 'tag tag-muted'; keyEl.textContent = 'Checking...';
+      pinEl.className = 'tag tag-muted'; pinEl.textContent = 'Checking...';
+
+      runServer('getSettingsStatus', [adminPin], function(status) {
+        setStatusTag(keyEl, readStatusFlag(status, ['mapsApiKeyConfigured', 'mapsApiKeySet', 'hasMapsApiKey', 'mapsKeyConfigured', 'keyConfigured', 'mapsApiKey']));
+        setStatusTag(pinEl, readStatusFlag(status, ['adminPinConfigured', 'adminPinSet', 'hasAdminPin', 'pinConfigured', 'adminPin']));
+      }, function(err) {
+        setStatusTag(keyEl, null);
+        setStatusTag(pinEl, null);
+        showMessage('Could not read settings status: ' + ((err && err.message) || String(err)), 'error');
+      });
+    }
+
+    function saveMapsApiKey() {
+      var input = document.getElementById('settings-maps-key');
+      var key = input.value.trim();
+      if (!key) { showMessage('Paste the new key first.', 'error'); return; }
+      if (/\s/.test(key)) { showMessage('The key cannot contain spaces.', 'error'); return; }
+      if (!confirm('Replace the stored Google Maps API key?')) return;
+
+      var btn = document.getElementById('settings-key-btn');
+      btn.disabled = true;
+      runServer('setMapsApiKey', [adminPin, key], function() {
+        input.value = '';
+        key = '';
+        btn.disabled = false;
+        loadSettingsStatus();
+        refreshCampusData(function() {
+          showMessage('Maps key saved. Reload the admin page to use it in the Buildings map.', 'success');
+        });
+      }, function(err) {
+        input.value = '';
+        key = '';
+        btn.disabled = false;
+        showMessage('Could not save the key: ' + ((err && err.message) || String(err)), 'error');
+      });
+    }
+
+    function saveAdminPin() {
+      var curEl = document.getElementById('settings-pin-current');
+      var newEl = document.getElementById('settings-pin-new');
+      var confEl = document.getElementById('settings-pin-confirm');
+      var current = curEl.value;
+      var next = newEl.value;
+      var again = confEl.value;
+
+      function clearFields() {
+        curEl.value = '';
+        newEl.value = '';
+        confEl.value = '';
+      }
+
+      if (!current || !next || !again) { showMessage('Fill in all three PIN fields.', 'error'); return; }
+      if (/\s/.test(next) || next.length < 6 || next.length > 20) {
+        showMessage('The new PIN must be 6 to 20 characters with no spaces.', 'error');
+        return;
+      }
+      if (next !== again) { showMessage('The new PIN and its confirmation do not match.', 'error'); return; }
+      if (next === current) { showMessage('The new PIN is the same as the current PIN.', 'error'); return; }
+      if (!confirm('Change the admin PIN? Everyone using the admin page will need the new PIN.')) return;
+
+      var btn = document.getElementById('settings-pin-btn');
+      btn.disabled = true;
+      runServer('changeAdminPin', [current, next], function() {
+        adminPin = next;
+        clearFields();
+        btn.disabled = false;
+        loadSettingsStatus();
+        showMessage('Admin PIN changed. Use the new PIN next time you sign in.', 'success');
+      }, function(err) {
+        clearFields();
+        btn.disabled = false;
+        showMessage('Could not change the PIN: ' + ((err && err.message) || String(err)), 'error');
+      });
     }
 
     /* ========================================================
