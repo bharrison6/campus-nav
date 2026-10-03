@@ -609,6 +609,8 @@
     <span class="badge">Admin</span>
   </div>
 
+  <div id="app-config" data-app-url="<?= ScriptApp.getService().getUrl() ?>" hidden></div>
+
   <div class="container">
 
     <!-- PIN login gate -->
@@ -668,7 +670,7 @@
 
           <div class="form-group">
             <label for="loc-nodeId">Node ID</label>
-            <input type="text" id="loc-nodeId" placeholder="e.g. nav-engphys-1-001">
+            <input type="text" id="loc-nodeId" placeholder="ID of a node in the Nav Graph tab">
           </div>
 
           <div class="form-group">
@@ -757,8 +759,8 @@
 
           <div class="form-group">
             <label for="batch-input">Locations (JSON, one per line)</label>
-            <textarea id="batch-input" placeholder='{"building":"bld-engphys","floor":"floor-engphys-1","nodeId":"nav-001","description":"Room 101"}
-{"building":"bld-engphys","floor":"floor-engphys-1","nodeId":"nav-002","description":"Room 102"}'></textarea>
+            <textarea id="batch-input" placeholder='{"building":"bld-ep","floor":"floor-ep-1","nodeId":"NODE-ID","description":"EP Room 101"}
+{"building":"bld-ep","floor":"floor-ep-1","nodeId":"NODE-ID","description":"EP Room 102"}'></textarea>
           </div>
 
           <div class="btn-row">
@@ -1188,7 +1190,14 @@
     /* ========================================================
        GLOBALS
        ======================================================== */
-    var APP_URL = 'https://script.google.com/macros/s/AKfycbxM-sMOC8CQQf2ckPX6MgZHZsnWu-oAWKp0DeuqbEp3idjSKGZUY288zN_KhXlwbhy53Q/exec';
+    // The web app's own /exec URL, written into #app-config by the template
+    // (doGet evaluates Admin.html as a template). Empty when unavailable, so
+    // QR codes never point at a stale deployment.
+    var APP_URL = (function() {
+      var el = document.getElementById('app-config');
+      var url = el ? String(el.getAttribute('data-app-url') || '') : '';
+      return /^https:\/\/[^\s"']+$/.test(url) ? url : '';
+    })();
     var campusData = null;
     var adminPin = '';
 
@@ -1196,13 +1205,16 @@
        PIN AUTHENTICATION
        ======================================================== */
     function verifyPin() {
-      var pin = document.getElementById('pin-input').value;
+      var input = document.getElementById('pin-input');
+      var pin = input.value;
       if (!pin) { showPinError('Please enter a PIN.'); return; }
 
       google.script.run
         .withSuccessHandler(function(valid) {
           if (valid) {
             adminPin = pin;
+            input.value = '';
+            document.getElementById('pin-error').style.display = 'none';
             document.getElementById('pin-gate').style.display = 'none';
             document.getElementById('loading-state').style.display = '';
             loadData();
@@ -1333,6 +1345,16 @@
       return APP_URL + '?qr=' + encodeURIComponent(base64);
     }
 
+    /**
+     * QR codes embed the web app URL; refuse to generate them when the page
+     * could not learn it (instead of printing codes for a dead deployment).
+     */
+    function ensureAppUrl() {
+      if (APP_URL) return true;
+      showMessage('The web app address is unknown, so QR codes cannot be generated. Open the admin page from the deployed /exec URL.', 'error');
+      return false;
+    }
+
     /* ========================================================
        LOCATION QR GENERATOR
        ======================================================== */
@@ -1347,6 +1369,7 @@
       if (!buildingId) { showMessage('Please select a building.', 'error'); return; }
       if (!nodeId) { showMessage('Please enter a Node ID.', 'error'); return; }
       if (!description) { showMessage('Please enter a description.', 'error'); return; }
+      if (!ensureAppUrl()) return;
 
       var payload = {
         type: 'location',
@@ -1410,6 +1433,7 @@
       if (!time) { showMessage('Please select an event time.', 'error'); return; }
       if (!building) { showMessage('Please select a building.', 'error'); return; }
       if (!room) { showMessage('Please enter a room number.', 'error'); return; }
+      if (!ensureAppUrl()) return;
 
       var payload = {
         type: 'schedule',
@@ -1448,6 +1472,7 @@
     function generateBatchQr() {
       var input = document.getElementById('batch-input').value.trim();
       if (!input) { showMessage('Please enter at least one location.', 'error'); return; }
+      if (!ensureAppUrl()) return;
 
       var lines = input.split('\n').filter(function(line) { return line.trim().length > 0; });
       var items = [];
@@ -1517,11 +1542,11 @@
       el.textContent = msg;
       el.className = 'status-msg visible ' + (type || 'info');
 
-      // Auto-hide after 5 seconds
+      // Auto-hide: errors stay longer so they can be read
       clearTimeout(showMessage._timer);
       showMessage._timer = setTimeout(function() {
         el.classList.remove('visible');
-      }, 5000);
+      }, type === 'error' ? 10000 : 5000);
     }
 
     /* ========================================================
