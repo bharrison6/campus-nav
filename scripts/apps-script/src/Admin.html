@@ -921,7 +921,7 @@
       <div id="tab-rooms" class="tab-panel">
         <div class="card">
           <h2>Room Polygon Editor</h2>
-          <p style="color:var(--text-light);">Draw and edit room polygons on floor plans.</p>
+          <p style="color:var(--text-light);">Draw and edit room polygons on floor plans. Blue rooms are searchable; grey rooms are hidden from search.</p>
 
           <!-- Building/Floor selector -->
           <div class="editor-selector-bar">
@@ -947,23 +947,36 @@
 
           <!-- Room edit panel (below canvas, hidden by default) -->
           <div id="rooms-panel" class="editor-side-panel">
-            <h3 style="font-size:14px;margin-bottom:12px;color:var(--navy);">Room Details</h3>
+            <h3 style="font-size:14px;margin-bottom:4px;color:var(--navy);">Room Details</h3>
+            <p class="field-help" id="rooms-edit-id-label" style="margin-bottom:12px;"></p>
             <input type="hidden" id="rooms-edit-id">
-            <div style="display:flex;gap:10px;">
+            <div class="form-row">
               <div class="form-group" style="flex:1;">
                 <label for="rooms-edit-number">Room Number</label>
-                <input type="text" id="rooms-edit-number" placeholder="e.g. 101">
+                <input type="text" id="rooms-edit-number" placeholder="e.g. 0141">
               </div>
               <div class="form-group" style="flex:2;">
                 <label for="rooms-edit-label">Room Label</label>
-                <input type="text" id="rooms-edit-label" placeholder="e.g. Physics Lab">
+                <input type="text" id="rooms-edit-label" placeholder="e.g. 141 Physics Lab">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group" style="flex:1;">
+                <label for="rooms-edit-type">Type</label>
+                <select id="rooms-edit-type"></select>
+              </div>
+              <div class="form-group" style="flex:2;align-self:flex-end;">
+                <div class="checkbox-group">
+                  <input type="checkbox" id="rooms-edit-searchable">
+                  <label for="rooms-edit-searchable">Searchable (appears in room search)</label>
+                </div>
               </div>
             </div>
             <div class="btn-row">
               <button class="btn btn-primary" onclick="saveRoomEdit()">Save Room</button>
-              <button class="btn btn-outline" onclick="deleteRoomConfirm()">Delete Room</button>
               <button class="btn btn-outline" onclick="redrawRoom()">Redraw Polygon</button>
               <button class="btn btn-outline" onclick="closeRoomPanel()">Close</button>
+              <button class="btn btn-danger" onclick="deleteRoomConfirm()">Delete Room</button>
             </div>
           </div>
 
@@ -981,6 +994,12 @@
         <div class="card">
           <h2>Nav Graph Editor</h2>
           <p style="color:var(--text-light);">Place navigation nodes and connect them with edges.</p>
+          <p class="field-help" style="margin-bottom:8px;">
+            Node colors: <span style="color:#6b7280;">waypoint</span>, <span style="color:#2563EB;">door</span>,
+            <span style="color:#DC2626;">entrance</span>, <span style="color:#059669;">stair</span>,
+            <span style="color:#7C3AED;">elevator</span>, <span style="color:#D97706;">room</span>.
+            Dashed orange edges are not step-free.
+          </p>
 
           <!-- Building/Floor selector -->
           <div class="editor-selector-bar">
@@ -1466,6 +1485,74 @@
 
     function findBuilding(buildingId) {
       return findById(campusData && campusData.buildings, buildingId);
+    }
+
+    /* Data contract v2 vocabularies */
+    var ROOM_TYPES = [
+      { value: 'office', label: 'Office' },
+      { value: 'classroom', label: 'Classroom' },
+      { value: 'lab', label: 'Lab' },
+      { value: 'restroom', label: 'Restroom' },
+      { value: 'corridor', label: 'Corridor' },
+      { value: 'stair', label: 'Stair' },
+      { value: 'elevator', label: 'Elevator' },
+      { value: 'mechanical', label: 'Mechanical' },
+      { value: 'storage', label: 'Storage' },
+      { value: 'other', label: 'Other' }
+    ];
+
+    var NODE_TYPES = [
+      { value: 'waypoint', label: 'Waypoint' },
+      { value: 'door', label: 'Door' },
+      { value: 'entrance', label: 'Entrance' },
+      { value: 'stair', label: 'Stair' },
+      { value: 'elevator', label: 'Elevator' },
+      { value: 'room', label: 'Room' }
+    ];
+
+    var NAV_NODE_COLORS = {
+      waypoint: '#9CA3AF',
+      door: '#2563EB',
+      entrance: '#DC2626',
+      stair: '#059669',
+      elevator: '#7C3AED',
+      room: '#D97706'
+    };
+
+    function vocabHas(vocab, value) {
+      for (var i = 0; i < vocab.length; i++) {
+        if (vocab[i].value === value) return true;
+      }
+      return false;
+    }
+
+    function normalizeRoomType(type) {
+      var t = String(type || '').toLowerCase().trim();
+      return vocabHas(ROOM_TYPES, t) ? t : 'other';
+    }
+
+    /** Map node types to v2 (v1 used "staircase"). */
+    function normalizeNodeType(type) {
+      var t = String(type || '').toLowerCase().trim();
+      if (t === 'staircase' || t === 'stairs') t = 'stair';
+      return vocabHas(NODE_TYPES, t) ? t : 'waypoint';
+    }
+
+    function isVerticalNode(node) {
+      var t = normalizeNodeType(node && node.type);
+      return t === 'stair' || t === 'elevator';
+    }
+
+    /** Replace a select's options with vocab entries and select value. */
+    function fillSelectOptions(select, vocab, value) {
+      select.innerHTML = '';
+      for (var i = 0; i < vocab.length; i++) {
+        var opt = document.createElement('option');
+        opt.value = vocab[i].value;
+        opt.textContent = vocab[i].label;
+        if (vocab[i].value === value) opt.selected = true;
+        select.appendChild(opt);
+      }
     }
 
     /* ========================================================
@@ -2162,9 +2249,11 @@
           floorId: roomsCurrentFloor.id,
           number: existingRoom ? (existingRoom.number || '') : '',
           label: existingRoom ? (existingRoom.label || '') : '',
+          type: existingRoom ? normalizeRoomType(existingRoom.type) : 'other',
           polygon: polygon,
           centerX: center.x,
-          centerY: center.y
+          centerY: center.y,
+          searchable: existingRoom ? toBool(existingRoom.searchable, true) : true
         };
 
         google.script.run
@@ -2198,9 +2287,11 @@
           floorId: roomsCurrentFloor.id,
           number: number,
           label: label,
+          type: 'other',
           polygon: polygon,
           centerX: center.x,
-          centerY: center.y
+          centerY: center.y,
+          searchable: true
         };
 
         google.script.run
@@ -2209,7 +2300,7 @@
               updateRoomsCount();
               if (roomsCanvas) roomsCanvas.render();
             });
-            showMessage('Room "' + number + '" created successfully.', 'success');
+            showMessage('Room "' + number + '" created. Select it to set its type.', 'success');
           })
           .withFailureHandler(function(err) {
             showMessage('Failed to save room: ' + (err.message || String(err)), 'error');
@@ -2239,8 +2330,10 @@
         if (roomsSelectedRoom && roomsSelectedRoom.id === room.id) continue;
 
         if (hasPoly) {
-          ctx.fillStyle = 'rgba(0, 100, 255, 0.2)';
-          ctx.strokeStyle = 'rgba(0, 100, 255, 0.6)';
+          // Searchable rooms in blue; non-searchable (corridors, mechanical...) in grey
+          var searchable = toBool(room.searchable, true);
+          ctx.fillStyle = searchable ? 'rgba(0, 100, 255, 0.2)' : 'rgba(107, 114, 128, 0.15)';
+          ctx.strokeStyle = searchable ? 'rgba(0, 100, 255, 0.6)' : 'rgba(107, 114, 128, 0.5)';
           ctx.lineWidth = 2 / scale;
 
           ctx.beginPath();
@@ -2355,19 +2448,25 @@
      * Open the room edit panel and populate fields with room data.
      */
     function openRoomPanel(room) {
+      fillSelectOptions(document.getElementById('rooms-edit-type'), ROOM_TYPES, normalizeRoomType(room.type));
       document.getElementById('rooms-edit-id').value = room.id || '';
+      document.getElementById('rooms-edit-id-label').textContent = room.id ? ('ID: ' + room.id) : '';
       document.getElementById('rooms-edit-number').value = room.number || '';
       document.getElementById('rooms-edit-label').value = room.label || '';
+      document.getElementById('rooms-edit-searchable').checked = toBool(room.searchable, true);
       document.getElementById('rooms-panel').classList.add('visible');
     }
 
     /**
-     * Save edits to the selected room (number, label) without changing the polygon.
+     * Save edits to the selected room (number, label, type, searchable)
+     * without changing the polygon.
      */
     function saveRoomEdit() {
       var id = document.getElementById('rooms-edit-id').value;
       var number = document.getElementById('rooms-edit-number').value.trim();
       var label = document.getElementById('rooms-edit-label').value.trim();
+      var type = document.getElementById('rooms-edit-type').value;
+      var searchable = document.getElementById('rooms-edit-searchable').checked;
 
       if (!id) { showMessage('No room selected.', 'error'); return; }
       if (!number) { showMessage('Room number is required.', 'error'); return; }
@@ -2390,9 +2489,11 @@
         floorId: roomsCurrentFloor.id,
         number: number,
         label: label,
+        type: type,
         polygon: room.polygon,
         centerX: room.centerX,
-        centerY: room.centerY
+        centerY: room.centerY,
+        searchable: searchable
       };
 
       google.script.run
@@ -2482,12 +2583,12 @@
 
       var desc = document.createElement('p');
       desc.style.cssText = 'font-size:13px;color:var(--text-light);margin-bottom:8px;';
-      desc.textContent = 'Paste JSON array: [{number, label, polygon: [[x,y],...]}]';
+      desc.textContent = 'Adds rooms to this floor. Paste a JSON array: [{number, label, type, searchable, polygon: [[x,y],...]}] (type and searchable optional). To replace a whole floor from pipeline output, use the Import tab.';
       modal.appendChild(desc);
 
       var ta = document.createElement('textarea');
       ta.id = 'rooms-json-input';
-      ta.placeholder = '[{"number":"101","label":"Lab","polygon":[[100,100],[200,100],[200,200],[100,200]]}]';
+      ta.placeholder = '[{"number":"0141","label":"141 Lab","type":"lab","searchable":true,"polygon":[[100,100],[200,100],[200,200],[100,200]]}]';
       modal.appendChild(ta);
 
       var btnRow = document.createElement('div');
@@ -2556,9 +2657,11 @@
         rooms.push({
           number: r.number || '',
           label: r.label || '',
+          type: normalizeRoomType(r.type),
           polygon: r.polygon,
-          centerX: center.x,
-          centerY: center.y
+          centerX: (r.centerX !== undefined && r.centerX !== '') ? Number(r.centerX) : center.x,
+          centerY: (r.centerY !== undefined && r.centerY !== '') ? Number(r.centerY) : center.y,
+          searchable: toBool(r.searchable, true)
         });
       }
 
@@ -2598,6 +2701,8 @@
         exportData.push({
           number: rooms[i].number || '',
           label: rooms[i].label || '',
+          type: normalizeRoomType(rooms[i].type),
+          searchable: toBool(rooms[i].searchable, true),
           polygon: rooms[i].polygon || []
         });
       }
@@ -2872,8 +2977,9 @@
           floorId: navCurrentFloor.id,
           x: Math.round(canvasX),
           y: Math.round(canvasY),
-          type: navDraggingNode.type || 'waypoint',
-          roomId: navDraggingNode.roomId || ''
+          type: normalizeNodeType(navDraggingNode.type),
+          roomId: navDraggingNode.roomId || '',
+          linkId: navDraggingNode.linkId || ''
         };
         google.script.run
           .withSuccessHandler(function() {
@@ -2894,17 +3000,23 @@
 
       if (navTool === 'addnode') {
         // Prompt for node type
-        var type = prompt('Node type: waypoint, elevator, staircase, entrance', 'waypoint');
+        var typeList = [];
+        for (var t = 0; t < NODE_TYPES.length; t++) typeList.push(NODE_TYPES[t].value);
+        var type = prompt('Node type: ' + typeList.join(', '), 'waypoint');
         if (!type) return;
         type = type.toLowerCase().trim();
-        var validTypes = ['waypoint', 'elevator', 'staircase', 'entrance'];
-        var typeValid = false;
-        for (var t = 0; t < validTypes.length; t++) {
-          if (validTypes[t] === type) { typeValid = true; break; }
-        }
-        if (!typeValid) {
-          showMessage('Invalid node type. Use: waypoint, elevator, staircase, entrance.', 'error');
+        if (type === 'staircase' || type === 'stairs') type = 'stair';
+        if (!vocabHas(NODE_TYPES, type)) {
+          showMessage('Invalid node type. Use: ' + typeList.join(', ') + '.', 'error');
           return;
+        }
+
+        // Stairs and elevators share a linkId across floors
+        var linkId = '';
+        if (type === 'stair' || type === 'elevator') {
+          linkId = prompt('Link ID shared by this ' + type + ' on every floor (e.g. it-' + type + '-1):', '');
+          if (linkId === null) return;
+          linkId = linkId.trim();
         }
 
         // Check if tap is inside a room polygon
@@ -2926,7 +3038,8 @@
           x: Math.round(canvasX),
           y: Math.round(canvasY),
           type: type,
-          roomId: roomId
+          roomId: roomId,
+          linkId: linkId
         };
 
         google.script.run
@@ -2960,7 +3073,7 @@
           }
           var n1 = navEdgeFirstNode;
           var n2 = nearNode;
-          var metersPerPixel = (navCurrentFloor && navCurrentFloor.metersPerPixel) ? navCurrentFloor.metersPerPixel : 1;
+          var metersPerPixel = Number(navCurrentFloor && navCurrentFloor.metersPerPixel) || 1;
           var pixelDist = Math.sqrt((n2.x - n1.x) * (n2.x - n1.x) + (n2.y - n1.y) * (n2.y - n1.y));
           var distance = Math.round(pixelDist * metersPerPixel * 100) / 100;
 
@@ -2969,7 +3082,8 @@
             fromNodeId: n1.id,
             toNodeId: n2.id,
             distance: distance,
-            floorChange: false
+            floorChange: false,
+            accessible: true
           };
 
           google.script.run
@@ -3143,14 +3257,18 @@
         if (!fromNode || !toNode) continue;
 
         var isSelected = navSelectedEdge && navSelectedEdge.id === edge.id;
-        ctx.strokeStyle = isSelected ? '#FDB515' : '#666';
+        var isAccessible = toBool(edge.accessible, true);
+        ctx.strokeStyle = isSelected ? '#FDB515' : (isAccessible ? '#666' : '#b45309');
         ctx.lineWidth = (isSelected ? 3 : 2) / scale;
+        // Edges that are not step-free draw dashed
+        ctx.setLineDash(isAccessible ? [] : [6 / scale, 4 / scale]);
 
         ctx.beginPath();
         ctx.moveTo(fromNode.x, fromNode.y);
         ctx.lineTo(toNode.x, toNode.y);
         ctx.stroke();
       }
+      ctx.setLineDash([]);
 
       // 3. Edge first node highlight (pulsing ring)
       if (navEdgeFirstNode && nodeMap[navEdgeFirstNode.id]) {
@@ -3162,17 +3280,11 @@
       }
 
       // 4. Nodes (colored by type)
-      var nodeColors = {
-        waypoint: '#9CA3AF',
-        elevator: '#7C3AED',
-        staircase: '#059669',
-        entrance: '#DC2626'
-      };
       var nodeRadius = 6 / scale;
 
       for (var ndi = 0; ndi < floorNodes.length; ndi++) {
         var nd = floorNodes[ndi];
-        var color = nodeColors[nd.type] || nodeColors.waypoint;
+        var color = NAV_NODE_COLORS[normalizeNodeType(nd.type)] || NAV_NODE_COLORS.waypoint;
         var isNodeSelected = navSelectedNode && navSelectedNode.id === nd.id;
         var isDragging = navDraggingNode && navDraggingNode.id === nd.id;
         var drawRadius = isDragging ? (9 / scale) : nodeRadius;
@@ -3215,39 +3327,52 @@
      */
     function showNavNodePanel(node) {
       var panel = document.getElementById('navgraph-panel');
-      var typeOptions = [
-        { value: 'waypoint', label: 'Waypoint' },
-        { value: 'elevator', label: 'Elevator' },
-        { value: 'staircase', label: 'Staircase' },
-        { value: 'entrance', label: 'Entrance' }
-      ];
-
-      var optionsHtml = '';
-      for (var i = 0; i < typeOptions.length; i++) {
-        var selected = (node.type === typeOptions[i].value) ? ' selected' : '';
-        optionsHtml += '<option value="' + typeOptions[i].value + '"' + selected + '>' + typeOptions[i].label + '</option>';
-      }
+      var type = normalizeNodeType(node.type);
 
       panel.innerHTML =
-        '<h3 style="font-size:14px;margin-bottom:12px;color:var(--navy);">Node: ' + escapeHtml(node.type || 'waypoint') + '</h3>' +
-        '<p style="font-size:12px;color:var(--text-light);margin-bottom:8px;">ID: ' + escapeHtml(node.id) + '</p>' +
-        '<p style="font-size:12px;color:var(--text-light);margin-bottom:12px;">Position: (' + Math.round(node.x) + ', ' + Math.round(node.y) + ')</p>' +
-        '<div class="form-group">' +
-          '<label>Type</label>' +
-          '<select id="nav-edit-type">' + optionsHtml + '</select>' +
+        '<h3 style="font-size:14px;margin-bottom:4px;color:var(--navy);">Node</h3>' +
+        '<p class="field-help" style="margin-bottom:12px;">ID: ' + escapeHtml(node.id) +
+          ' &middot; Position: (' + Math.round(node.x) + ', ' + Math.round(node.y) + ')</p>' +
+        '<div class="form-row">' +
+          '<div class="form-group">' +
+            '<label for="nav-edit-type">Type</label>' +
+            '<select id="nav-edit-type" onchange="onNavEditTypeChange()"></select>' +
+          '</div>' +
+          '<div class="form-group">' +
+            '<label for="nav-edit-roomId">Room ID</label>' +
+            '<input type="text" id="nav-edit-roomId">' +
+          '</div>' +
         '</div>' +
         '<div class="form-group">' +
-          '<label>Room ID</label>' +
-          '<input type="text" id="nav-edit-roomId" value="' + escapeHtml(node.roomId || '') + '">' +
+          '<label for="nav-edit-linkId">Link ID</label>' +
+          '<input type="text" id="nav-edit-linkId" placeholder="e.g. it-stair-1">' +
+          '<p class="field-help">Stairs and elevators on different floors that share a Link ID are the same shaft; cross-floor edges connect them.</p>' +
         '</div>' +
         '<div class="btn-row">' +
           '<button class="btn btn-primary" onclick="saveNavNodeEdit()">Save</button>' +
           '<button class="btn btn-outline" onclick="startNavNodeDrag()">Move</button>' +
-          '<button class="btn btn-outline delete-btn" style="color:var(--error);border-color:var(--error);" onclick="deleteNavNodeConfirm()">Delete Node</button>' +
           '<button class="btn btn-outline" onclick="closeNavPanel()">Close</button>' +
+          '<button class="btn btn-danger" onclick="deleteNavNodeConfirm()">Delete Node</button>' +
         '</div>';
 
+      // Values are set through the DOM, not concatenated into markup
+      fillSelectOptions(document.getElementById('nav-edit-type'), NODE_TYPES, type);
+      document.getElementById('nav-edit-roomId').value = node.roomId || '';
+      document.getElementById('nav-edit-linkId').value = node.linkId || '';
+      onNavEditTypeChange();
+
       panel.classList.add('visible');
+    }
+
+    /**
+     * Hint the Link ID field when the node type is not a stair or elevator.
+     */
+    function onNavEditTypeChange() {
+      var typeEl = document.getElementById('nav-edit-type');
+      var linkEl = document.getElementById('nav-edit-linkId');
+      if (!typeEl || !linkEl) return;
+      var vertical = typeEl.value === 'stair' || typeEl.value === 'elevator';
+      linkEl.placeholder = vertical ? 'e.g. it-' + typeEl.value + '-1' : 'Only used by stairs and elevators';
     }
 
     /**
@@ -3255,31 +3380,69 @@
      */
     function showNavEdgePanel(edge) {
       var panel = document.getElementById('navgraph-panel');
-      var dist = (edge.distance !== undefined && edge.distance !== null) ? edge.distance : '?';
-      var floorChange = edge.floorChange ? 'Yes' : 'No';
+      var dist = (edge.distance !== undefined && edge.distance !== null && edge.distance !== '') ? edge.distance : '?';
+      var floorChange = toBool(edge.floorChange, false) ? 'Yes' : 'No';
 
       panel.innerHTML =
-        '<h3 style="font-size:14px;margin-bottom:12px;color:var(--navy);">Edge</h3>' +
-        '<p style="font-size:12px;color:var(--text-light);margin-bottom:4px;">From: ' + escapeHtml(edge.fromNodeId) + '</p>' +
-        '<p style="font-size:12px;color:var(--text-light);margin-bottom:4px;">To: ' + escapeHtml(edge.toNodeId) + '</p>' +
-        '<p style="font-size:12px;color:var(--text-light);margin-bottom:4px;">Distance: ' + dist + 'm</p>' +
-        '<p style="font-size:12px;color:var(--text-light);margin-bottom:12px;">Floor change: ' + floorChange + '</p>' +
+        '<h3 style="font-size:14px;margin-bottom:4px;color:var(--navy);">Edge</h3>' +
+        '<p class="field-help" style="margin-bottom:12px;">ID: ' + escapeHtml(edge.id || '') + '</p>' +
+        '<p style="font-size:13px;margin-bottom:4px;">From: ' + escapeHtml(edge.fromNodeId) + '</p>' +
+        '<p style="font-size:13px;margin-bottom:4px;">To: ' + escapeHtml(edge.toNodeId) + '</p>' +
+        '<p style="font-size:13px;margin-bottom:4px;">Distance: ' + escapeHtml(String(dist)) + ' m</p>' +
+        '<p style="font-size:13px;margin-bottom:12px;">Floor change: ' + floorChange + '</p>' +
+        '<div class="form-group">' +
+          '<div class="checkbox-group">' +
+            '<input type="checkbox" id="nav-edit-accessible">' +
+            '<label for="nav-edit-accessible">Accessible (step-free; used when a route avoids stairs)</label>' +
+          '</div>' +
+        '</div>' +
         '<div class="btn-row">' +
-          '<button class="btn btn-outline delete-btn" style="color:var(--error);border-color:var(--error);" onclick="deleteNavEdgeConfirm()">Delete Edge</button>' +
+          '<button class="btn btn-primary" onclick="saveNavEdgeEdit()">Save</button>' +
           '<button class="btn btn-outline" onclick="closeNavPanel()">Close</button>' +
+          '<button class="btn btn-danger" onclick="deleteNavEdgeConfirm()">Delete Edge</button>' +
         '</div>';
 
+      document.getElementById('nav-edit-accessible').checked = toBool(edge.accessible, true);
       panel.classList.add('visible');
     }
 
     /**
-     * Save edits to the selected nav node (type, roomId).
+     * Save the selected edge's accessible flag (other fields are preserved).
+     */
+    function saveNavEdgeEdit() {
+      if (!navSelectedEdge) { showMessage('No edge selected.', 'error'); return; }
+      var edge = navSelectedEdge;
+      var data = {
+        pin: adminPin,
+        id: edge.id,
+        fromNodeId: edge.fromNodeId,
+        toNodeId: edge.toNodeId,
+        distance: edge.distance,
+        floorChange: toBool(edge.floorChange, false),
+        accessible: document.getElementById('nav-edit-accessible').checked
+      };
+
+      runServer('updateNavEdge', [data], function() {
+        refreshCampusData(function() {
+          updateNavCount();
+          if (navCanvas) navCanvas.render();
+        });
+        closeNavPanel();
+        showMessage('Edge updated.', 'success');
+      }, function(err) {
+        showMessage('Failed to update edge: ' + (err.message || String(err)), 'error');
+      });
+    }
+
+    /**
+     * Save edits to the selected nav node (type, roomId, linkId).
      */
     function saveNavNodeEdit() {
       if (!navSelectedNode) { showMessage('No node selected.', 'error'); return; }
 
       var type = document.getElementById('nav-edit-type').value;
       var roomId = document.getElementById('nav-edit-roomId').value.trim();
+      var linkId = document.getElementById('nav-edit-linkId').value.trim();
 
       var data = {
         pin: adminPin,
@@ -3288,7 +3451,8 @@
         x: navSelectedNode.x,
         y: navSelectedNode.y,
         type: type,
-        roomId: roomId
+        roomId: roomId,
+        linkId: linkId
       };
 
       google.script.run
@@ -3393,7 +3557,7 @@
 
     /**
      * Show cross-floor edge creation modal.
-     * Populates dropdowns with elevator/staircase nodes.
+     * Populates dropdowns with stair/elevator nodes; matching Link IDs are preselected.
      */
     function showNavCrossFloor() {
       if (!navCurrentFloor || !navCurrentBuilding) {
@@ -3401,18 +3565,17 @@
         return;
       }
 
-      // Gather elevator/staircase nodes on current floor
+      // Gather stair/elevator nodes on current floor
       var currentFloorNodes = [];
       var navNodes = (campusData && campusData.navNodes) || [];
       for (var i = 0; i < navNodes.length; i++) {
-        var n = navNodes[i];
-        if (n.floorId === navCurrentFloor.id && (n.type === 'elevator' || n.type === 'staircase')) {
-          currentFloorNodes.push(n);
+        if (navNodes[i].floorId === navCurrentFloor.id && isVerticalNode(navNodes[i])) {
+          currentFloorNodes.push(navNodes[i]);
         }
       }
 
       if (currentFloorNodes.length === 0) {
-        showMessage('No elevator or staircase nodes on the current floor. Add some first.', 'error');
+        showMessage('No stair or elevator nodes on the current floor. Add some first.', 'error');
         return;
       }
 
@@ -3431,20 +3594,6 @@
         return;
       }
 
-      // Build from-node options
-      var fromOptions = '';
-      for (var fn = 0; fn < currentFloorNodes.length; fn++) {
-        var cfn = currentFloorNodes[fn];
-        fromOptions += '<option value="' + cfn.id + '">' + cfn.type + ' (' + Math.round(cfn.x) + ',' + Math.round(cfn.y) + ') ' + cfn.id + '</option>';
-      }
-
-      // Build target floor options
-      var floorOptions = '';
-      for (var tfi = 0; tfi < otherFloors.length; tfi++) {
-        var tf = otherFloors[tfi];
-        floorOptions += '<option value="' + tf.id + '">' + (tf.label || 'Floor ' + tf.level) + '</option>';
-      }
-
       var overlay = document.createElement('div');
       overlay.className = 'json-modal-overlay';
       overlay.id = 'rooms-json-modal';
@@ -3453,18 +3602,30 @@
       modal.className = 'json-modal';
       modal.innerHTML =
         '<h3>Cross-Floor Edge</h3>' +
-        '<p style="font-size:13px;color:var(--text-light);margin-bottom:12px;">Connect elevator/staircase nodes across floors.</p>' +
+        '<p style="font-size:13px;color:var(--text-light);margin-bottom:12px;">Connect stair or elevator nodes across floors. Nodes with the same Link ID are matched automatically.</p>' +
         '<div class="form-group">' +
-          '<label>From Node (current floor)</label>' +
-          '<select id="cross-from-node">' + fromOptions + '</select>' +
+          '<label for="cross-from-node">From Node (current floor)</label>' +
+          '<select id="cross-from-node" onchange="onCrossFloorChange()"></select>' +
         '</div>' +
         '<div class="form-group">' +
-          '<label>Target Floor</label>' +
-          '<select id="cross-target-floor" onchange="onCrossFloorChange()">' + floorOptions + '</select>' +
+          '<label for="cross-target-floor">Target Floor</label>' +
+          '<select id="cross-target-floor" onchange="onCrossFloorChange()"></select>' +
         '</div>' +
         '<div class="form-group">' +
-          '<label>To Node (target floor)</label>' +
+          '<label for="cross-to-node">To Node (target floor)</label>' +
           '<select id="cross-to-node"><option value="">Loading...</option></select>' +
+        '</div>' +
+        '<div class="form-row">' +
+          '<div class="form-group">' +
+            '<label for="cross-distance">Distance (m)</label>' +
+            '<input type="number" id="cross-distance" min="0" step="0.5" value="5">' +
+          '</div>' +
+          '<div class="form-group" style="align-self:flex-end;">' +
+            '<div class="checkbox-group">' +
+              '<input type="checkbox" id="cross-accessible">' +
+              '<label for="cross-accessible">Accessible (elevator)</label>' +
+            '</div>' +
+          '</div>' +
         '</div>' +
         '<div class="btn-row">' +
           '<button class="btn btn-primary" onclick="saveCrossFloorEdge()">Create Edge</button>' +
@@ -3472,25 +3633,51 @@
         '</div>';
 
       overlay.appendChild(modal);
-
       overlay.onclick = function(e) {
         if (e.target === overlay) closeJsonModal();
       };
-
       document.body.appendChild(overlay);
 
-      // Trigger initial population of to-node dropdown
+      // Options are built through the DOM so ids and labels need no escaping
+      var fromSel = document.getElementById('cross-from-node');
+      for (var fn = 0; fn < currentFloorNodes.length; fn++) {
+        var cfn = currentFloorNodes[fn];
+        var fopt = document.createElement('option');
+        fopt.value = cfn.id;
+        fopt.textContent = navNodeOptionLabel(cfn);
+        fromSel.appendChild(fopt);
+      }
+      var floorSel = document.getElementById('cross-target-floor');
+      for (var tfi = 0; tfi < otherFloors.length; tfi++) {
+        var topt = document.createElement('option');
+        topt.value = otherFloors[tfi].id;
+        topt.textContent = otherFloors[tfi].label || ('Floor ' + otherFloors[tfi].level);
+        floorSel.appendChild(topt);
+      }
+
       onCrossFloorChange();
     }
 
+    function navNodeOptionLabel(node) {
+      var label = normalizeNodeType(node.type);
+      if (node.linkId) label += ' [' + node.linkId + ']';
+      return label + ' (' + Math.round(node.x) + ', ' + Math.round(node.y) + ') ' + node.id;
+    }
+
     /**
-     * Update the "To Node" dropdown when target floor changes.
-     * Only shows elevator/staircase nodes on the selected target floor.
+     * Update the "To Node" dropdown when the from node or target floor changes.
+     * Lists stair/elevator nodes on the target floor; preselects a Link ID match
+     * and sets the accessible default (elevators yes, stairs no).
      */
     function onCrossFloorChange() {
       var targetFloorId = document.getElementById('cross-target-floor').value;
+      var fromNode = findById(campusData && campusData.navNodes, document.getElementById('cross-from-node').value);
       var toNodeSel = document.getElementById('cross-to-node');
       toNodeSel.innerHTML = '';
+
+      if (fromNode) {
+        document.getElementById('cross-accessible').checked = normalizeNodeType(fromNode.type) === 'elevator';
+      }
 
       if (!targetFloorId) {
         toNodeSel.innerHTML = '<option value="">Select target floor first</option>';
@@ -3500,14 +3687,13 @@
       var navNodes = (campusData && campusData.navNodes) || [];
       var targetNodes = [];
       for (var i = 0; i < navNodes.length; i++) {
-        var n = navNodes[i];
-        if (n.floorId === targetFloorId && (n.type === 'elevator' || n.type === 'staircase')) {
-          targetNodes.push(n);
+        if (navNodes[i].floorId === targetFloorId && isVerticalNode(navNodes[i])) {
+          targetNodes.push(navNodes[i]);
         }
       }
 
       if (targetNodes.length === 0) {
-        toNodeSel.innerHTML = '<option value="">No elevator/staircase nodes on this floor</option>';
+        toNodeSel.innerHTML = '<option value="">No stair or elevator nodes on this floor</option>';
         return;
       }
 
@@ -3515,7 +3701,8 @@
         var tn = targetNodes[j];
         var opt = document.createElement('option');
         opt.value = tn.id;
-        opt.textContent = tn.type + ' (' + Math.round(tn.x) + ',' + Math.round(tn.y) + ') ' + tn.id;
+        opt.textContent = navNodeOptionLabel(tn);
+        if (fromNode && fromNode.linkId && tn.linkId === fromNode.linkId) opt.selected = true;
         toNodeSel.appendChild(opt);
       }
     }
@@ -3532,12 +3719,19 @@
         return;
       }
 
+      var fromNode = findById(campusData && campusData.navNodes, fromId);
+      var toNode = findById(campusData && campusData.navNodes, toId);
+      if (fromNode && toNode && fromNode.linkId && toNode.linkId && fromNode.linkId !== toNode.linkId) {
+        if (!confirm('These nodes have different Link IDs (' + fromNode.linkId + ' and ' + toNode.linkId + '). Connect them anyway?')) return;
+      }
+
       var edgeData = {
         pin: adminPin,
         fromNodeId: fromId,
         toNodeId: toId,
-        distance: 0,
-        floorChange: true
+        distance: parseFloat(document.getElementById('cross-distance').value) || 0,
+        floorChange: true,
+        accessible: document.getElementById('cross-accessible').checked
       };
 
       google.script.run
@@ -3574,9 +3768,10 @@
       modal.innerHTML =
         '<h3>Import Nav Graph JSON</h3>' +
         '<p style="font-size:13px;color:var(--text-light);margin-bottom:8px;">' +
-          'Paste JSON with nodes and edges. Edges use 0-based array indices referencing the nodes array.' +
+          'Adds nodes and edges to this floor. Edges use 0-based indices into the nodes array; linkId and accessible are optional. ' +
+          'To replace a whole floor from pipeline output, use the Import tab.' +
         '</p>' +
-        '<textarea id="nav-json-input" placeholder=\'{"nodes":[{"x":100,"y":200,"type":"waypoint","roomId":""}],"edges":[{"from":0,"to":1}]}\'></textarea>' +
+        '<textarea id="nav-json-input" placeholder=\'{"nodes":[{"x":100,"y":200,"type":"waypoint","roomId":"","linkId":""}],"edges":[{"from":0,"to":1,"accessible":true}]}\'></textarea>' +
         '<div class="btn-row">' +
           '<button class="btn btn-primary" onclick="importNavJson()">Import</button>' +
           '<button class="btn btn-outline" onclick="closeJsonModal()">Cancel</button>' +
@@ -3631,8 +3826,9 @@
         batchNodes.push({
           x: Math.round(nd.x),
           y: Math.round(nd.y),
-          type: nd.type || 'waypoint',
-          roomId: nd.roomId || ''
+          type: normalizeNodeType(nd.type),
+          roomId: nd.roomId || '',
+          linkId: nd.linkId || ''
         });
       }
 
@@ -3667,7 +3863,8 @@
                 fromNodeId: nodeIds[fromIdx],
                 toNodeId: nodeIds[toIdx],
                 distance: e.distance || 0,
-                floorChange: false
+                floorChange: false,
+                accessible: toBool(e.accessible, true)
               });
             }
 
@@ -3735,8 +3932,9 @@
         exportNodes.push({
           x: n.x,
           y: n.y,
-          type: n.type || 'waypoint',
-          roomId: n.roomId || ''
+          type: normalizeNodeType(n.type),
+          roomId: n.roomId || '',
+          linkId: n.linkId || ''
         });
       }
 
@@ -3748,7 +3946,7 @@
         var fromIdx = nodeIdToIndex[edge.fromNodeId];
         var toIdx = nodeIdToIndex[edge.toNodeId];
         if (fromIdx !== undefined && toIdx !== undefined) {
-          var edgeObj = { from: fromIdx, to: toIdx };
+          var edgeObj = { from: fromIdx, to: toIdx, accessible: toBool(edge.accessible, true) };
           if (edge.distance) edgeObj.distance = edge.distance;
           exportEdges.push(edgeObj);
         }
