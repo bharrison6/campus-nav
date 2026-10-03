@@ -1,6 +1,7 @@
 // Browser-side stand-in for the Apps Script client API, injected by dev/serve.mjs.
 // Mirrors google.script.run's chain (withSuccessHandler / withFailureHandler / withUserObject)
-// and google.script.url.getLocation. Server functions are answered from the fixture endpoints.
+// and google.script.url.getLocation. Every server call is POSTed to /__mock/run/<fn>, where
+// dev/serve.mjs runs the real .gs function and returns its JSON-shaped result.
 (function () {
   var params = new URLSearchParams(window.location.search);
   var delay = Number(params.get('mock_delay') || 120);
@@ -10,30 +11,24 @@
   var calls = [];
   window.__mockGasCalls = calls;
 
-  function getJson(url) {
-    return fetch(url).then(function (r) {
+  function callServer(name, args) {
+    return fetch('/__mock/run/' + encodeURIComponent(name), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(args),
+    }).then(function (r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
       return r.json();
+    }).then(function (reply) {
+      if (!reply.ok) throw new Error(reply.error);
+      var v = reply.value;
+      // mock_key: a key typed by hand for a manual map check, added the way getAllCampusData adds a configured key.
+      if (mapsKey && v && v.config && (name === 'getAllCampusData' || name === 'getPublicCampusData')) {
+        v.config = v.config.filter(function (c) { return c.key !== 'mapsApiKey'; }).concat([{ key: 'mapsApiKey', value: mapsKey }]);
+      }
+      return v;
     });
   }
-  function getText(url) {
-    return fetch(url).then(function (r) {
-      if (!r.ok) return r.text().then(function (t) { throw new Error(t || ('HTTP ' + r.status)); });
-      return r.text();
-    });
-  }
-
-  var server = {
-    getAllCampusData: function () {
-      return getJson('/__mock/data').then(function (d) {
-        if (mapsKey) d.config = (d.config || []).concat([{ key: 'mapsApiKey', value: mapsKey }]);
-        return d;
-      });
-    },
-    getPublicCampusData: function () { return server.getAllCampusData(); },
-    getDataVersion: function () { return getJson('/__mock/data').then(function (d) { return d.version; }); },
-    getFloorPlanSvg: function (floorId) { return getText('/__mock/svg/' + encodeURIComponent(floorId)); },
-  };
 
   function runner(state) {
     var api = {
@@ -52,10 +47,8 @@
             var p;
             if (offline || failSet.indexOf(name) > -1) {
               p = Promise.reject(new Error('Mock failure for ' + name));
-            } else if (!server[name]) {
-              p = Promise.reject(new Error('Script function not found: ' + name));
             } else {
-              p = server[name].apply(null, args);
+              p = callServer(name, args);
             }
             p.then(function (v) { if (state.ok) state.ok(v, state.user); },
                    function (e) { if (state.fail) state.fail(e, state.user); else console.error(e); });

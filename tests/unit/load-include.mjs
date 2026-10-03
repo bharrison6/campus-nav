@@ -29,7 +29,8 @@ export function loadInclude(fileName, globalName) {
   return value;
 }
 
+// Small hand-checkable campus (tests/unit/fixtures/build-fixtures.mjs). Real-data tests use real-campus.mjs.
 export function loadFixture() {
-  const p = join(here, '..', '..', 'dev', 'fixtures', 'campus-data.json');
+  const p = join(here, 'fixtures', 'campus-data.json');
   return JSON.parse(readFileSync(p, 'utf8'));
 }

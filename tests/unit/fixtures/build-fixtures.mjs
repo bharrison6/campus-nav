@@ -1,11 +1,12 @@
-// Synthesizes the dev-harness fixtures in the Data contract v2 shape:
-//   dev/fixtures/campus-data.json  (what getAllCampusData returns)
-//   dev/fixtures/svg/FP_<floor>.svg (what getFloorPlanSvg returns)
-// Small, deterministic, hand-checkable. Replaced by lane A's real output at integration
-// (point the harness at it with MSCN_FIXTURES=<dir>; see dev/serve.mjs).
+// Synthesizes a small campus in the Data contract v2 shape for the unit tests:
+//   tests/unit/fixtures/campus-data.json  (shaped like getAllCampusData output)
+//   tests/unit/fixtures/svg/FP_<floor>.svg (shaped like getFloorPlanSvg output)
+// Small, deterministic, hand-checkable, and it carries room use text ("Robotics Lab") that the
+// real CAD drawings lack, so search-by-label-words stays tested. The dev harness and the e2e
+// suite use the real pipeline output instead (dev/serve.mjs runs the .gs files on SeedFloorData.gs).
 //
 // Coordinates follow the contract: DWG units (inches), floor extents start at (0,0), +y down.
-// Run: node dev/fixtures/build-fixtures.mjs
+// Run: node tests/unit/fixtures/build-fixtures.mjs
 
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
