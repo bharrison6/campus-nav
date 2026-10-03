@@ -1172,6 +1172,18 @@
         </div>
 
         <div class="card">
+          <h2>Reload Campus Data from the Deployed Code</h2>
+          <p style="color:var(--text-light);font-size:14px;margin-bottom:12px;">
+            Replaces every building, floor, room, nav node and nav edge in the spreadsheet with the seed data in the
+            deployed code (SeedData.gs and the generated SeedFloorData.gs). Use it after deploying floor plans regenerated
+            from new drawings. Edits made in this admin page since the last reload are lost; photos and QR locations are kept.
+          </p>
+          <div class="btn-row">
+            <button class="btn btn-danger" id="settings-reseed-btn" onclick="reseedFromCode()">Reload Campus Data</button>
+          </div>
+        </div>
+
+        <div class="card">
           <h2>Where these values live</h2>
           <p style="font-size:14px;margin-bottom:8px;">
             In the Apps Script editor, open <strong>Project Settings</strong> and scroll to <strong>Script Properties</strong>:
@@ -4860,7 +4872,8 @@
         return { error: 'Expected one floor\'s JSON object with rooms, navNodes and navEdges.' };
       }
 
-      var graph = parsed.graph || {};
+      // data/floorplans/<floorId>.json (the pipeline's per-floor file) keeps its graph under nav.
+      var graph = parsed.graph || parsed.nav || {};
       var rooms = firstArray(parsed.rooms);
       var navNodes = firstArray(parsed.navNodes, parsed.nodes, graph.navNodes, graph.nodes);
       var navEdges = firstArray(parsed.navEdges, parsed.edges, graph.navEdges, graph.edges);
@@ -4905,7 +4918,16 @@
       }
 
       var payload = { floorId: fileFloorId, rooms: rooms, navNodes: navNodes, navEdges: navEdges };
-      if (parsed.floor && typeof parsed.floor === 'object') payload.floor = parsed.floor;
+      if (parsed.floor && typeof parsed.floor === 'object') {
+        payload.floor = parsed.floor;
+      } else if (fileFloorId && parsed.planAsset && parsed.buildingId) {
+        // The pipeline file carries its Floors row at the top level (new drawings change widthPx/heightPx).
+        var floorFields = ['buildingId', 'level', 'label', 'planAsset', 'widthPx', 'heightPx', 'metersPerPixel', 'public'];
+        payload.floor = {};
+        for (var ff = 0; ff < floorFields.length; ff++) {
+          if (parsed[floorFields[ff]] !== undefined) payload.floor[floorFields[ff]] = parsed[floorFields[ff]];
+        }
+      }
 
       return {
         fileFloorId: fileFloorId,
@@ -5015,6 +5037,8 @@
       if (targetId) {
         var payload = result.payload;
         payload.floorId = targetId;
+        // Never write one floor's Floors row (planAsset, size) onto a different target floor.
+        if (result.fileFloorId && result.fileFloorId !== targetId) delete payload.floor;
         importPending = { floorId: targetId, payload: payload, stats: s, current: current };
       }
     }
@@ -5153,6 +5177,26 @@
         clearFields();
         btn.disabled = false;
         showMessage('Could not change the PIN: ' + ((err && err.message) || String(err)), 'error');
+      });
+    }
+
+    function reseedFromCode() {
+      if (!confirm('Replace all buildings, floors, rooms, nav nodes and nav edges with the seed data in the deployed code?\n\n' +
+          'Edits made in this admin page since the last reload are lost. Photos and QR locations are kept.')) return;
+      var btn = document.getElementById('settings-reseed-btn');
+      btn.disabled = true;
+      showMessage('Reloading campus data...', 'info');
+      runServer('reseedCampusData', [{ pin: adminPin }], function(result) {
+        btn.disabled = false;
+        var seeded = (result && result.seeded) || {};
+        var parts = [];
+        for (var k in seeded) if (seeded.hasOwnProperty(k)) parts.push(k + ': ' + seeded[k]);
+        refreshCampusData(function() {
+          showMessage('Campus data reloaded. ' + parts.join(', '), 'success');
+        });
+      }, function(err) {
+        btn.disabled = false;
+        showMessage('Could not reload campus data: ' + ((err && err.message) || String(err)), 'error');
       });
     }
 

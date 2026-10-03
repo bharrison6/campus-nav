@@ -117,7 +117,8 @@ function setMapsApiKey(pin, key) {
 }
 
 /**
- * Changes ADMIN_PIN. The new PIN must be 6 to 12 digits.
+ * Changes ADMIN_PIN. The new PIN must be 6 to 20 characters with no spaces
+ * (the admin page enforces the same rule; the generated first PIN is 6 digits).
  * @param {string} pin - Current PIN.
  * @param {string} newPin
  * @return {Object} { changed: true }
@@ -125,8 +126,8 @@ function setMapsApiKey(pin, key) {
 function changeAdminPin(pin, newPin) {
   requirePin_(pin);
   var value = String(newPin === undefined || newPin === null ? '' : newPin).replace(/^\s+|\s+$/g, '');
-  if (!/^[0-9]{6,12}$/.test(value)) {
-    throw new Error('The new PIN must be 6 to 12 digits.');
+  if (!/^\S{6,20}$/.test(value)) {
+    throw new Error('The new PIN must be 6 to 20 characters with no spaces.');
   }
   PropertiesService.getScriptProperties().setProperty('ADMIN_PIN', value);
   CacheService.getScriptCache().remove('adminPinFailures');
@@ -340,59 +341,6 @@ function saveQrLocation(data) {
 }
 
 // ============================================================================
-// Floor plan files
-// ============================================================================
-
-/**
- * Legacy: returns a Drive file referenced by a Floors row as base64. v2 floor
- * plans are embedded SVGs served by getFloorPlanSvg(floorId) instead.
- * @param {string} fileId
- * @return {Object} { base64, mimeType, name }
- */
-function getFloorPlanFile(fileId) {
-  if (!fileId || typeof fileId !== 'string') {
-    throw new Error('fileId is required');
-  }
-  var floors = sheetToObjects_(getSpreadsheet_(), 'Floors');
-  var allowed = false;
-  for (var i = 0; i < floors.length; i++) {
-    var ref = String(floors[i].planAsset || '') + ' ' + String(floors[i].planImageUrl || '');
-    if (ref.indexOf(fileId) !== -1) { allowed = true; break; }
-  }
-  if (!allowed) {
-    throw new Error('File not found in floor plan data');
-  }
-  var file = DriveApp.getFileById(fileId);
-  if (file.getSize() > 5 * 1024 * 1024) {
-    throw new Error('File too large for server-side fetch');
-  }
-  var blob = file.getBlob();
-  return {
-    base64: Utilities.base64Encode(blob.getBytes()),
-    mimeType: blob.getContentType(),
-    name: file.getName()
-  };
-}
-
-/**
- * Uploads a file to Drive (anyone with the link can view). Legacy path.
- * @param {Object} data - pin, content (base64), mimeType, filename.
- * @return {Object} { fileId, url }
- */
-function uploadFloorPlanFile(data) {
-  return adminOp_(data, function () {
-    validateRequired_(data, ['content', 'mimeType', 'filename']);
-    var blob = Utilities.newBlob(Utilities.base64Decode(data.content), data.mimeType, data.filename);
-    var file = DriveApp.createFile(blob);
-    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-    return {
-      fileId: file.getId(),
-      url: 'https://drive.google.com/file/d/' + file.getId() + '/view'
-    };
-  });
-}
-
-// ============================================================================
 // Floors: id, buildingId, level, label, planAsset, widthPx, heightPx, metersPerPixel, public
 // ============================================================================
 
@@ -526,14 +474,19 @@ function saveBatchNavEdges(data) {
  *   floorId            required (or floor.id)
  *   floor              optional Floors record to upsert (object keyed by header)
  *   rooms              array of room objects (or v2 row arrays)
- *   navNodes | nodes   array of node objects (or v2 row arrays)
- *   navEdges | edges   array of edge objects (or v2 row arrays); may include
- *                      cross-floor edges to nodes on other floors
+ *   navNodes | nodes | nav.nodes   array of node objects (or v2 row arrays)
+ *   navEdges | edges | nav.edges   array of edge objects (or v2 row arrays); may
+ *                      include cross-floor edges to nodes on other floors
+ * The pipeline's per-floor file is accepted as written: edges may use from/to
+ * for fromNodeId/toNodeId, rooms may carry center: [x, y] for centerX/centerY.
  * Extra fields (area, doors, use text) are ignored.
  *
- * Replacement rule: every room and node on the floor is removed; every edge
- * touching a removed or imported node, or sharing an id with an imported edge,
- * is removed; then the payload rows are written.
+ * Replacement rule: every room and node on the floor is removed, then the
+ * payload rows are written. An existing edge is removed when it shares an id
+ * with an imported edge, when both its ends are on this floor (the payload's
+ * edges replace them), or when either end no longer exists. Cross-floor edges
+ * whose ends survive (node ids are stable across pipeline runs) are kept, so
+ * re-importing one floor does not cut its stair and elevator links.
  *
  * @param {string} pin
  * @param {Object|string} payload
@@ -552,8 +505,9 @@ function importFloorData(pin, payload) {
   var nodeDef = getSheetDefinition_('NavNodes');
   var edgeDef = getSheetDefinition_('NavEdges');
   var newRooms = importRows_(roomDef, p.rooms || [], floorId, 1);
-  var newNodes = importRows_(nodeDef, p.navNodes || p.nodes || [], floorId, 1);
-  var newEdges = importRows_(edgeDef, p.navEdges || p.edges || [], null, -1);
+  var nav = p.nav || {};
+  var newNodes = importRows_(nodeDef, p.navNodes || p.nodes || nav.nodes || [], floorId, 1);
+  var newEdges = importRows_(edgeDef, p.navEdges || p.edges || nav.edges || [], null, -1);
 
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
@@ -590,18 +544,26 @@ function importFloorData(pin, payload) {
     for (var n = 0; n < newNodes.length; n++) touched[String(newNodes[n][0])] = true;
     rewriteRows_(nodes.sheet, nodes.def, keptNodes.concat(newNodes));
 
+    var allNodes = {};
+    for (var k = 0; k < keptNodes.length; k++) allNodes[String(keptNodes[k][0])] = true;
+    for (var m = 0; m < newNodes.length; m++) allNodes[String(newNodes[m][0])] = true;
+
     var newEdgeIds = {};
     for (var e = 0; e < newEdges.length; e++) newEdgeIds[String(newEdges[e][0])] = true;
     var edges = tab_(ss, 'NavEdges');
     var edgeRows = dataRows_(edges.sheet, edges.def);
+    var crossFloorKept = 0;
     var keptEdges = filterRows_(edgeRows, function (r) {
-      return !touched[String(r[1])] && !touched[String(r[2])] && !newEdgeIds[String(r[0])];
+      var from = String(r[1]);
+      var to = String(r[2]);
+      if (newEdgeIds[String(r[0])]) return false;
+      if (touched[from] && touched[to]) return false;
+      if (!allNodes[from] || !allNodes[to]) return false;
+      if (touched[from] || touched[to]) crossFloorKept++;
+      return true;
     });
     rewriteRows_(edges.sheet, edges.def, keptEdges.concat(newEdges));
 
-    var allNodes = {};
-    for (var k = 0; k < keptNodes.length; k++) allNodes[String(keptNodes[k][0])] = true;
-    for (var m = 0; m < newNodes.length; m++) allNodes[String(newNodes[m][0])] = true;
     var dangling = 0;
     for (var d = 0; d < newEdges.length; d++) {
       if (!allNodes[String(newEdges[d][1])] || !allNodes[String(newEdges[d][2])]) dangling++;
@@ -617,6 +579,7 @@ function importFloorData(pin, payload) {
         navNodes: nodeRows.length - keptNodes.length,
         navEdges: edgeRows.length - keptEdges.length
       },
+      crossFloorEdgesKept: crossFloorKept,
       danglingEdges: dangling
     };
   } finally {
@@ -635,7 +598,7 @@ function importRows_(def, items, floorId, floorCol) {
   var rows = [];
   var seen = {};
   for (var i = 0; i < items.length; i++) {
-    var row = toRow_(def, items[i]);
+    var row = toRow_(def, importAliases_(def.name, items[i]));
     if (floorCol >= 0) {
       if (row[floorCol] === '' || row[floorCol] === null) row[floorCol] = floorId;
       if (String(row[floorCol]) !== floorId) {
@@ -648,6 +611,26 @@ function importRows_(def, items, floorId, floorCol) {
     rows.push(row);
   }
   return rows;
+}
+
+/**
+ * Maps the pipeline's per-floor JSON field names onto contract headers:
+ * edges from/to -> fromNodeId/toNodeId, rooms center [x, y] -> centerX/centerY.
+ * Row arrays and objects that already use the contract names pass through.
+ */
+function importAliases_(tabName, item) {
+  if (!item || typeof item !== 'object' || Object.prototype.toString.call(item) === '[object Array]') return item;
+  var o = shallowCopy_(item);
+  if (tabName === 'NavEdges') {
+    if (o.fromNodeId === undefined && o.from !== undefined) o.fromNodeId = o.from;
+    if (o.toNodeId === undefined && o.to !== undefined) o.toNodeId = o.to;
+  } else if (tabName === 'Rooms') {
+    if (o.centerX === undefined && Object.prototype.toString.call(o.center) === '[object Array]') {
+      o.centerX = o.center[0];
+      o.centerY = o.center[1];
+    }
+  }
+  return o;
 }
 
 function filterRows_(rows, keep) {

@@ -4,9 +4,16 @@
  * include() partials) and routes ?action= JSON requests.
  */
 
+/*
+ * HtmlService ignores a viewport <meta> inside the page, so each page's viewport
+ * is set here. The web app draws under the notch and pads with
+ * env(safe-area-inset-*), which needs viewport-fit=cover; the admin page does not.
+ */
 var PAGES_ = {
-  web: { file: 'WebApp', title: 'Murray State Campus Nav' },
-  admin: { file: 'Admin', title: 'Campus Nav Admin' }
+  web: { file: 'WebApp', title: 'Murray State Campus Nav',
+    viewport: 'width=device-width, initial-scale=1, viewport-fit=cover' },
+  admin: { file: 'Admin', title: 'Campus Nav Admin',
+    viewport: 'width=device-width, initial-scale=1' }
 };
 
 function doGet(e) {
@@ -36,7 +43,7 @@ function servePage_(page) {
   return HtmlService.createTemplateFromFile(page.file)
     .evaluate()
     .setTitle(page.title)
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+    .addMetaTag('viewport', page.viewport)
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
