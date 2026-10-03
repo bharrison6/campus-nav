@@ -1,0 +1,35 @@
+// Loads a GAS HTML include that holds a single <script> of plain ES5 into a fresh VM context
+// and returns the named global it defines. The include must not touch the DOM.
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import vm from 'node:vm';
+
+const here = dirname(fileURLToPath(import.meta.url));
+export const SRC = join(here, '..', '..', 'scripts', 'apps-script', 'src');
+
+export function scriptBodies(html) {
+  const out = [];
+  const re = /<script\b([^>]*)>([\s\S]*?)<\/script>/gi;
+  let m;
+  while ((m = re.exec(html))) {
+    if (/\bsrc\s*=/.test(m[1])) continue;
+    out.push(m[2]);
+  }
+  return out;
+}
+
+export function loadInclude(fileName, globalName) {
+  const html = readFileSync(join(SRC, fileName), 'utf8');
+  const code = scriptBodies(html).join('\n;\n');
+  const ctx = vm.createContext({});
+  vm.runInContext(code, ctx, { filename: fileName });
+  const value = vm.runInContext(globalName, ctx);
+  if (!value) throw new Error(`${fileName} did not define ${globalName}`);
+  return value;
+}
+
+export function loadFixture() {
+  const p = join(here, '..', '..', 'dev', 'fixtures', 'campus-data.json');
+  return JSON.parse(readFileSync(p, 'utf8'));
+}
