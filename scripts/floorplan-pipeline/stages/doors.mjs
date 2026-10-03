@@ -4,7 +4,7 @@
 //         'area-line'  coincident room boundaries with no wall (an area division, not a physical door)
 //         'inferred'   a room had no detectable passage; linked to its best neighbour (flagged for review)
 //   exterior: true when one side is outside the building (an entrance).
-import { dist, distToPolygon, pointInPolygon } from '../lib/geometry.mjs';
+import { dist, distToPolygon } from '../lib/geometry.mjs';
 import { doorSwings, findOpenings, sampleRing, swingSides, MAX_WALL } from '../lib/openings.mjs';
 
 const SWING_NEAR = 36;
@@ -110,6 +110,3 @@ export function inferMissingOpenings(fp, openings) {
   return added;
 }
 
-export function isInsideAnyRoom(p, rooms) {
-  return rooms.some((r) => pointInPolygon(p, r.polygon));
-}

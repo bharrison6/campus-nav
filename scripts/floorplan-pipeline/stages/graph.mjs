@@ -4,7 +4,7 @@
 //   door       each passage between two spaces; entrance when the other side is outside
 // Edges: room hub <-> its doors; door <-> nearest visible point on each adjacent corridor's centerline (the
 // centerline edge is split there); centerline chains; cross-floor stair/elevator links. Distances in meters.
-import { dist, segmentsIntersect, pointInPolygon, round } from '../lib/geometry.mjs';
+import { dist, segmentsIntersect, round } from '../lib/geometry.mjs';
 import { corridorCenterline } from '../lib/skeleton.mjs';
 
 export const FLOOR_CHANGE_METERS = { stair: 10, elevator: 14 }; // nominal effort per floor (about 4 m storey height)
@@ -54,6 +54,24 @@ export function buildFloorGraph(fp, openings, wallIndex, { idPrefix }) {
     if (i >= 0) edges.splice(i, 1);
   };
 
+  // Which spaces get a centerline: corridors always; any other room whose straight hub-to-passage lines are not all
+  // clear of walls (long, L-shaped or partitioned rooms), so routes follow the walkable space instead of cutting
+  // through walls.
+  const openingsOf = new Map();
+  for (const o of openings) {
+    for (const idx of [o.a, o.b]) {
+      if (idx < 0) continue;
+      if (!openingsOf.has(idx)) openingsOf.set(idx, []);
+      openingsOf.get(idx).push(o);
+    }
+  }
+  const walkable = new Set();
+  fp.rooms.forEach((r, i) => {
+    if (r.kind !== 'room') return;
+    if (r.type === 'corridor') walkable.add(i);
+    else if ((openingsOf.get(i) || []).some((o) => !lineOfSight(o.p, r.center, wallIndex))) walkable.add(i);
+  });
+
   // Room hubs.
   const hub = new Map();
   fp.rooms.forEach((r, i) => {
@@ -62,10 +80,10 @@ export function buildFloorGraph(fp, openings, wallIndex, { idPrefix }) {
     hub.set(i, addNode(type, r.center, r.id, r.linkId || ''));
   });
 
-  // Corridor centerlines.
+  // Centerlines.
   const cl = new Map(); // room index -> { nodes:[node], segs:[[node,node]] }
-  fp.rooms.forEach((r, i) => {
-    if (r.type !== 'corridor') return;
+  for (const i of walkable) {
+    const r = fp.rooms[i];
     const c = corridorCenterline(r.polygon);
     const cn = c.points.map((p) => addNode('waypoint', p));
     const segs = [];
@@ -74,10 +92,10 @@ export function buildFloorGraph(fp, openings, wallIndex, { idPrefix }) {
       segs.push([cn[a], cn[b]]);
     }
     if (!segs.length) {
-      const only = cn.length ? cn[0] : addNode('waypoint', r.center);
+      const only = hub.get(i) || (cn.length ? cn[0] : addNode('waypoint', r.center));
       cl.set(i, { nodes: [only], segs: [], solo: only });
     } else cl.set(i, { nodes: cn, segs });
-  });
+  }
 
   // Attach a point to a corridor centerline: nearest visible foot point; split the centerline edge there.
   const attach = (ci, node) => {
@@ -113,6 +131,11 @@ export function buildFloorGraph(fp, openings, wallIndex, { idPrefix }) {
   };
 
   let blindAttach = 0;
+  // Room hubs inside walkable rooms join that room's centerline.
+  for (const i of walkable) {
+    if (!hub.has(i) || cl.get(i).solo === hub.get(i)) continue;
+    if (!attach(i, hub.get(i))) blindAttach++;
+  }
   for (const o of openings) {
     const ra = fp.rooms[o.a];
     const rb = o.b >= 0 ? fp.rooms[o.b] : null;
@@ -123,9 +146,9 @@ export function buildFloorGraph(fp, openings, wallIndex, { idPrefix }) {
     const n = addNode(type, o.p);
     n.opening = o;
     o.nodeId = n.id;
-    for (const [idx, isCorr] of [[o.a, corrA], [o.b, corrB]]) {
+    for (const idx of [o.a, o.b]) {
       if (idx < 0) continue;
-      if (isCorr) {
+      if (walkable.has(idx)) {
         if (!attach(idx, n)) blindAttach++;
       } else if (hub.has(idx)) addEdge(n, hub.get(idx));
     }
@@ -173,6 +196,3 @@ export function components(nodes, edges) {
   return out;
 }
 
-export function pointInRoom(p, room) {
-  return pointInPolygon(p, room.polygon);
-}

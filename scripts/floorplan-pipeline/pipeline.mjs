@@ -10,7 +10,7 @@ import { buildSvg } from './stages/svg.mjs';
 import { emitGas } from './stages/emit-gas.mjs';
 import { classifyBuilding, floorEvidence, isSearchable, polygonIoU } from './lib/classify.mjs';
 import { findShaftXs, mergeCollinear, primsToSegments, SegmentIndex } from './lib/detect.mjs';
-import { bbox, dist, round } from './lib/geometry.mjs';
+import { dist, round } from './lib/geometry.mjs';
 
 const WALL_LAYER = (L) => /^A-BLDG$/i.test(L);
 
@@ -241,6 +241,3 @@ export function runPipeline({ inDir, outDir, gasDir, cacheDir, floors = FLOORS, 
   return { floors: outFloors, crossEdges, report, F };
 }
 
-export function boundsOf(poly) {
-  return bbox(poly);
-}

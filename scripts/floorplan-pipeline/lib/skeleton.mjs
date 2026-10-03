@@ -203,9 +203,33 @@ export function pruneSkeleton(sk, spur) {
  * Corridor centerline graph as waypoints and straight segments.
  * Returns { points:[[x,y]], segs:[[i,j]] }.
  */
+/**
+ * Thinned diagonal lines keep "staircase" pixels with three neighbours, which trace as false junctions joined by
+ * one-pixel edges. Merge nodes joined by edges shorter than `minLen`, then re-run pruning to rejoin the chains.
+ */
+export function collapseShortEdges(sk, minLen) {
+  const parent = sk.nodes.map((_, i) => i);
+  const find = (x) => {
+    while (parent[x] !== x) {
+      parent[x] = parent[parent[x]];
+      x = parent[x];
+    }
+    return x;
+  };
+  for (const e of sk.edges) if (e.a !== e.b && polyLen(e.pts) < minLen) parent[find(e.a)] = find(e.b);
+  const edges = [];
+  for (const e of sk.edges) {
+    const a = find(e.a);
+    const b = find(e.b);
+    if (a === b && polyLen(e.pts) < minLen) continue;
+    edges.push({ a, b, pts: e.pts });
+  }
+  return { nodes: sk.nodes, edges };
+}
+
 export function corridorCenterline(poly, { res = 4, spur = 48, tol = 8, maxSeg = 360 } = {}) {
   const r = thin(rasterize(poly, res));
-  const sk = pruneSkeleton(traceSkeleton(r), spur);
+  const sk = pruneSkeleton(collapseShortEdges(pruneSkeleton(traceSkeleton(r), spur), 3 * res), spur);
   const points = sk.nodes.slice();
   const segs = [];
   const idxOf = (p) => {

@@ -6,14 +6,11 @@
 // no wall line, people can pass: that run is an opening (a door leaf, a sliding elevator door, a cased opening, or an
 // area division line). Door swings (90-degree arcs) mark which openings are doors, and an arc whose far side lies
 // outside the building's gross outline is an exterior entrance.
-import {
-  bbox, dist, distToPolygon, pointInPolygon, segmentsIntersect,
-} from './geometry.mjs';
+import { bbox, dist, pointInPolygon, segmentsIntersect } from './geometry.mjs';
 
 export const MAX_WALL = 16; // widest interior wall + tolerance, drawing units (inches)
 const SAMPLE = 4; // boundary sampling step
 const MIN_OPENING = 26; // narrowest passable run
-const SHRINK = 1.5; // keep gap probes off the wall-face lines the polygons are drawn on
 
 function closestOnSegment(p, a, b) {
   const dx = b[0] - a[0];

@@ -1,0 +1,512 @@
+{
+ "generated": "scripts/floorplan-pipeline/run.mjs",
+ "floors": {
+  "floor-it-1": {
+   "counts": {
+    "rooms": 144,
+    "roomsByType": {
+     "other": 117,
+     "storage": 3,
+     "corridor": 12,
+     "stair": 2,
+     "elevator": 2,
+     "mechanical": 8
+    },
+    "matchedLabels": 144,
+    "doors": 142,
+    "openings": 0,
+    "areaLines": 24,
+    "inferredPassages": 4,
+    "entrances": 6,
+    "verticals": 4,
+    "nodes": 502,
+    "edges": 535,
+    "blindCorridorAttachments": 4,
+    "unreachableRooms": 0,
+    "isolatedEntrances": 0,
+    "svgBytes": 137817,
+    "wallSegments": 3132,
+    "fixtureSegments": 0,
+    "droppedSegments": 10
+   },
+   "unreachable": [],
+   "isolatedEntrances": [],
+   "inferredPassages": [
+    {
+     "room": "0114A",
+     "to": "0115P"
+    },
+    {
+     "room": "0108B",
+     "to": "0101A"
+    },
+    {
+     "room": "0101C",
+     "to": "0110"
+    },
+    {
+     "room": "0141A",
+     "to": "0140"
+    }
+   ],
+   "units": {
+    "medianDoorLeafUnits": 36,
+    "medianRoomAreaSqFt": 135,
+    "tagAreaAgreement": "144/144 rooms match their RMAREA tag (computed with inches)"
+   }
+  },
+  "floor-it-2": {
+   "counts": {
+    "rooms": 172,
+    "roomsByType": {
+     "other": 115,
+     "storage": 8,
+     "elevator": 2,
+     "mechanical": 31,
+     "stair": 2,
+     "corridor": 14
+    },
+    "matchedLabels": 170,
+    "doors": 137,
+    "openings": 5,
+    "areaLines": 30,
+    "inferredPassages": 6,
+    "entrances": 5,
+    "verticals": 4,
+    "nodes": 570,
+    "edges": 607,
+    "blindCorridorAttachments": 7,
+    "unreachableRooms": 0,
+    "isolatedEntrances": 0,
+    "svgBytes": 160914,
+    "wallSegments": 3763,
+    "fixtureSegments": 0,
+    "droppedSegments": 5
+   },
+   "unreachable": [],
+   "isolatedEntrances": [],
+   "inferredPassages": [
+    {
+     "room": "0203B",
+     "to": "0203A"
+    },
+    {
+     "room": "0253J",
+     "to": "0250Q"
+    },
+    {
+     "room": "0253S",
+     "to": "0250Q"
+    },
+    {
+     "room": "0215D",
+     "to": "0215"
+    },
+    {
+     "room": "UNK-1",
+     "to": "0240D"
+    },
+    {
+     "room": "UNK-2",
+     "to": "0250E"
+    }
+   ],
+   "units": {
+    "medianDoorLeafUnits": 36,
+    "medianRoomAreaSqFt": 163,
+    "tagAreaAgreement": "170/170 rooms match their RMAREA tag (computed with inches)"
+   }
+  },
+  "floor-it-3": {
+   "counts": {
+    "rooms": 1,
+    "roomsByType": {
+     "other": 1
+    },
+    "matchedLabels": 1,
+    "doors": 0,
+    "openings": 0,
+    "areaLines": 0,
+    "inferredPassages": 0,
+    "entrances": 0,
+    "verticals": 0,
+    "nodes": 1,
+    "edges": 0,
+    "blindCorridorAttachments": 0,
+    "unreachableRooms": 1,
+    "isolatedEntrances": 0,
+    "svgBytes": 3268,
+    "wallSegments": 58,
+    "fixtureSegments": 0,
+    "droppedSegments": 0
+   },
+   "unreachable": [
+    {
+     "room": "room-it-3-0301",
+     "number": "0301"
+    }
+   ],
+   "isolatedEntrances": [],
+   "inferredPassages": [],
+   "units": {
+    "medianDoorLeafUnits": 0,
+    "medianRoomAreaSqFt": 0,
+    "tagAreaAgreement": "1/1 rooms match their RMAREA tag (computed with inches)"
+   }
+  },
+  "floor-ep-1": {
+   "counts": {
+    "rooms": 88,
+    "roomsByType": {
+     "other": 64,
+     "storage": 6,
+     "corridor": 10,
+     "restroom": 4,
+     "stair": 3,
+     "elevator": 1
+    },
+    "matchedLabels": 86,
+    "doors": 91,
+    "openings": 1,
+    "areaLines": 18,
+    "inferredPassages": 4,
+    "entrances": 8,
+    "verticals": 4,
+    "nodes": 372,
+    "edges": 398,
+    "blindCorridorAttachments": 12,
+    "unreachableRooms": 1,
+    "isolatedEntrances": 1,
+    "svgBytes": 301077,
+    "wallSegments": 4934,
+    "fixtureSegments": 1572,
+    "droppedSegments": 240
+   },
+   "unreachable": [
+    {
+     "room": "room-ep-1-1322",
+     "number": "1322"
+    }
+   ],
+   "isolatedEntrances": [
+    {
+     "nodeId": "ep-1-n0366",
+     "rooms": [
+      "1322"
+     ]
+    }
+   ],
+   "inferredPassages": [
+    {
+     "room": "UNK-1",
+     "to": "1300D"
+    },
+    {
+     "room": "UNK-2",
+     "to": "1300D"
+    },
+    {
+     "room": "1300Z",
+     "to": "1300H"
+    },
+    {
+     "room": "1300C",
+     "to": "1300D"
+    }
+   ],
+   "units": {
+    "medianDoorLeafUnits": 36,
+    "medianRoomAreaSqFt": 154,
+    "tagAreaAgreement": "0/0 rooms match their RMAREA tag (computed with inches)"
+   }
+  },
+  "floor-ep-2": {
+   "counts": {
+    "rooms": 82,
+    "roomsByType": {
+     "other": 62,
+     "storage": 4,
+     "restroom": 4,
+     "corridor": 8,
+     "stair": 3,
+     "elevator": 1
+    },
+    "matchedLabels": 82,
+    "doors": 74,
+    "openings": 2,
+    "areaLines": 20,
+    "inferredPassages": 2,
+    "entrances": 0,
+    "verticals": 4,
+    "nodes": 369,
+    "edges": 385,
+    "blindCorridorAttachments": 5,
+    "unreachableRooms": 0,
+    "isolatedEntrances": 0,
+    "svgBytes": 292274,
+    "wallSegments": 5170,
+    "fixtureSegments": 1414,
+    "droppedSegments": 170
+   },
+   "unreachable": [],
+   "isolatedEntrances": [],
+   "inferredPassages": [
+    {
+     "room": "2300Z",
+     "to": "2300H"
+    },
+    {
+     "room": "2300C",
+     "to": "2300D"
+    }
+   ],
+   "units": {
+    "medianDoorLeafUnits": 36,
+    "medianRoomAreaSqFt": 151,
+    "tagAreaAgreement": "82/82 rooms match their RMAREA tag (computed with inches)"
+   }
+  },
+  "floor-ep-3": {
+   "counts": {
+    "rooms": 4,
+    "roomsByType": {
+     "stair": 1,
+     "other": 1,
+     "elevator": 1,
+     "storage": 1
+    },
+    "matchedLabels": 4,
+    "doors": 2,
+    "openings": 0,
+    "areaLines": 0,
+    "inferredPassages": 1,
+    "entrances": 1,
+    "verticals": 2,
+    "nodes": 26,
+    "edges": 25,
+    "blindCorridorAttachments": 1,
+    "unreachableRooms": 0,
+    "isolatedEntrances": 0,
+    "svgBytes": 19407,
+    "wallSegments": 366,
+    "fixtureSegments": 222,
+    "droppedSegments": 14
+   },
+   "unreachable": [],
+   "isolatedEntrances": [],
+   "inferredPassages": [
+    {
+     "room": "3300Z",
+     "to": "3300"
+    }
+   ],
+   "units": {
+    "medianDoorLeafUnits": 36,
+    "medianRoomAreaSqFt": 372,
+    "tagAreaAgreement": "4/4 rooms match their RMAREA tag (computed with inches)"
+   }
+  }
+ },
+ "verticalStacks": [
+  {
+   "bldg": "it",
+   "type": "stair",
+   "linkId": "it-stair-1",
+   "members": [
+    {
+     "floorId": "floor-it-1",
+     "level": 1,
+     "number": "0140D",
+     "why": "stair treads (15 parallel lines)"
+    },
+    {
+     "floorId": "floor-it-2",
+     "level": 2,
+     "number": "0240F",
+     "why": "footprint stacked on stair 0140D (IoU 0.97)"
+    }
+   ]
+  },
+  {
+   "bldg": "it",
+   "type": "stair",
+   "linkId": "it-stair-2",
+   "members": [
+    {
+     "floorId": "floor-it-1",
+     "level": 1,
+     "number": "0101E",
+     "why": "stair treads (8 parallel lines)"
+    },
+    {
+     "floorId": "floor-it-2",
+     "level": 2,
+     "number": "0200N",
+     "why": "footprint stacked on stair 0101E (IoU 0.95)"
+    }
+   ]
+  },
+  {
+   "bldg": "it",
+   "type": "elevator",
+   "linkId": "it-elevator-1",
+   "members": [
+    {
+     "floorId": "floor-it-1",
+     "level": 1,
+     "number": "0129",
+     "why": "stacked 40-110 sf shaft on every floor with no door swing (sliding doors)"
+    },
+    {
+     "floorId": "floor-it-2",
+     "level": 2,
+     "number": "0245",
+     "why": "stacked 40-110 sf shaft on every floor with no door swing (sliding doors)"
+    }
+   ]
+  },
+  {
+   "bldg": "it",
+   "type": "elevator",
+   "linkId": "it-elevator-2",
+   "members": [
+    {
+     "floorId": "floor-it-1",
+     "level": 1,
+     "number": "0101C",
+     "why": "stacked 40-110 sf shaft on every floor with no door swing (sliding doors)"
+    },
+    {
+     "floorId": "floor-it-2",
+     "level": 2,
+     "number": "0200D",
+     "why": "stacked 40-110 sf shaft on every floor with no door swing (sliding doors)"
+    }
+   ]
+  },
+  {
+   "bldg": "ep",
+   "type": "stair",
+   "linkId": "ep-stair-1",
+   "members": [
+    {
+     "floorId": "floor-ep-1",
+     "level": 1,
+     "number": "1300K",
+     "why": "stair treads (9 parallel lines)"
+    },
+    {
+     "floorId": "floor-ep-2",
+     "level": 2,
+     "number": "2300K",
+     "why": "footprint stacked on stair 1300K (IoU 0.79)"
+    }
+   ]
+  },
+  {
+   "bldg": "ep",
+   "type": "stair",
+   "linkId": "ep-stair-2",
+   "members": [
+    {
+     "floorId": "floor-ep-1",
+     "level": 1,
+     "number": "1300F",
+     "why": "stair treads (12 parallel lines)"
+    },
+    {
+     "floorId": "floor-ep-2",
+     "level": 2,
+     "number": "2300F",
+     "why": "footprint stacked on stair 1300F (IoU 0.96)"
+    },
+    {
+     "floorId": "floor-ep-3",
+     "level": 3,
+     "number": "3300F",
+     "why": "footprint stacked on stair 1300F (IoU 0.99)"
+    }
+   ]
+  },
+  {
+   "bldg": "ep",
+   "type": "stair",
+   "linkId": "ep-stair-3",
+   "members": [
+    {
+     "floorId": "floor-ep-1",
+     "level": 1,
+     "number": "1300B",
+     "why": "stair treads (10 parallel lines)"
+    },
+    {
+     "floorId": "floor-ep-2",
+     "level": 2,
+     "number": "2300B",
+     "why": "footprint stacked on stair 1300B (IoU 0.84)"
+    }
+   ]
+  },
+  {
+   "bldg": "ep",
+   "type": "elevator",
+   "linkId": "ep-elevator-1",
+   "members": [
+    {
+     "floorId": "floor-ep-1",
+     "level": 1,
+     "number": "1300Z",
+     "why": "stacked 40-110 sf shaft on every floor with no door swing (sliding doors)"
+    },
+    {
+     "floorId": "floor-ep-2",
+     "level": 2,
+     "number": "2300Z",
+     "why": "stacked 40-110 sf shaft on every floor with no door swing (sliding doors)"
+    },
+    {
+     "floorId": "floor-ep-3",
+     "level": 3,
+     "number": "3300Z",
+     "why": "stacked 40-110 sf shaft on every floor with no door swing (sliding doors)"
+    }
+   ]
+  }
+ ],
+ "frameChecks": {
+  "it": [
+   {
+    "floors": [
+     "floor-it-1",
+     "floor-it-2"
+    ],
+    "grossIoU": 0.841
+   },
+   {
+    "floors": [
+     "floor-it-2",
+     "floor-it-3"
+    ],
+    "grossIoU": 0.047
+   }
+  ],
+  "ep": [
+   {
+    "floors": [
+     "floor-ep-1",
+     "floor-ep-2"
+    ],
+    "grossIoU": 0.997
+   },
+   {
+    "floors": [
+     "floor-ep-2",
+     "floor-ep-3"
+    ],
+    "grossIoU": 0.158
+   }
+  ]
+ },
+ "crossFloorEdges": 10,
+ "seedFloorDataBytes": 373498
+}

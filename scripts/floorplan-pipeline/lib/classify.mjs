@@ -1,6 +1,6 @@
 // Room typing from geometry. The DWGs carry no use text (DATA1..DATA5 are empty on every floor), so a type is only
 // asserted where the drawing gives evidence; everything else is `other`. Each room records `typeEvidence`.
-import { bbox, bboxOverlapArea, dist, distToPolygon, pointInPolygon } from './geometry.mjs';
+import { bbox, bboxOverlapArea, distToPolygon, pointInPolygon } from './geometry.mjs';
 import { longestTreadRun, segmentsInside } from './detect.mjs';
 
 export const SF_PER_SQIN = 1 / 144;
@@ -180,6 +180,3 @@ export function isSearchable(room) {
   return !['corridor', 'mechanical'].includes(room.type);
 }
 
-export function distance(a, b) {
-  return dist(a, b);
-}
