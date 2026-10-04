@@ -54,19 +54,26 @@ function loadOutdoorGraph(path) {
   });
 }
 
+/* The basemap files are independent: fetched at once, merged in the manifest's order when the last one answers. */
 function loadBaseLayers(list, cb) {
-  var parts = [];
-  var i = 0;
-  function next() {
-    if (i >= list.length) { cb(MSCNMapStyle.mergeBase(parts)); return; }
-    var path = list[i++];
+  var got = [];
+  var left = list.length;
+  if (!left) { cb(MSCNMapStyle.mergeBase([])); return; }
+  function done() {
+    if (--left > 0) { return; }
+    var parts = [];
+    for (var k = 0; k < got.length; k++) { if (got[k]) { parts.push(got[k]); } }
+    cb(MSCNMapStyle.mergeBase(parts));
+  }
+  function load(i) {
+    var path = list[i];
     var m = /layers\/([A-Za-z0-9_-]+)\.geojson$/.exec(path);
     MSCNData.getMapFile(path, function (err, fc) {
-      if (!err && fc && isArray(fc.features)) { parts.push({ fc: fc, hint: m ? m[1] : null }); }
-      next();
+      if (!err && fc && isArray(fc.features)) { got[i] = { fc: fc, hint: m ? m[1] : null }; }
+      done();
     });
   }
-  next();
+  for (var i = 0; i < list.length; i++) { load(i); }
 }
 
 function outerRing(geom) {
