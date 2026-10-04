@@ -9,8 +9,8 @@
 //   config.json              {mapsApiKey, analytics: {provider, site}, basePath, domain}; the key comes ONLY from the
 //                            MAPS_API_KEY environment variable at build time (repository secret in CI), never from a file
 //   data/campus.json         \
-//   data/version.json         } the campus-data exporter's output (lane G's scripts/data/export-campus-data.mjs when it
-//   floors/<floorId>.svg     /  exists, else the temporary scripts/build/temp-export-campus-data.mjs)
+//   data/version.json         } the campus-data export (scripts/data/export-campus-data.mjs); plans of public
+//   floors/<floorId>.svg     /  floors only (the build fails if a hidden floor's plan is in the export)
 //   data/schedules/<id>.json official schedules (data/schedules/*.json), checked against the campus data
 //   data/links.json          {linkId: {title, url}}
 //   CNAME                    only when build.config.json names a domain
@@ -19,12 +19,12 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isPublicFloor } from '../data/export-campus-data.mjs';
 import { renderPage } from './render-page.mjs';
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const WEB_SRC = join(ROOT, 'src', 'web');
-const G_EXPORTER = join(ROOT, 'scripts', 'data', 'export-campus-data.mjs');
-const TEMP_EXPORTER = join(ROOT, 'scripts', 'build', 'temp-export-campus-data.mjs');
+const EXPORTER = join(ROOT, 'scripts', 'data', 'export-campus-data.mjs');
 const ID_RE = /^[A-Za-z0-9_-]{1,80}$/;
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -32,7 +32,6 @@ const URL_RE = /^https?:\/\/[^\s"'<>]+$/;
 
 function fail(msg) { throw new Error('[build] ' + msg); }
 const readJson = (p) => JSON.parse(readFileSync(p, 'utf8'));
-const isPublic = (f) => !(f && (f.public === false || String(f.public).toLowerCase() === 'false'));
 
 export function loadBuildConfig(path) {
   const raw = path && existsSync(path) ? readJson(path) : {};
@@ -125,7 +124,7 @@ export function validateSchedule(sched, fileId, campus, links) {
       const r = rooms.get(ev.roomId);
       const f = r && floors.get(r.floorId);
       if (!r) errors.push(`${at}: unknown roomId ${JSON.stringify(ev.roomId)}`);
-      else if (!f || !isPublic(f)) errors.push(`${at}: room ${ev.roomId} is on a floor that is not public`);
+      else if (!f || !isPublicFloor(f)) errors.push(`${at}: room ${ev.roomId} is on a floor that is not public`);
       else if (f.buildingId !== ev.buildingId) errors.push(`${at}: room ${ev.roomId} is in ${f.buildingId}, not ${ev.buildingId}`);
     }
     if (ev.note !== undefined && typeof ev.note !== 'string') errors.push(`${at}: note must be text`);
@@ -148,13 +147,9 @@ function cleanOut(out) {
 }
 
 function runExporter(dataDir, log) {
-  const real = existsSync(G_EXPORTER);
-  const script = real ? G_EXPORTER : TEMP_EXPORTER;
-  log(`[build] campus data: ${real ? 'scripts/data/export-campus-data.mjs (lane G)' : 'scripts/build/temp-export-campus-data.mjs (temporary)'}`);
-  const r = spawnSync(process.execPath, [script, '--out', dataDir], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8', timeout: 180_000 });
+  const r = spawnSync(process.execPath, [EXPORTER, '--out', dataDir], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8', timeout: 180_000 });
   if (r.stdout) log(r.stdout.trimEnd());
   if (r.status !== 0) fail(`exporter failed (${r.status ?? r.signal}): ${(r.stderr || '').trim()}`);
-  return real ? 'lane-g' : 'temporary';
 }
 
 export function buildSite({ out = join(ROOT, 'dist'), configPath = join(ROOT, 'build.config.json'), env = process.env, log = console.log } = {}) {
@@ -165,7 +160,7 @@ export function buildSite({ out = join(ROOT, 'dist'), configPath = join(ROOT, 'b
 
   // 1. campus data via the exporter (writes data/campus.json, data/version.json, data/floors/*.svg)
   const dataDir = join(out, 'data');
-  const exporter = runExporter(dataDir, log);
+  runExporter(dataDir, log);
   for (const f of ['campus.json', 'version.json']) if (!existsSync(join(dataDir, f))) fail(`exporter wrote no data/${f}`);
   const campus = readJson(join(dataDir, 'campus.json'));
   if (!Array.isArray(campus.buildings) || !Array.isArray(campus.floors) || !Array.isArray(campus.rooms)) fail('campus.json lacks buildings/floors/rooms');
@@ -179,8 +174,10 @@ export function buildSite({ out = join(ROOT, 'dist'), configPath = join(ROOT, 'b
   if (version.version === undefined || version.version === null || version.version === '') fail('data/version.json has no version');
   if (existsSync(join(dataDir, 'floors'))) renameSync(join(dataDir, 'floors'), join(out, 'floors'));
   else mkdirSync(join(out, 'floors'));
-  const missing = campus.floors.filter(isPublic).map((f) => f.id).filter((id) => !existsSync(join(out, 'floors', `${id}.svg`)));
+  const missing = campus.floors.filter(isPublicFloor).map((f) => f.id).filter((id) => !existsSync(join(out, 'floors', `${id}.svg`)));
   if (missing.length) log(`[build] warning: no floor plan SVG for public floor(s) ${missing.join(', ')}; the app draws a simplified plan`);
+  const hidden = campus.floors.filter((f) => !isPublicFloor(f)).map((f) => f.id).filter((id) => existsSync(join(out, 'floors', `${id}.svg`)));
+  if (hidden.length) fail(`the export published the plan of hidden floor(s) ${hidden.join(', ')}`);
 
   // 2. official schedules and links, checked against the data they point into
   const linksPath = join(ROOT, 'data', 'links.json');
@@ -209,7 +206,7 @@ export function buildSite({ out = join(ROOT, 'dist'), configPath = join(ROOT, 'b
   if (cfg.domain) writeFileSync(join(out, 'CNAME'), cfg.domain + '\n');
 
   const summary = {
-    out, exporter, version: version.version, basePath: cfg.basePath, domain: cfg.domain || null,
+    out, version: version.version, basePath: cfg.basePath, domain: cfg.domain || null,
     mapsKey: site.mapsApiKey ? 'set' : 'none (key-free fallback)', analytics: cfg.analytics.site ? cfg.analytics.provider : 'off',
     floors: readdirSync(join(out, 'floors')).length, schedules: schedules.length, indexBytes: Buffer.byteLength(html),
   };

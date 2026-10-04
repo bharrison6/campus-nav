@@ -8,12 +8,13 @@
 //   <dir>/campus.json            exactly what getAllCampusData returns: { contractVersion, version, config, buildings,
 //                                floors, rooms, navNodes, navEdges, photos, qrLocations }; config is key/value rows and
 //                                never holds mapsApiKey (the site's config.json carries the key)
-//   <dir>/floors/<floorId>.svg   each floor's plan (the FP_<floorId>.html asset, via getFloorPlanSvg)
+//   <dir>/floors/<floorId>.svg   each PUBLIC floor's plan (the FP_<floorId>.html asset, via getFloorPlanSvg); a floor
+//                                with public = false stays in campus.json, but its plan is never written
 //   <dir>/version.json           { version, builtAt, gitSha }
 // version is a content hash of campus.json and the plans, so the same inputs give the same files; builtAt is the
 // build time (SOURCE_DATE_EPOCH when set) and gitSha the commit (GITHUB_SHA, else git rev-parse HEAD, else '').
 // Files are overwritten, never removed: point --out at a fresh directory.
-// Exit 1 on a malformed overrides file or a floor without a plan; orphaned overrides are reported, not fatal.
+// Exit 1 on a malformed overrides file or a public floor without a plan; orphaned overrides are reported, not fatal.
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -21,14 +22,17 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { OVERRIDES_DIR, REPO, describeReport, openCampus } from './campus-engine.mjs';
 
-/** The export as data (no files): { campus, floors: [{ id, svg }], missingPlans, report }. */
+/** A floor is public unless its public flag is false (boolean or text), as the web app and the build read it. */
+export const isPublicFloor = (f) => !(f && (f.public === false || String(f.public).toLowerCase() === 'false'));
+
+/** The export as data (no files): { campus, floors: [{ id, svg }] (public floors only), missingPlans, report }. */
 export function buildExport({ gsDir, overridesDir = OVERRIDES_DIR, extraCode, props } = {}) {
   const engine = openCampus({ gsDir, overridesDir, extraCode, props });
   const campus = engine.gas.run('getAllCampusData', []);
   campus.config = campus.config.filter((c) => c.key !== 'mapsApiKey');
   const floors = [];
   const missingPlans = [];
-  for (const f of campus.floors) {
+  for (const f of campus.floors.filter(isPublicFloor)) {
     try {
       floors.push({ id: f.id, svg: engine.gas.run('getFloorPlanSvg', [f.id]) });
     } catch (e) {
