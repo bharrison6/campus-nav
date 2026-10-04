@@ -9,8 +9,7 @@
 // `entrances`, which also carry buildingId and label): routes enter buildings only through these.
 // v5 access classes: an edge is `main` or `alt` (pathAccess: road alt, every pedestrian kind main; a drawn path's
 // properties.access; data/overrides/pathAccess.json by `way`), and `way` names what it was drawn from (`way/123`, an
-// override feature id, or `connector/<entrance id>`). An entrance's `primary` mirrors access === 'main' for readers
-// that predate access (LEGACY_PRIMARY; drop it once every reader uses access).
+// override feature id, or `connector/<entrance id>`). The v4 boolean `primary` is retired: entrances carry `access`.
 //
 // Nodes sit at every way vertex; ways sharing an OSM node meet there (that is how OSM models an intersection).
 // Ids: OSM vertices "n<osmNodeId>", override vertices "v<feature>-<vertex>", split points "s<k>", entrances keep their
@@ -37,9 +36,6 @@ export function walkKind(tags) {
 }
 
 const R6 = (v) => round(v, 6);
-
-/** Entrance nodes also carry `primary` (= access is main) for readers that predate access classes. */
-export const LEGACY_PRIMARY = true;
 
 export const ACCESS = ['main', 'alt', 'emergency'];
 export const PATH_ACCESS = ['main', 'alt'];
@@ -198,7 +194,6 @@ export class OutdoorGraph {
     for (const n of fresh) rename.set(n.id, `o${++k}`);
     const entrance = (n) => {
       const o = { id: n.id, lat: n.lat, lng: n.lng, type: n.type, access: n.access || 'main' };
-      if (LEGACY_PRIMARY) o.primary = o.access === 'main';
       if (n.buildingId) o.buildingId = n.buildingId;
       if (n.label) o.label = n.label;
       return o;

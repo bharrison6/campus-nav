@@ -298,7 +298,7 @@ function saveBatchRooms(data) {
 }
 
 // ============================================================================
-// NavNodes: id, floorId, x, y, type, roomId, linkId, primary, access
+// NavNodes: id, floorId, x, y, type, roomId, linkId, access
 // NavEdges: id, fromNodeId, toNodeId, distance, floorChange, accessible
 // ============================================================================
 

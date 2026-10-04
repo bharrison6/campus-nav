@@ -111,14 +111,29 @@ export function applyAccess(campus) {
   return report;
 }
 
-/** routing.altFactor in the config rows: a positive number, default 3 (a missing or malformed row is set to 3). */
-export function publishAltFactor(campus, dflt = 3) {
-  let row = campus.config.find((c) => c.key === 'routing.altFactor');
+/** A numeric routing.<name> config row: a missing row is added, a malformed or out-of-range value set to the default. */
+function publishRoutingNumber(campus, name, dflt, ok) {
+  const key = `routing.${name}`;
+  let row = campus.config.find((c) => c.key === key);
   if (!row) {
-    row = { key: 'routing.altFactor', value: dflt };
+    row = { key, value: dflt };
     campus.config.push(row);
   }
-  const v = Number(row.value);
-  row.value = Number.isFinite(v) && v > 0 ? v : dflt;
+  const v = row.value === '' || row.value === null ? NaN : Number(row.value);
+  row.value = Number.isFinite(v) && ok(v) ? v : dflt;
   return row.value;
+}
+
+/** routing.altFactor in the config rows: a positive number, default 3 (a missing or malformed row is set to 3). */
+export function publishAltFactor(campus, dflt = 3) {
+  return publishRoutingNumber(campus, 'altFactor', dflt, (v) => v > 0);
+}
+
+/**
+ * routing.altDoorCost in the config rows: the meters a route pays once for each alt door or entrance it passes through,
+ * on top of altFactor (0 or more, default 300; measured on the real campus: below about 280 routes from across campus
+ * still enter IT by its side door it-2-n0551, because the main doors' approach walks more road, which is alt).
+ */
+export function publishAltDoorCost(campus, dflt = 300) {
+  return publishRoutingNumber(campus, 'altDoorCost', dflt, (v) => v >= 0);
 }

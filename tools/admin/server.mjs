@@ -2,7 +2,7 @@
 // The local admin: Admin.html on localhost, answered by the backend (tools/admin/gs) in the Apps Script stand-in,
 // over seed + pipeline data + data/overrides. Every write is saved straight away as data/overrides/*.json (only the
 // difference from the seed and pipeline data); commit and push those files to publish. Never deployed, so no PIN.
-// A save that changes what the campus map is built from (an entrance's class, primary flag or position, a building's
+// A save that changes what the campus map is built from (an entrance's class or position, a building's
 // levels or height, a map-editor edit) reruns npm run campus-map in the background (offline, committed inputs), so
 // data/campus-map, data/georef and the floors' entrance blocks match the overrides; the admin then reloads.
 // getAdminStatus reports the last run and its duration.
@@ -41,7 +41,7 @@ import {
   DOOR_ACCESS, addBuilding, addEntrance, addPath, deleteFeature, featureId, formatGeo, formatPathAccess, geoEditIsAdditive,
   setPathAccess, updateFeature, validatePathAccess,
 } from './map-overrides.mjs';
-import { cutOffs, describeCutOffs, loadCheckConnectivity, refusal, runCheck } from './connectivity-gate.mjs';
+import { CONNECTIVITY, cutOffs, describeCutOffs, refusal, runCheck } from './connectivity-gate.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_PORT = 8790;
@@ -67,8 +67,6 @@ const MAPLIBRE_FILES = ['maplibre-gl.mjs', 'maplibre-gl-shared.mjs', 'maplibre-g
 const CAMPUS_MAP_FILE = /^(buildings\.geojson|manifest\.json|aerial\.json|layers\/[a-z]+\.geojson|aerial\/\d{1,2}\/\d{1,7}\/\d{1,7}\.(jpg|png))$/;
 const TYPES = { '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.geojson': 'application/json', '.jpg': 'image/jpeg', '.png': 'image/png' };
 
-/** The shared connectivity check (scripts/data/connectivity.mjs) or the admin's stand-in, loaded once. */
-const CONNECTIVITY = await loadCheckConnectivity();
 // The campus-map build, for the save check's in-memory outdoor graph (loaded ahead: saves are synchronous).
 const [{ loadInputs: loadMapInputs }, { buildCampusMap }] = await Promise.all([import('../../scripts/campus-map/inputs.mjs'), import('../../scripts/campus-map/build.mjs')]);
 
@@ -87,13 +85,12 @@ export function resolveSiteUrl(env = process.env) {
 }
 
 /**
- * What the campus map is built from, of the admin's data: entrance nodes (primary, access, floor, position) and
- * buildings' levels and height. Two writes that leave this string unchanged need no rebuild.
+ * What the campus map is built from, of the admin's data: entrance nodes (access, floor, position) and buildings'
+ * levels and height. Two writes that leave this string unchanged need no rebuild.
  */
 export function mapInputsOf(data) {
-  const truthy = (v) => v === true || v === 'true';
   const ents = (data.navNodes || []).filter((n) => n.type === 'entrance')
-    .map((n) => [n.id, n.floorId, Number(n.x), Number(n.y), truthy(n.primary)].concat(n.access ? [n.access] : [])).sort((a, b) => (a[0] < b[0] ? -1 : 1));
+    .map((n) => [n.id, n.floorId, Number(n.x), Number(n.y), n.access || '']).sort((a, b) => (a[0] < b[0] ? -1 : 1));
   const blds = (data.buildings || []).map((b) => [b.id, String(b.levels ?? ''), String(b.height ?? '')]).sort((a, b) => (a[0] < b[0] ? -1 : 1));
   return JSON.stringify([ents, blds]);
 }
@@ -139,8 +136,8 @@ export function outdoorGraphInMemory(overridesGeo, overridesDir) {
  *   data/overrides and data/campus-map/overrides.geojson), else none
  * @param {string} [o.campusMapDir]  basemap, outdoor graph and overrides.geojson (default data/campus-map)
  * @param {string} [o.reviewDir]     corridor-candidates.json (default data/review)
- * @param {{check: Function, source: string}|null} [o.connectivity]  the save check (default: the shared check, else
- *   the stand-in); null turns the check off
+ * @param {{check: Function, source: string}|null} [o.connectivity]  the save check (default: the shared check,
+ *   scripts/data/connectivity.mjs); null turns the check off
  * @param {Function} [o.outdoorGraphFor]  (overridesGeo, overridesDir) -> outdoor graph, for map edits that can cut
  *   something off (default: the campus-map build in memory)
  */
@@ -271,7 +268,7 @@ export function createAdmin({
     for (const b of pub.buildings) for (const e of Array.isArray(b.entrances) ? b.entrances : []) if (e && e.nodeId) labels.set(e.nodeId, e.label);
     const entrances = pub.navNodes.filter((n) => n.type === 'entrance' && n.lat !== undefined && n.lng !== undefined).map((n) => ({
       id: n.id, buildingId: floorB.get(n.floorId) || '', floorId: n.floorId, lat: n.lat, lng: n.lng, label: labels.get(n.id) || n.id,
-      access: n.access || (truthy(n.primary) ? 'main' : 'alt'), explicit: !!n.access,
+      access: n.access || 'main', explicit: !!n.access,
     }));
     const geo = readGeo();
     return {

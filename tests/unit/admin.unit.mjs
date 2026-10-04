@@ -92,7 +92,7 @@ test('writes land in data/overrides as the difference from the seed and pipeline
   assert.deepEqual(readOv(dir, 'rooms'), []);
 });
 
-test('a save that changes a primary door, levels or height reruns the campus-map build in the background; others do not', async () => {
+test('a save that changes an entrance class, levels or height reruns the campus-map build in the background; others do not', async () => {
   const runs = [];
   const logs = [];
   let release;
@@ -100,8 +100,8 @@ test('a save that changes a primary door, levels or height reruns the campus-map
     rebuildMap: () => { runs.push(Date.now()); return new Promise((ok) => { release = () => ok('no changes'); }); } });
   admin.call('updateRoom', [{ id: 'room-it-1-0141', label: 'Dean of Engineering' }]);
   assert.equal(runs.length, 0, 'a room label is not a campus-map input');
-  admin.call('updateNavNode', [{ id: 'ep-1-n0356', primary: true }]);
-  assert.equal(runs.length, 1, 'an entrance primary flag is');
+  admin.call('updateNavNode', [{ id: 'ep-1-n0356', access: 'main' }]);
+  assert.equal(runs.length, 1, 'an entrance class is');
   assert.equal(admin.status().mapRebuild.running, true);
   admin.call('updateBuilding', [{ id: 'bld-it', levels: 4 }]);
   assert.equal(runs.length, 1, 'a save during a run queues one more run instead of a parallel one');
@@ -121,8 +121,8 @@ test('a save that changes a primary door, levels or height reruns the campus-map
   await bad.mapRebuildIdle();
   assert.deepEqual([bad.status().mapRebuild.last.ok, bad.status().mapRebuild.last.error], [false, 'boom']);
   // the inputs string sees exactly those fields
-  const d = { navNodes: [{ id: 'a', type: 'entrance', floorId: 'f', x: 1, y: 2, primary: 'true' }, { id: 'b', type: 'room', primary: true }], buildings: [{ id: 'x', levels: 3, height: '' }] };
-  assert.equal(mapInputsOf(d), JSON.stringify([[['a', 'f', 1, 2, true]], [['x', '3', '']]]));
+  const d = { navNodes: [{ id: 'a', type: 'entrance', floorId: 'f', x: 1, y: 2, access: 'alt', label: 'ignored' }, { id: 'b', type: 'room', access: 'main' }], buildings: [{ id: 'x', levels: 3, height: '' }] };
+  assert.equal(mapInputsOf(d), JSON.stringify([[['a', 'f', 1, 2, 'alt']], [['x', '3', '']]]));
 });
 
 test('the admin rebuilds the map only for the repository overrides by default (npm run campus-map reads data/overrides)', () => {

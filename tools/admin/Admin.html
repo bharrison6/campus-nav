@@ -862,8 +862,8 @@
 
           <div id="buildings-map-empty" class="empty-state" style="margin-bottom:16px;">
             There is no map in this tab: the site's campus map is drawn from committed OpenStreetMap data (no map key).
-            Building details, coordinates, levels and height are edited below; entrance primary flags are on the entrance
-            nodes in the Floor editor. Saving those rebuilds the campus map files.
+            Building details, coordinates, levels and height are edited below; entrance classes (main, alt, emergency)
+            are set in the Map Editor and Doors &amp; Halls tabs. Saving those rebuilds the campus map files.
           </div>
 
           <!-- Building Detail Section (shown when building selected) -->
@@ -3632,7 +3632,7 @@
     }
 
     /**
-     * Save edits to the selected nav node (type, roomId, linkId, access; primary follows access for entrances).
+     * Save edits to the selected nav node (type, roomId, linkId, access).
      */
     function saveNavNodeEdit() {
       if (!navSelectedNode) { showMessage('No node selected.', 'error'); return; }
@@ -3654,7 +3654,6 @@
         var access = document.getElementById('nav-edit-access').value;
         // keep the stored class blank while it equals the automatic one, so the pipeline's choice still applies
         if (navSelectedNode.access || access !== effectiveNodeAccess(navSelectedNode)) data.access = access;
-        if (type === 'entrance') data.primary = (data.access || effectiveNodeAccess(navSelectedNode)) === 'main';
       }
 
       google.script.run
@@ -3863,7 +3862,7 @@
     function navNodeOptionLabel(node) {
       var label = normalizeNodeType(node.type);
       if (node.linkId) label += ' [' + node.linkId + ']';
-      if (normalizeNodeType(node.type) === 'entrance' && toBool(node.primary, false)) label += ' (primary)';
+      if (normalizeNodeType(node.type) === 'entrance') label += ' (' + effectiveNodeAccess(node) + ')';
       return label + ' (' + Math.round(node.x) + ', ' + Math.round(node.y) + ') ' + node.id;
     }
 
@@ -4954,10 +4953,9 @@
     var ACCESS_COLORS = { main: '#059669', alt: '#d97706', emergency: '#dc2626' };
     var PATH_COLORS = { main: '#0f766e', alt: '#d97706' };
 
-    /** A node's class as routing reads it: its access, else main (an entrance without one: main if primary, else alt). */
+    /** A node's class as routing reads it: its access, else main. */
     function effectiveNodeAccess(node) {
       if (node && node.access) return node.access;
-      if (node && normalizeNodeType(node.type) === 'entrance') return toBool(node.primary, false) ? 'main' : 'alt';
       return 'main';
     }
 
@@ -5505,7 +5503,7 @@
       var p = s.props;
       var done = function() { showMessage('Entrance ' + (p._label || p._id) + ' is now ' + access + '. Rebuilding the map data...', 'success'); refreshMapEditor(false); refreshCampusData(); watchMapRebuild(); closeMapPanel(); };
       if (p._kind === 'floor') {
-        runServer('updateNavNode', [{ id: p._id, access: access, primary: access === 'main' }], done, editorFailure('mapedit-panel', 'Not saved: '));
+        runServer('updateNavNode', [{ id: p._id, access: access }], done, editorFailure('mapedit-panel', 'Not saved: '));
       } else {
         if (access === 'emergency' && p._access !== 'emergency') showMessage(SLOW_CHECK_MESSAGE, 'info');
         runServer('updateMapFeature', [{ id: p._id, changes: { access: access } }], done, editorFailure('mapedit-panel', 'Not saved: '));
@@ -5844,7 +5842,6 @@
       if (!s || s.kind !== 'node') return;
       var n = findById(campusData.navNodes, s.id);
       var data = { id: s.id, access: access };
-      if (n && normalizeNodeType(n.type) === 'entrance') data.primary = access === 'main';
       runServer('updateNavNode', [data], function() {
         showMessage((n && normalizeNodeType(n.type) === 'entrance' ? 'Entrance ' : 'Door ') + s.id + ' is now ' + access + '.', 'success');
         refreshCampusData(function() { selectAccessNode(s.id); updateAccessCount(); });

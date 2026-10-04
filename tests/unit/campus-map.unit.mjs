@@ -1,7 +1,7 @@
 // The v4 campus map data (scripts/campus-map, data/campus-map, data/georef, src/shared/georef.mjs) and its join with
 // the published indoor data: georeference residuals, the shared transform module, the outdoor
 // graph's connectivity, the entrance join, door-to-room routes over outdoor + indoor graphs with the web app's own
-// pathfinding module, the admin's primary/levels overrides, the aerial manifest, and that every committed output is
+// pathfinding module, the admin's access/levels overrides, the aerial manifest, and that every committed output is
 // what the committed inputs give. Needs no drawings and no network.
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -118,7 +118,7 @@ test('matching and heights: name similarity ignores generic words; override > OS
   assert.deepEqual(buildingHeight({ building: 'yes' }, { height: 12, levels: '' }, ''), { height: 12, levels: 3, source: 'override' });
 });
 
-// ---- primary entrances ----
+// ---- main entrances (the primary-entrance heuristic) ----
 
 test('main entrances: 2 to 4 per indoor building (the primary heuristic), recorded with their scores, seeded and published', () => {
   for (const bid of ['bld-it', 'bld-ep']) {
@@ -131,13 +131,11 @@ test('main entrances: 2 to 4 per indoor building (the primary heuristic), record
     // every other exterior door is alt, or emergency when it opens out of a stairwell
     for (const e of scored.filter((x) => x.access !== 'main')) assert.equal(e.access, e.roomType === 'stair' ? 'emergency' : 'alt', e.nodeId);
     for (const n of ents) assert.ok(['main', 'alt', 'emergency'].includes(n.access), n.id);
-    // the legacy primary flag mirrors access (until every reader moves to access)
-    for (const n of ents) assert.equal(n.primary, n.access === 'main', n.id);
   }
   // EP's stair-tower exit out of stair 1300K is an emergency exit.
   assert.equal(campus.navNodes.find((n) => n.id === 'ep-1-n0359').access, 'emergency');
-  // Only entrance nodes carry primary; only doors, entrances and waypoints carry access.
-  assert.ok(campus.navNodes.filter((n) => n.type !== 'entrance').every((n) => !('primary' in n)));
+  // The v4 primary flag is retired: no node carries it; only doors, entrances and waypoints carry access.
+  assert.ok(campus.navNodes.every((n) => !('primary' in n)));
   for (const n of campus.navNodes) assert.equal('access' in n, ['door', 'entrance', 'waypoint'].includes(n.type), n.id);
 });
 
@@ -196,12 +194,12 @@ test('entrance join: graph entrances are published entrance nodes at the same co
     assert.ok(n && n.type === 'entrance', g.id);
     assert.ok(haversine(g.lat, g.lng, n.lat, n.lng) < 0.2, g.id);
     assert.equal(g.access, n.access, g.id);
-    assert.equal(g.primary, n.primary, g.id);
+    assert.ok(!('primary' in g), g.id);
   }
   for (const b of campus.buildings.filter((x) => x.hasIndoor)) {
     assert.ok(Array.isArray(b.entrances) && b.entrances.length >= 2, b.id);
     for (const e of b.entrances) {
-      assert.deepEqual(Object.keys(e), ['nodeId', 'lat', 'lng', 'label', 'access', 'primary']);
+      assert.deepEqual(Object.keys(e), ['nodeId', 'lat', 'lng', 'label', 'access']);
       assert.equal(e.lat, nodes.get(e.nodeId).lat);
       assert.match(e.label, /^(North|Northeast|East|Southeast|South|Southwest|West|Northwest) entrance( \d+)?(, level \d)?$/);
     }
@@ -214,7 +212,7 @@ test('entrance join: graph entrances are published entrance nodes at the same co
   for (const n of campus.navNodes.filter((x) => x.type === 'entrance')) assert.ok(Number.isFinite(n.lat) && Number.isFinite(n.lng), n.id);
 });
 
-test('door to room: routes from the far corner of campus reach rooms through a primary door, step-free too', () => {
+test('door to room: routes from the far corner of campus reach rooms through a main door, step-free too', () => {
   // The app's own engine: the published indoor graph joined with the outdoor graph by MSCNPath.addOutdoorGraph.
   const P = loadInclude('WebApp_Pathfinding.html', 'MSCNPath');
   const g = P.addOutdoorGraph(P.buildGraph(campus, {}), graph);
@@ -231,11 +229,11 @@ test('door to room: routes from the far corner of campus reach rooms through a p
       assert.ok(route, `${roomId}${accessibleOnly ? ' step-free' : ''}`);
       const entered = route.nodeIds.filter((id) => doors.has(id));
       assert.ok(entered.length >= 1, `${roomId} enters through a door of the outdoor graph`);
-      for (const d of entered) assert.ok(g.nodes[d].primary === true || g.nodes[d].soleDoor === true, `${roomId}: ${d} is a primary or sole door`);
+      for (const d of entered) assert.ok(P.accessOf(g.nodes[d]) === 'main' || g.nodes[d].soleDoor === true, `${roomId}: ${d} is a main or sole door`);
       assert.ok(route.distance > 1000 && route.distance < 6000, `${roomId} ${route.distance}`);
     }
   }
-  // EP 1322 is entered only through its own exterior door (the non-primary sole-access entrance).
+  // EP 1322 is entered only through its own exterior door (the alt sole-access entrance).
   const r1322 = P.findPath(g, far.id, P.nodesForRoom(g, 'room-ep-1-1322'));
   assert.ok(r1322.nodeIds.includes('ep-1-n0365'));
   assert.equal(g.nodes['ep-1-n0365'].soleDoor, true);
@@ -246,22 +244,22 @@ test('door to room: routes from the far corner of campus reach rooms through a p
 
 // ---- admin overrides ----
 
-test('admin: toggling primary and setting levels/height are overrides the export publishes', () => {
+test('admin: setting an entrance class and levels/height are overrides the export publishes', () => {
   const dir = path.join(tmp, 'ov');
   fs.cpSync(path.join(ROOT, 'data', 'overrides'), dir, { recursive: true });
   const engine = openCampus({ overridesDir: dir });
-  engine.gas.run('updateNavNode', [{ id: 'it-1-n0493', primary: true }]);
-  engine.gas.run('updateNavNode', [{ id: 'it-1-n0490', primary: false }]);
+  engine.gas.run('updateNavNode', [{ id: 'it-1-n0493', access: 'main' }]);
+  engine.gas.run('updateNavNode', [{ id: 'it-1-n0490', access: 'alt' }]);
   engine.gas.run('updateBuilding', [{ id: 'bld-ac', levels: 2, height: 9 }]);
   engine.save();
   const nodes = JSON.parse(fs.readFileSync(path.join(dir, 'navNodes.json'), 'utf8'));
-  assert.deepEqual(nodes.filter((r) => /it-1-n049[03]/.test(r.id)), [{ id: 'it-1-n0490', primary: false }, { id: 'it-1-n0493', primary: true }]);
+  assert.deepEqual(nodes.filter((r) => /it-1-n049[03]/.test(r.id)), [{ id: 'it-1-n0490', access: 'alt' }, { id: 'it-1-n0493', access: 'main' }]);
   const blds = JSON.parse(fs.readFileSync(path.join(dir, 'buildings.json'), 'utf8'));
   assert.deepEqual(blds.find((r) => r.id === 'bld-ac'), { id: 'bld-ac', levels: 2, height: 9 });
   const x = buildExport({ overridesDir: dir }).campus;
   const n = (id) => x.navNodes.find((m) => m.id === id);
-  assert.equal(n('it-1-n0493').primary, true);
-  assert.equal(n('it-1-n0490').primary, false);
+  assert.equal(n('it-1-n0493').access, 'main');
+  assert.equal(n('it-1-n0490').access, 'alt');
   const ac = x.buildings.find((b) => b.id === 'bld-ac');
   assert.equal(ac.levels, 2);
   assert.equal(ac.height, 9);
@@ -274,7 +272,7 @@ test('admin: an entrance moved, added or deleted in the admin is where the expor
   const before = engine.gas.run('getAllCampusData', []).navNodes;
   const moved = before.find((n) => n.id === 'it-1-n0492');
   engine.gas.run('updateNavNode', [{ id: 'it-1-n0492', x: Number(moved.x) + 1000 }]);
-  const added = engine.gas.run('saveNavNode', [{ floorId: 'floor-it-1', x: Number(moved.x) + 300, y: Number(moved.y) - 400, type: 'entrance', primary: true }]);
+  const added = engine.gas.run('saveNavNode', [{ floorId: 'floor-it-1', x: Number(moved.x) + 300, y: Number(moved.y) - 400, type: 'entrance', access: 'main' }]);
   const addedId = (added && (added.id || (added.record && added.record.id))) || null;
   engine.gas.run('deleteNavNode', [{ id: 'it-1-n0493' }]);
   engine.save();
@@ -288,7 +286,7 @@ test('admin: an entrance moved, added or deleted in the admin is where the expor
   const committed = graph.nodes.find((n) => n.id === 'it-1-n0492');
   assert.ok(haversine(committed.lat, committed.lng, gnode('it-1-n0492').lat, gnode('it-1-n0492').lng) > 20, 'the graph follows the edit');
   assert.ok(out.graph.edges.some((e) => e.kind === 'connector' && (e.from === 'it-1-n0492' || e.to === 'it-1-n0492')), 'the moved door is still joined');
-  // added as a primary entrance: joined, at the exported point
+  // added as a main entrance: joined, at the exported point
   assert.ok(addedId, 'saveNavNode returned the new id');
   assert.ok(gnode(addedId), 'the added entrance is in the graph');
   assert.ok(apart(addedId) < 1, `${addedId} graph vs export ${apart(addedId)} m`);

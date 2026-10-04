@@ -12,8 +12,8 @@ import {
   addBuilding, addEntrance, addPath, autoPathAccess, deleteFeature, featureId, formatGeo, geoEditIsAdditive, setPathAccess, snapPoint,
   updateFeature,
 } from '../../tools/admin/map-overrides.mjs';
-import { cutOffs, loadCheckConnectivity, prepareForCheck } from '../../tools/admin/connectivity-gate.mjs';
-import { checkConnectivity } from '../../tools/admin/connectivity-standin.mjs';
+import { CONNECTIVITY, cutOffs, prepareForCheck } from '../../tools/admin/connectivity-gate.mjs';
+import { checkConnectivity } from '../../scripts/data/connectivity.mjs';
 import { buildExport } from '../../scripts/data/export-campus-data.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -174,18 +174,18 @@ test('floor-plan editor saves: a door\'s class in navNodes.json, a room made a h
 
 test('save check: removing the only door to EP 1322 is refused with what it cuts off, and nothing is written', async () => {
   const { admin, overridesDir } = editor();
-  assert.match(admin.status().connectivity, /connectivity/);
+  assert.equal(admin.status().connectivity, 'scripts/data/connectivity.mjs');
   const err = (() => { try { admin.call('updateNavNode', [{ id: 'ep-1-n0365', access: 'emergency' }]); } catch (e) { return e; } return null; })();
   assert.ok(err, 'refused');
   assert.match(err.message, /^Refused: setting ep-1-n0365 to emergency would leave 1 room\(s\): EP 1322 with no route\. Nothing was saved\.$/);
   assert.deepEqual(err.refused, { rooms: [{ id: 'room-ep-1-1322', label: 'EP 1322' }], buildings: [] });
   assert.equal(fs.existsSync(path.join(overridesDir, 'navNodes.json')) ? readJson(path.join(overridesDir, 'navNodes.json')).length : 0, 0);
-  assert.equal(admin.call('getAllCampusData', []).navNodes.find((x) => x.id === 'ep-1-n0365').access, '', 'not kept in memory either');
+  assert.equal(admin.call('getAllCampusData', []).navNodes.find((x) => x.id === 'ep-1-n0365').access, 'alt', 'not kept in memory either (the seeded class stays)');
   assert.throws(() => admin.call('deleteNavNode', [{ id: 'ep-1-n0365' }]), /Refused: deleting ep-1-n0365 would leave 1 room\(s\): EP 1322/);
   assert.ok(admin.call('getAllCampusData', []).navNodes.some((x) => x.id === 'ep-1-n0365'));
-  // alt keeps it routable, so that save goes through
-  admin.call('updateNavNode', [{ id: 'ep-1-n0365', access: 'alt' }]);
-  assert.deepEqual(readJson(path.join(overridesDir, 'navNodes.json')), [{ id: 'ep-1-n0365', access: 'alt' }]);
+  // main keeps it routable, so that save goes through
+  admin.call('updateNavNode', [{ id: 'ep-1-n0365', access: 'main' }]);
+  assert.deepEqual(readJson(path.join(overridesDir, 'navNodes.json')), [{ id: 'ep-1-n0365', access: 'main' }]);
 
   // over HTTP the refusal arrives as { ok: false, error, refused }
   await new Promise((r) => admin.server.listen(0, '127.0.0.1', r));
@@ -215,7 +215,7 @@ test('save check on the map: deleting an outdoor link that cuts a building off i
   assert.ok(readJson(path.join(campusMapDir, 'overrides.geojson')).features.some((f) => f.properties.id === e.id), 'the refused delete wrote nothing');
 });
 
-test('the gate counts only new cut-offs; waypoints inherit their hallway\'s class; entrance classes reach the outdoor graph', () => {
+test('the gate counts only new cut-offs; entrance classes reach the outdoor graph', () => {
   const before = { unreachableRooms: ['r-old'], unreachableBuildings: [] };
   const afterR = { unreachableRooms: ['r-old', 'r-cut', 'r-new'], unreachableBuildings: ['b1'] };
   assert.deepEqual(cutOffs(before, afterR, { rooms: [{ id: 'r-old' }, { id: 'r-cut' }], buildings: [{ id: 'b1' }] }), { rooms: ['r-cut'], buildings: ['b1'] });
@@ -224,24 +224,19 @@ test('the gate counts only new cut-offs; waypoints inherit their hallway\'s clas
     navNodes: [{ id: 'w1', floorId: 'f', type: 'waypoint', x: 5, y: 5 }, { id: 'w2', floorId: 'f', type: 'waypoint', x: 50, y: 5 }, { id: 'e', floorId: 'f', type: 'entrance', x: 0, y: 0, access: 'alt' }],
   };
   const p = prepareForCheck(campus, { nodes: [{ id: 'e', type: 'entrance' }], edges: [] });
-  assert.equal(p.campus.navNodes[0].access, 'emergency');
-  assert.equal(p.campus.navNodes[1].access, undefined);
+  assert.equal(p.campus, campus, 'the campus as the exporter published it (waypoints already carry their hallway\'s class)');
   assert.equal(p.graph.nodes[0].access, 'alt');
 });
 
-test('the connectivity stand-in passes on the real data and finds EP 1322 cut off without its door; the shared check wins when present', async () => {
+test('the admin\'s save check is the shared one: it passes on the real data and finds EP 1322 cut off without its door', () => {
+  assert.equal(CONNECTIVITY.check, checkConnectivity);
   const pub = buildExport().campus;
   const g = readJson(path.join(MAP_DIR, 'outdoor-graph.json'));
   const ok = checkConnectivity(pub, g);
   assert.deepEqual([ok.ok, ok.unreachableRooms, ok.unreachableBuildings], [true, [], []]);
   const cut = checkConnectivity({ ...pub, navNodes: pub.navNodes.map((x) => (x.id === 'ep-1-n0365' ? { ...x, access: 'emergency' } : x)) }, g);
   assert.deepEqual(cut.unreachableRooms, ['room-ep-1-1322']);
-  assert.match((await loadCheckConnectivity(path.join(tmp, 'absent.mjs'))).source, /stand-in/);
-  const shared = path.join(freshDir('shared'), 'connectivity.mjs');
-  fs.writeFileSync(shared, 'export function checkConnectivity() { return { ok: true, unreachableRooms: [], unreachableBuildings: [], components: 1 }; }\n');
-  const loaded = await loadCheckConnectivity(shared);
-  assert.equal(loaded.check({}, {}).components, 1);
-  assert.doesNotMatch(loaded.source, /stand-in/);
+  assert.ok(!fs.existsSync(path.join(REPO, 'tools', 'admin', 'connectivity-standin.mjs')), 'the stand-in is gone');
 });
 
 test('hallway suggestions: listed from data/review, accept makes the room a hallway (checked), reject is remembered', () => {

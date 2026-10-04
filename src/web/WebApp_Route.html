@@ -25,22 +25,28 @@ function initRoute() {
 
 /*
  * Access classes (plan mscn-v5-access-classes-and-editors): a route prefers main doors, hallways and paths; an alt one
- * costs its length times routing.altFactor (campus config, default 3), or its plain length with "Use side doors and
- * paths" on; emergency exits and hallways are drawn but never routed.
+ * costs its length times routing.altFactor (campus config, default 3), and each alt door or entrance passed through adds
+ * routing.altDoorCost meters (default 300); with "Use side doors and paths" on, alt costs its plain length and no door
+ * cost. Emergency exits and hallways are drawn but never routed.
  */
-function configAltFactor() {
-  var v = getConfigValue('routing.altFactor');
+function configRoutingNumber(key, min, dflt) {
+  var v = getConfigValue('routing.' + key);
   if (v === null || v === undefined || v === '') {
     var r = parseJsonField(getConfigValue('routing'), null);
-    v = r && typeof r === 'object' ? r.altFactor : null;
+    v = r && typeof r === 'object' ? r[key] : null;
   }
   var n = Number(v);
-  return v !== null && v !== undefined && v !== '' && isFinite(n) && n >= 1 ? n : MSCNPath.DEFAULT_ALT_FACTOR;
+  return v !== null && v !== undefined && v !== '' && isFinite(n) && n >= min ? n : dflt;
 }
+
+function configAltFactor() { return configRoutingNumber('altFactor', 1, MSCNPath.DEFAULT_ALT_FACTOR); }
+
+function configAltDoorCost() { return configRoutingNumber('altDoorCost', 0, MSCNPath.DEFAULT_ALT_DOOR_COST); }
 
 /* The findPath options of the current route: stairs and side doors as the visitor set them. */
 function routeOpts(extra) {
-  var o = { accessibleOnly: NAV.avoidStairs, altFactor: NAV.useSideDoors ? 1 : configAltFactor() };
+  var side = NAV.useSideDoors;
+  var o = { accessibleOnly: NAV.avoidStairs, altFactor: side ? 1 : configAltFactor(), altDoorCost: side ? 0 : configAltDoorCost() };
   for (var k in (extra || {})) { if (extra.hasOwnProperty(k)) { o[k] = extra[k]; } }
   return o;
 }
@@ -67,7 +73,7 @@ function resolveGoal(dest) {
   if (dest.kind === 'building') {
     var bid = dest.buildingId;
     var label = buildingName(bid);
-    var doors = MSCNPath.primaryEntrances(g, bid, NAV.useSideDoors);
+    var doors = MSCNPath.mainEntrances(g, bid, NAV.useSideDoors);
     if (doors.length) { return { kind: 'building', ids: doors, label: label, buildingId: bid }; }
     var c = buildingCenter(bid);
     var sn = c ? snapToPaths(c) : null;
@@ -96,7 +102,7 @@ function resolveStart(goal) {
       error: 'Your scanned location is not on the public map.' };
   }
   if (s && s.kind === 'building') {
-    var doors = MSCNPath.primaryEntrances(g, s.buildingId, NAV.useSideDoors);
+    var doors = MSCNPath.mainEntrances(g, s.buildingId, NAV.useSideDoors);
     if (doors.length) { return { kind: 'building', ids: doors, label: buildingName(s.buildingId), buildingId: s.buildingId }; }
     var c = buildingCenter(s.buildingId);
     var sn = c ? snapToPaths(c) : null;
@@ -131,7 +137,7 @@ function automaticEntrances(goal) {
   var bid = goal.buildingId;
   var joined = (g.entrances && g.entrances[bid]) || [];
   if (!joined.length) { return MSCNPath.entranceIds(g, bid); }
-  var prim = MSCNPath.primaryEntrances(g, bid, NAV.useSideDoors);
+  var prim = MSCNPath.mainEntrances(g, bid, NAV.useSideDoors);
   var opts = routeOpts({ indoorOnly: true });
   if (MSCNPath.findPath(g, prim, goal.ids, opts)) { return prim; }
   var sole = [];
@@ -369,7 +375,7 @@ function endRoute() {
 
 /*
  * The route's Start: "My location" (the blue dot, GPS started on demand) or a search for a start, the top bar's own
- * search (searchCombobox in WebApp_Main): a room starts at that room, a building at its primary doors. Neither chosen
+ * search (searchCombobox in WebApp_Main): a room starts at that room, a building at its main doors. Neither chosen
  * is the automatic start, said in the placeholder; a start set elsewhere (a room's "Set as start", a scanned code, a
  * ?loc= link) shows as the field's value with a clear control. The field is built once per route panel and kept
  * across re-renders, so a re-route never takes it from under someone typing.

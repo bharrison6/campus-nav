@@ -173,9 +173,9 @@ test('a point destination on an entrance connector, from inside: leave by that d
 
 // ---------------- finding 3: the automatic start ----------------
 
-const prim = (bid) => Array.from(P.primaryEntrances(g, bid)).sort();
+const prim = (bid) => Array.from(P.mainEntrances(g, bid)).sort();
 
-test('resolveStart, automatic: a room\'s route starts at its building\'s primary doors (IT 101F)', () => {
+test('resolveStart, automatic: a room\'s route starts at its building\'s main doors (IT 101F)', () => {
   const ctx = A;
   NAV.start = null;
   ctx.GPS = undefined;
@@ -183,31 +183,31 @@ test('resolveStart, automatic: a room\'s route starts at its building\'s primary
   const st = ctx.resolveStart(goal);
   assert.equal(st.kind, 'entrance');
   assert.deepEqual(Array.from(st.ids).sort(), prim('bld-it'));
-  assert.ok(!st.ids.includes('it-1-n0489'), 'not the non-primary door beside 101F');
+  assert.ok(!st.ids.includes('it-1-n0489'), 'not the side door beside 101F');
   const r = plan(A, { kind: 'room', roomId: 'room-it-1-0101F' });
   assert.equal(r.error, null);
   const doors = r.steps.flatMap((s) => s.nodeIds).filter((id) => g.nodes[id].type === 'entrance');
-  assert.ok(doors.length && doors.every((id) => g.nodes[id].primary === true), `starts at a primary door (${doors.join(',')})`);
+  assert.ok(doors.length && doors.every((id) => P.accessOf(g.nodes[id]) === 'main'), `starts at a main door (${doors.join(',')})`);
   assert.ok(r.meters > 1.49 + 1, `longer than the 1.49 m side-door start (${r.meters.toFixed(2)} m)`);
 });
 
-test('resolveStart, automatic: no room of IT or EP starts at a door the outdoor join closed', () => {
+test('resolveStart, automatic: no room of IT or EP starts at a side door (only main doors, or a sole door)', () => {
   NAV.start = null;
   A.GPS = undefined;
   for (const bid of ['bld-it', 'bld-ep']) {
     const rooms = data.rooms.filter((rm) => A.APP.by.floors[rm.floorId].buildingId === bid);
     for (const rm of rooms) {
       const st = A.resolveStart(A.resolveGoal({ kind: 'room', roomId: rm.id }));
-      for (const id of st.ids) assert.ok(g.nodes[id].primary === true || g.nodes[id].soleDoor === true, `${rm.id}: ${id}`);
+      for (const id of st.ids) assert.ok(P.accessOf(g.nodes[id]) === 'main' || g.nodes[id].soleDoor === true, `${rm.id}: ${id}`);
     }
   }
 });
 
-test('resolveStart, automatic: EP 1322 falls back to its sole door, which the primaries cannot reach indoors', () => {
+test('resolveStart, automatic: EP 1322 falls back to its sole door, which the main doors cannot reach indoors', () => {
   NAV.start = null;
   A.GPS = undefined;
   const goal = A.resolveGoal({ kind: 'room', roomId: 'room-ep-1-1322' });
-  assert.equal(P.findPath(g, P.primaryEntrances(g, 'bld-ep'), goal.ids, { indoorOnly: true }), null);
+  assert.equal(P.findPath(g, P.mainEntrances(g, 'bld-ep'), goal.ids, { indoorOnly: true }), null);
   const st = A.resolveStart(goal);
   assert.deepEqual(Array.from(st.ids), ['ep-1-n0365']);
   const r = plan(A, { kind: 'room', roomId: 'room-ep-1-1322' });
@@ -215,7 +215,7 @@ test('resolveStart, automatic: EP 1322 falls back to its sole door, which the pr
   assert.equal(r.steps.at(-1).title, 'Arrive at EP 1322');
 });
 
-test('resolveStart: an explicit scanned or selected start is kept, even at a non-primary door', () => {
+test('resolveStart: an explicit scanned or selected start is kept, even at a side door', () => {
   A.GPS = undefined;
   const goal = A.resolveGoal({ kind: 'room', roomId: 'room-it-2-0241' });
   NAV.start = { kind: 'node', nodeId: 'it-1-n0489', label: 'the code by 101F' };
@@ -273,7 +273,7 @@ test('Start search "IT 141": the room starts the route to an EP room, and the fi
   assert.equal(A.startFieldText().value, 'IT 141');
 });
 
-test('Start search "Engineering": the building starts the route at its primary doors', () => {
+test('Start search "Engineering": the building starts the route at its main doors', () => {
   // "Engineering" ties EP with E.B. Howton Agricultural Engineering (same score, alphabetical): the visitor picks EP
   const hits = A.MSCNSearch.search(INDEX, 'Engineering', 6);
   const e = hits.find((h) => h.title === 'Engineering and Physics Building');
@@ -288,7 +288,7 @@ test('Start search "Engineering": the building starts the route at its primary d
   assert.deepEqual(Array.from(A.resolveStart(A.resolveGoal(NAV.dest)).ids).sort(), prim('bld-ep'));
   const firstNode = g.nodes[r.steps[0].nodeIds[0]];
   assert.equal(firstNode.type, 'entrance');
-  assert.equal(firstNode.primary, true, 'starts at an EP primary door');
+  assert.equal(P.accessOf(firstNode), 'main', 'starts at an EP main door');
   assert.deepEqual(A.tracked, [['route_from', 'building']]);
   assert.equal(A.startFieldText().value, 'Engineering and Physics Building');
 });

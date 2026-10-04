@@ -3,9 +3,8 @@
 // transform (src/shared/georef.mjs), so the exporter and the web app place a door at the same point.
 //
 //   navNodes of type entrance  gain lat, lng (when their building is georeferenced); access (main, alt, emergency) is
-//                              the engine's (seeded by the campus-map build, overridable); primary mirrors access ===
-//                              'main' for readers that predate access (LEGACY_PRIMARY)
-//   other navNodes             carry no primary field (the column exists for every node; only entrances use it)
+//                              the engine's (seeded by the campus-map build, overridable); the v4 boolean primary is
+//                              retired
 //   buildings[].entrances      for a georeferenced indoor building: [{nodeId, lat, lng, label, access}] from its
 //                              published entrance nodes, main first; for a building with entrances drawn on the map
 //                              (overrides.geojson layer `entrances`): those, with the outdoor graph's node ids; other
@@ -20,9 +19,6 @@ const COMPASS = ['North', 'Northeast', 'East', 'Southeast', 'South', 'Southwest'
 const R6 = (v) => Math.round(v * 1e6) / 1e6;
 const toBool = (v) => v === true || /^(true|1|yes)$/i.test(String(v));
 const ORDER = { main: 0, alt: 1, emergency: 2 };
-
-/** Entrances also carry `primary` (= access is main) until every reader uses access (lane S's client, the admin). */
-export const LEGACY_PRIMARY = true;
 
 /**
  * The entrances drawn for buildings without floor plans (data/campus-map/overrides.geojson, layer "entrances"), with
@@ -89,7 +85,7 @@ export function entranceLabel(side, n, level) {
  */
 export function addCampusGeo(campus, georef, facing = {}, drawn = []) {
   const floors = new Map(campus.floors.map((f) => [f.id, f]));
-  const report = { entrances: 0, located: 0, primary: 0, access: {}, buildingsWithEntrances: [], drawn: 0, drawnUnknownBuildings: [] };
+  const report = { entrances: 0, located: 0, access: {}, buildingsWithEntrances: [], drawn: 0, drawnUnknownBuildings: [] };
   const byBuilding = new Map();
   const nodeById = new Map(campus.navNodes.map((n) => [n.id, n]));
   const inner = new Map(); // entrance id -> the indoor node it opens from (same floor)
@@ -100,14 +96,10 @@ export function addCampusGeo(campus, georef, facing = {}, drawn = []) {
     if (a.type === 'entrance' && !inner.has(a.id)) inner.set(a.id, b);
     if (b.type === 'entrance' && !inner.has(b.id)) inner.set(b.id, a);
   }
-  for (const n of campus.navNodes) if (n.type !== 'entrance') delete n.primary;
   for (const { node: n, floorId, x, y } of campusEntrances(campus)) {
     report.entrances++;
     n.access = ORDER[n.access] != null ? n.access : 'main';
     report.access[n.access] = (report.access[n.access] || 0) + 1;
-    if (LEGACY_PRIMARY) n.primary = n.access === 'main';
-    else delete n.primary;
-    if (n.access === 'main') report.primary++;
     const f = floors.get(floorId);
     const rec = f && georef[f.buildingId];
     if (!rec) continue;
@@ -136,19 +128,13 @@ export function addCampusGeo(campus, georef, facing = {}, drawn = []) {
         .map(({ n, level, side }) => {
           const k = side + '|' + level;
           seen[k] = (seen[k] || 0) + 1;
-          const e = { nodeId: n.id, lat: n.lat, lng: n.lng, label: entranceLabel(side, seen[k], level), access: n.access };
-          if (LEGACY_PRIMARY) e.primary = n.access === 'main';
-          return e;
+          return { nodeId: n.id, lat: n.lat, lng: n.lng, label: entranceLabel(side, seen[k], level), access: n.access };
         });
       report.buildingsWithEntrances.push(b.id);
     } else if (drawnBy.has(b.id)) {
       b.entrances = drawnBy.get(b.id)
         .sort((x, y) => ORDER[x.access] - ORDER[y.access] || (x.id < y.id ? -1 : 1))
-        .map((d, i) => {
-          const e = { nodeId: d.id, lat: d.lat, lng: d.lng, label: d.label || `Entrance${i ? ` ${i + 1}` : ''}`, access: d.access };
-          if (LEGACY_PRIMARY) e.primary = d.access === 'main';
-          return e;
-        });
+        .map((d, i) => ({ nodeId: d.id, lat: d.lat, lng: d.lng, label: d.label || `Entrance${i ? ` ${i + 1}` : ''}`, access: d.access }));
       report.drawn += b.entrances.length;
       report.buildingsWithEntrances.push(b.id);
     }

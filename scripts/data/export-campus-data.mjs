@@ -11,7 +11,7 @@
 //                                nodes, indoor photos, QR locations); config is key/value rows and never holds
 //                                mapsApiKey (the site's config.json carries the key). The local admin still reads
 //                                getAllCampusData, hidden floors included. v4 map fields (campus-geo.mjs): entrance
-//                                nodes gain lat/lng/primary from data/georef, indoor buildings' entrances are derived
+//                                nodes gain lat/lng from data/georef, indoor buildings' entrances are derived
 //                                from them, buildings carry levels (and height when set).
 //   <dir>/floors/<floorId>.svg   each public floor's plan (the FP_<floorId>.html asset, via getFloorPlanSvg)
 //   <dir>/version.json           { version, builtAt, gitSha }
@@ -26,7 +26,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { OVERRIDES_DIR, REPO, describeReport, openCampus } from './campus-engine.mjs';
 import { addCampusGeo, readDrawnEntrances, readEntranceFacing, readGeoref } from './campus-geo.mjs';
-import { applyAccess, publishAltFactor } from './access.mjs';
+import { applyAccess, publishAltDoorCost, publishAltFactor } from './access.mjs';
 
 export const GEOREF_DIR = path.join(REPO, 'data', 'georef');
 export const FLOORPLANS_DIR = path.join(REPO, 'data', 'floorplans');
@@ -41,10 +41,12 @@ export function buildExport({ gsDir, overridesDir = OVERRIDES_DIR, georefDir = G
   const campus = engine.gas.run('getPublicCampusData', []);
   campus.config = campus.config.filter((c) => c.key !== 'mapsApiKey');
   const altFactor = publishAltFactor(campus);
+  const altDoorCost = publishAltDoorCost(campus);
   const access = applyAccess(campus);
   const geo = addCampusGeo(campus, readGeoref(georefDir), readEntranceFacing(georefDir === GEOREF_DIR ? FLOORPLANS_DIR : null), readDrawnEntrances(campusMapDir));
   geo.classes = access;
   geo.altFactor = altFactor;
+  geo.altDoorCost = altDoorCost;
   const leaked = campus.floors.filter((f) => !isPublicFloor(f)).map((f) => f.id);
   if (leaked.length) throw new Error(`getPublicCampusData kept hidden floor(s) ${leaked.join(', ')}`);
   const floors = [];
@@ -119,7 +121,7 @@ if (isMain) {
       console.log('  ' + Object.entries(r.counts).map(([k, n]) => `${k} ${n}`).join(', '));
       console.log(`  ${r.files.length} files (campus.json, version.json, ${r.files.length - 2} floor plans)`);
       console.log(`  entrances: ${r.geo.entrances} (${r.geo.located} with coordinates; by access ${JSON.stringify(r.geo.access)}); building entrances derived for ${r.geo.buildingsWithEntrances.join(', ') || 'none'}`);
-      console.log(`  access: corridors ${JSON.stringify(r.geo.classes.rooms)}, nodes ${JSON.stringify(r.geo.classes.nodes)}; ${r.geo.classes.waypointsInherited} waypoints inherit their hallway's class${r.geo.classes.hubsMadeWaypoints.length ? `; hubs made hallway points: ${r.geo.classes.hubsMadeWaypoints.join(', ')}` : ''}; routing.altFactor ${r.geo.altFactor}`);
+      console.log(`  access: corridors ${JSON.stringify(r.geo.classes.rooms)}, nodes ${JSON.stringify(r.geo.classes.nodes)}; ${r.geo.classes.waypointsInherited} waypoints inherit their hallway's class${r.geo.classes.hubsMadeWaypoints.length ? `; hubs made hallway points: ${r.geo.classes.hubsMadeWaypoints.join(', ')}` : ''}; routing.altFactor ${r.geo.altFactor}, altDoorCost ${r.geo.altDoorCost}`);
       for (const id of r.geo.drawnUnknownBuildings) console.warn(`  drawn entrances name building ${id}, which is not in the campus data (add the building in the admin)`);
       for (const l of lines) console.log('  ' + l);
     } else {

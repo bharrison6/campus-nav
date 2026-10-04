@@ -229,14 +229,14 @@ function directionsToCampusUrl(lat, lng) {
 
 function entranceLabel(e) { return (e && (e.label || e.name)) || ''; }
 
-/* Best outdoor target for a building: the given entrance node, a primary door, any mapped entrance, the building point. */
+/* Best outdoor target for a building: the given entrance node, a main door, any mapped entrance, the building point. */
 function buildingTarget(buildingId, nodeId) {
   var b = APP.by.buildings[buildingId];
   if (!b) { return null; }
   var g = APP.graph;
   var n = nodeId && g ? g.nodes[nodeId] : null;
   if (n && MSCNPath.hasLngLat(n)) { return { lat: n.lat, lng: n.lng, name: doorName(n, buildingId), nodeId: n.id }; }
-  var prim = g ? MSCNPath.primaryEntrances(g, buildingId) : [];
+  var prim = g ? MSCNPath.mainEntrances(g, buildingId) : [];
   if (prim.length) { n = g.nodes[prim[0]]; return { lat: n.lat, lng: n.lng, name: doorName(n, buildingId), nodeId: n.id }; }
   var ents = b.entrances || [];
   var i;

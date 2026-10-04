@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildExport } from '../../scripts/data/export-campus-data.mjs';
-import { applyAccess, publishAltFactor } from '../../scripts/data/access.mjs';
+import { applyAccess, publishAltDoorCost, publishAltFactor } from '../../scripts/data/access.mjs';
 import { applyOverrides, overrideAccess } from '../../scripts/data/overrides.mjs';
 import { checkConnectivity } from '../../scripts/data/connectivity.mjs';
 import { autoEntranceAccess, buildCampusMap, drawnEntrances } from '../../scripts/campus-map/build.mjs';
@@ -65,17 +65,22 @@ test('a v4 primary override reads as access: true main, false alt; an explicit a
   assert.equal(overrideAccess({ id: 'x', primary: 'false' }), 'alt');
   assert.equal(overrideAccess({ id: 'x', primary: false, access: 'emergency' }), 'emergency');
   assert.equal(overrideAccess({ id: 'x', label: 'y' }), null);
-  const headers = { navNodes: ['id', 'type', 'primary', 'access'] };
-  const base = { navNodes: [{ id: 'a', type: 'entrance', primary: false, access: 'alt' }, { id: 'b', type: 'entrance', primary: true, access: 'main' }] };
-  const { data } = applyOverrides(base, { navNodes: [{ id: 'a', primary: true }, { id: 'b', primary: false }] }, headers);
-  assert.deepEqual(data.navNodes.map((r) => r.access), ['main', 'alt']);
+  // the NavNodes primary column is gone: the flag becomes access and is not reported as an unknown field
+  const headers = { navNodes: ['id', 'type', 'access'] };
+  const base = { navNodes: [{ id: 'a', type: 'entrance', access: 'alt' }, { id: 'b', type: 'entrance', access: 'main' }, { id: 'c', type: 'entrance', access: 'alt' }] };
+  const { data, report } = applyOverrides(base, { navNodes: [{ id: 'a', primary: true }, { id: 'b', primary: false }, { id: 'c', primary: true, access: 'emergency' }] }, headers);
+  assert.deepEqual(data.navNodes.map((r) => r.access), ['main', 'alt', 'emergency']);
+  assert.ok(data.navNodes.every((r) => !('primary' in r)));
+  assert.deepEqual(report.ignoredFields, []);
 });
 
 test('export: a v4 primary override and an access override reach the published entrances and the map', () => {
   const { campus } = buildExport({ overridesDir: dir({ 'navNodes.json': NAV_OVERRIDES }) });
   const node = (id) => campus.navNodes.find((x) => x.id === id);
-  assert.deepEqual([node('ep-1-n0356').access, node('ep-1-n0356').primary], ['main', true]);
-  assert.deepEqual([node('it-2-n0554').access, node('it-2-n0554').primary], ['alt', false]);
+  assert.deepEqual([node('ep-1-n0356').access, node('ep-1-n0356').primary], ['main', undefined]);
+  assert.deepEqual([node('it-2-n0554').access, node('it-2-n0554').primary], ['alt', undefined]);
+  assert.ok(campus.navNodes.every((x) => !('primary' in x)), 'no node publishes the retired primary flag');
+  assert.ok(campus.buildings.every((b) => !(b.entrances || []).some((e) => 'primary' in e)), 'nor any building entrance');
   assert.equal(node('it-1-n0490').access, 'emergency');
   const ep = campus.buildings.find((b) => b.id === 'bld-ep');
   assert.equal(ep.entrances.find((e) => e.nodeId === 'ep-1-n0356').access, 'main');
@@ -130,11 +135,19 @@ test('applyAccess: a waypoint takes its hallway\'s class, the strictest on a sha
   assert.equal(publishAltFactor(campus), 1.5);
   campus.config[1].value = 'nonsense';
   assert.equal(publishAltFactor(campus), 3);
+  assert.equal(publishAltDoorCost(campus), 300);
+  assert.deepEqual(campus.config[2], { key: 'routing.altDoorCost', value: 300 });
+  campus.config[2].value = '0';
+  assert.equal(publishAltDoorCost(campus), 0, 'zero is allowed: no side-door cost');
+  campus.config[2].value = '-4';
+  assert.equal(publishAltDoorCost(campus), 300);
 });
 
-test('export: routing.altFactor is published (3) and editable through config.json', () => {
-  const { campus } = buildExport({ overridesDir: dir({ 'config.json': [{ key: 'routing.altFactor', value: '2' }] }) });
+test('export: routing.altFactor (3) and routing.altDoorCost (300) are published and editable through config.json', () => {
+  const { campus } = buildExport({ overridesDir: dir({ 'config.json': [{ key: 'routing.altFactor', value: '2' }, { key: 'routing.altDoorCost', value: '120' }] }) });
   assert.deepEqual(campus.config.find((c) => c.key === 'routing.altFactor'), { key: 'routing.altFactor', value: 2 });
+  assert.deepEqual(campus.config.find((c) => c.key === 'routing.altDoorCost'), { key: 'routing.altDoorCost', value: 120 });
+  assert.deepEqual(buildExport().campus.config.find((c) => c.key === 'routing.altDoorCost'), { key: 'routing.altDoorCost', value: 300 });
 });
 
 // ---- outdoor paths ----
@@ -179,7 +192,7 @@ test('drawn building and entrances (the nursing building): footprint matched, ma
   assert.ok(fp, 'the drawn footprint is the nursing building');
   assert.deepEqual([fp.properties.name, fp.properties.levels, fp.properties.height, fp.properties.source], ['School of Nursing and Health Professions', 3, 10.5, 'override']);
   const ent = out.graph.nodes.find((x) => x.id === 'entrance-bld-nursing-1');
-  assert.deepEqual({ ...ent, lat: undefined, lng: undefined }, { id: 'entrance-bld-nursing-1', lat: undefined, lng: undefined, type: 'entrance', access: 'main', primary: true, buildingId: 'bld-nursing', label: 'West entrance' });
+  assert.deepEqual({ ...ent, lat: undefined, lng: undefined }, { id: 'entrance-bld-nursing-1', lat: undefined, lng: undefined, type: 'entrance', access: 'main', buildingId: 'bld-nursing', label: 'West entrance' });
   assert.ok(out.graph.edges.some((e) => e.way === 'connector/entrance-bld-nursing-1'));
   assert.ok(!out.graph.nodes.some((x) => x.id === 'entrance-bld-nursing-2'), 'the emergency exit is not on the paths');
   assert.equal(out.report.graph.entrancesInMainComponent, true);

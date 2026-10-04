@@ -19,7 +19,8 @@
  *
  * v5 access classes (plan mscn-v5-access-classes-and-editors): doors, entrances, waypoints (and so hallways) and outdoor
  * edges are main, alt or emergency (accessOf). A route walks main at its length, alt at its length times
- * opts.altFactor (default 3; the "Use side doors and paths" toggle passes 1), and never through emergency.
+ * opts.altFactor (default 3), pays opts.altDoorCost meters (default 300) once for each alt door or entrance it passes
+ * through, and never walks through emergency. The "Use side doors and paths" toggle passes factor 1 and door cost 0.
  */
 var MSCNPath = (function () {
   'use strict';
@@ -27,6 +28,7 @@ var MSCNPath = (function () {
   var DEFAULT_MPP = 0.0254;
   var WALK_SPEED_MPS = 1.3;
   var DEFAULT_ALT_FACTOR = 3;
+  var DEFAULT_ALT_DOOR_COST = 300;
 
   function toBool(v, dflt) {
     if (v === true || v === false) { return v; }
@@ -80,25 +82,21 @@ var MSCNPath = (function () {
     return top;
   };
 
-  /*
-   * The access class of a nav node, outdoor node or edge: 'main' | 'alt' | 'emergency' (missing reads 'main').
-   * Compatibility with data from before v5, which has no access field: an entrance's boolean primary (on entrance
-   * nodes and buildings[].entrances) reads true -> main, false -> alt. Once every entrance carries access (lane P's
-   * data), the primary branch can go.
-   */
+  /* The access class of a nav node, outdoor node or edge: 'main' | 'alt' | 'emergency' (missing reads 'main'). */
   function accessOf(item) {
     if (!item) { return 'main'; }
     var a = String(item.access || '').toLowerCase();
-    if (a === 'main' || a === 'alt' || a === 'emergency') { return a; }
-    if (item.primary !== undefined && item.primary !== null && item.primary !== '') {
-      return toBool(item.primary, true) ? 'main' : 'alt';
-    }
-    return 'main';
+    return a === 'alt' || a === 'emergency' ? a : 'main';
   }
 
   function altFactorOf(opts) {
     var f = num(opts && opts.altFactor, DEFAULT_ALT_FACTOR);
     return f >= 1 ? f : 1;
+  }
+
+  function altDoorCostOf(opts) {
+    var c = num(opts && opts.altDoorCost, DEFAULT_ALT_DOOR_COST);
+    return c > 0 ? c : 0;
   }
 
   function floorMpp(floors, floorId) {
@@ -236,6 +234,8 @@ var MSCNPath = (function () {
    *   opts.accessibleOnly: skip edges with accessible === false (indoor stairs, outdoor steps).
    *   opts.indoorOnly: skip the outdoor edges (can these doors reach the goal without going outside?).
    *   opts.altFactor: the weight of an alt edge or an edge touching an alt node (default 3, at least 1).
+   *   opts.altDoorCost: meters added once for each alt door or entrance node the route enters (default 300, at least 0),
+   *   on top of the factor, so a route takes a side door only when it saves that much or nothing main gets there.
    *   opts.allowEmergency: walk emergency nodes and edges too (only to tell "no route without an emergency exit").
    *   Without allowEmergency an emergency node is entered only as a goal, or on the way out from an emergency start
    *   (a code scanned at an emergency door: the route leaves it by the shortest way).
@@ -252,10 +252,15 @@ var MSCNPath = (function () {
     for (id in goals) { if (goals.hasOwnProperty(id)) { goalList.push(id); } }
     var single = goalList.length === 1 ? graph.nodes[goalList[0]] : null;
     var factor = altFactorOf(opts);
+    var doorCost = altDoorCostOf(opts);
     var memo = {};
     function cls(nid) {
       if (!memo.hasOwnProperty(nid)) { memo[nid] = accessOf(graph.nodes[nid]); }
       return memo[nid];
+    }
+    function altDoor(nid) {
+      var t = graph.nodes[nid] && graph.nodes[nid].type;
+      return (t === 'door' || t === 'entrance') && cls(nid) === 'alt';
     }
 
     /* Planar distance on the goal's own floor, else 0: consistent across floors and the outdoor graph. */
@@ -311,7 +316,7 @@ var MSCNPath = (function () {
         var em = to === 'emergency' || nb.access === 'emergency';
         if (em && !opts.allowEmergency && !escape[cur] && !goals.hasOwnProperty(nb.to)) { continue; }
         var alt = nb.access === 'alt' || to === 'alt' || cls(cur) === 'alt';
-        var ng = g[cur] + (alt ? nb.cost * factor : nb.cost);
+        var ng = g[cur] + (alt ? nb.cost * factor : nb.cost) + (doorCost && altDoor(nb.to) ? doorCost : 0);
         if (!g.hasOwnProperty(nb.to) || ng < g[nb.to]) {
           g[nb.to] = ng;
           came[nb.to] = cur;
@@ -491,7 +496,7 @@ var MSCNPath = (function () {
 
   /*
    * addOutdoorGraph(graph, outdoor) -> graph (mutated)
-   *   outdoor = {nodes: [{id, lat, lng, type: 'path'|'entrance'|'crossing', access?, primary? (before v5), label?}],
+   *   outdoor = {nodes: [{id, lat, lng, type: 'path'|'entrance'|'crossing', access?, label?}],
    *              edges: [{id, from, to, distance (m), accessible, kind?, access?, way?}]}   (data/campus-map/outdoor-graph.json)
    * An outdoor node whose id is an indoor node (an entrance) is the same node: the indoor node gains lat/lng (a copy;
    * the campus data is not mutated) and the two graphs join there. Other outdoor nodes are added with outdoor: true.
@@ -514,7 +519,6 @@ var MSCNPath = (function () {
         for (var k in ex) { if (ex.hasOwnProperty(k)) { copy[k] = ex[k]; } }
         copy.lat = Number(o.lat);
         copy.lng = Number(o.lng);
-        if ((copy.primary === undefined || copy.primary === '') && o.primary !== undefined) { copy.primary = o.primary; }
         if (!copy.access && o.access) { copy.access = o.access; }
         if (!copy.label && o.label) { copy.label = o.label; }
         copy.joined = true;
@@ -528,7 +532,7 @@ var MSCNPath = (function () {
       } else if (!ex) {
         graph.nodes[o.id] = {
           id: o.id, lat: Number(o.lat), lng: Number(o.lng), type: o.type || 'path', outdoor: true,
-          label: o.label || '', buildingId: o.buildingId || null, primary: o.primary, access: o.access
+          label: o.label || '', buildingId: o.buildingId || null, access: o.access
         };
         graph.adj[o.id] = [];
       }
@@ -590,7 +594,7 @@ var MSCNPath = (function () {
   /* The doors a route starts or ends at for a building: its joined main entrances, else (none main, or allowAlt: the
      "Use side doors and paths" toggle) its joined main and alt entrances. Emergency doors never. A sole door is alt,
      so it is not offered here by default: it is used only when the goal lies behind it. */
-  function primaryEntrances(graph, buildingId, allowAlt) {
+  function mainEntrances(graph, buildingId, allowAlt) {
     var ids = (graph.entrances && graph.entrances[buildingId]) || [];
     var mains = [];
     var open = [];
@@ -843,10 +847,11 @@ var MSCNPath = (function () {
     num: num,
     accessOf: accessOf,
     DEFAULT_ALT_FACTOR: DEFAULT_ALT_FACTOR,
+    DEFAULT_ALT_DOOR_COST: DEFAULT_ALT_DOOR_COST,
     MinHeap: MinHeap,
     buildGraph: buildGraph,
     addOutdoorGraph: addOutdoorGraph,
-    primaryEntrances: primaryEntrances,
+    mainEntrances: mainEntrances,
     hasLngLat: hasLngLat,
     geoMeters: geoMeters,
     findPath: findPath,

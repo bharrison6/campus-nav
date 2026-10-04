@@ -102,8 +102,13 @@ export function applyOverrides(base, overrides, headers) {
     const counts = { edited: 0, added: 0, deleted: 0 };
     const allowed = new Set(headers[collection] || []);
     for (const raw of overrides[collection] || []) {
-      // A v4 navNodes override with only `primary` sets the access class it stands for.
-      const o = collection === 'navNodes' && !('access' in raw) && overrideAccess(raw) ? { ...raw, access: overrideAccess(raw) } : raw;
+      // A v4 navNodes override with only `primary` sets the access class it stands for (the column itself is gone).
+      let o = raw;
+      if (collection === 'navNodes' && 'primary' in raw) {
+        o = { ...raw };
+        if (!('access' in raw) && overrideAccess(raw)) o.access = overrideAccess(raw);
+        delete o.primary;
+      }
       const id = o[key];
       if (seen.has(id)) report.duplicates.push({ collection, id });
       seen.add(id);
