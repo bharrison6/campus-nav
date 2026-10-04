@@ -108,8 +108,9 @@ the result:
    publishes it within minutes. A change to an entrance's class, a building's levels or height, or anything in the
    Map Editor also reruns the campus-map build in the background (the admin log says when it is done, about 6 s);
    commit what it regenerated (`data/campus-map`, `data/georef`, `data/floorplans`, `tools/admin/gs/SeedCampusMap.gs`)
-   with the overrides. A save that would leave a room or building with no route is refused before anything is
-   written; the admin names what it would cut off.
+   with the overrides. Every save that can change a route is checked on the complete data it would publish; one
+   that would leave any room or building with no route is refused before anything is written, and the admin names
+   what would be unreachable.
 
 The nursing building is not on the map yet (not in OpenStreetMap, and a parking lot in the 2022 aerial): add it to
 OpenStreetMap and run `npm run campus-map -- --refresh`, or draw it and its entrances in the Map Editor (README, "The

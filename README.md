@@ -263,10 +263,13 @@ Every door, entrance and hallway is **main**, **alt** or **emergency**; every ou
   main gets there (EP 1322 opens only to the outside, through an alt door). A step through an alt door names it: "Enter
   by the side door (South entrance 2, level 2)".
 - **emergency** (doors and hallways only): drawn on the floor plan (a red EXIT marker, a hatched hallway) and never
-  routed through. If the only way is through one, the app says "No route without an emergency exit".
+  on a route, not even as its start or end. If the only way is through one, the app says "No route without an
+  emergency exit". A QR code scanned at an emergency exit starts the route at the nearest hallway, and the first step
+  says so.
 
 The route panel's **Use side doors and paths** switch (off by default, remembered on the phone) walks alt at its plain
-length with no side-door cost, so the shortest way wins. The two numbers live in the campus config; change them in
+length with no side-door cost, so the shortest way wins. The two numbers live in the campus config (an alt factor
+below 1 reads as 1, in the export and the app alike); change them in
 `data/overrides/config.json`, for example `[{"key": "routing.altDoorCost", "value": 200}]`. Why 300: with the alt
 factor alone, or a small door cost, routes from across campus still entered IT by its northwest side door, because
 the main doors' approach walks more road (alt, 3x); below about 280 m that still happens.
@@ -281,12 +284,18 @@ certain are listed in `data/review/corridor-candidates.json` (32 today, each wit
 Doors & Halls tab shows them as suggested hallways to accept or reject.
 
 **Connectivity check.** `scripts/data/connectivity.mjs` (`checkConnectivity(campus, outdoorGraph)`) checks that, with
-emergency doors and hallways removed and alt allowed, every searchable room reaches every other and every building
-with mapped entrances is reachable from every other. `npm test` runs it on the real data
-(`tests/unit/connectivity.unit.mjs`). The admin runs it before writing a class change, a deleted door or a deleted map
-feature: a save that would cut a room or building off is refused, nothing is written, and the admin names what it
-would cut off (for example making EP 1322's only door emergency). A gap that already existed does not block other
-saves.
+emergency doors, hallways and edges removed and alt allowed (exactly what the app's router walks), every searchable
+room reaches every other and every building with mapped entrances is reachable from every other. `npm test` runs it
+on the real data (`tests/unit/connectivity.unit.mjs`). The admin runs it before every save that can change a route
+(rooms, doors and nodes, edges, floors, buildings, path classes, drawn paths, buildings and entrances, footprint
+redraws and deletions), on the complete public data the save would publish: the campus and the outdoor graph built
+in memory from the same proposed files (a few seconds the first time; a save that changes no map input reuses the
+last build). A save after which any searchable room or building with entrances has no route is refused, nothing is
+written, and the admin lists what would be unreachable (for example making EP 1322's only door emergency, giving the
+nursing building's main entrance to another building, or adding a searchable room with no node). The admin also
+refuses malformed values (an unknown class, a non-number coordinate, a polygon of fewer than three points, an id that
+names nothing, a footprint without three distinct corners), and the export stops on a hand-edited override or
+`overrides.geojson` feature with such a value, naming the file and record.
 
 ## Editing the data (local admin)
 
