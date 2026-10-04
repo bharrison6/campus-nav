@@ -765,7 +765,7 @@
       <div id="tab-buildings" class="tab-panel">
         <div class="card">
           <h2>Buildings & Entrances</h2>
-          <p style="color:var(--text-light);">Manage buildings on the campus map. Click a marker or select from dropdown. Click the map to add entrances.</p>
+          <p style="color:var(--text-light);">Manage buildings and their entrances. Choose a building from the dropdown.</p>
 
           <!-- Building selector + Add -->
           <div class="editor-selector-bar">
@@ -789,9 +789,7 @@
             </div>
           </div>
 
-          <!-- Google Map -->
-          <div id="buildings-map-wrap" style="width:100%;height:400px;border-radius:8px;overflow:hidden;margin-bottom:16px;background:#e5e7eb;"></div>
-          <div id="buildings-map-empty" class="empty-state" style="display:none;margin-bottom:16px;">
+          <div id="buildings-map-empty" class="empty-state" style="margin-bottom:16px;">
             There is no map in this tab: the site's campus map is drawn from committed OpenStreetMap data (no map key).
             Building details, coordinates, levels and height are edited below; entrance primary flags are on the entrance
             nodes in the Floor editor. Saving those rebuilds the campus map files.
@@ -852,7 +850,6 @@
               </div>
               <div class="btn-row">
                 <button class="btn btn-primary" onclick="saveBuildingDetails()">Save Building</button>
-                <button class="btn btn-outline" id="buildings-pick-gps-btn" onclick="pickBuildingGps()">Pick GPS on Map</button>
               </div>
             </div>
 
@@ -862,7 +859,7 @@
                 <h3 style="font-size:14px;color:var(--navy);margin:0;">Entrances</h3>
                 <span style="font-size:13px;color:var(--text-light);" id="buildings-entrance-count"></span>
               </div>
-              <p class="field-help" id="buildings-entrance-help" style="margin-bottom:8px;">Click the map to add entrances. Drag markers to reposition.</p>
+              <p class="field-help" id="buildings-entrance-help" style="margin-bottom:8px;">Entrances can be renamed or removed here; the doors themselves are entrance nodes in the Floor editor.</p>
               <ul id="buildings-entrance-list" class="item-list"></ul>
               <div class="btn-row">
                 <button class="btn btn-primary" onclick="saveAllEntrances2()">Save Entrances</button>
@@ -1515,22 +1512,6 @@
       if (s === 'true' || s === '1' || s === 'yes' || s === 'y') return true;
       if (s === 'false' || s === '0' || s === 'no' || s === 'n') return false;
       return !!defaultValue;
-    }
-
-    /**
-     * Look up a Config value from campusData.config, which may be an array of
-     * {key, value} rows or a plain object.
-     */
-    function getConfigValue(key) {
-      var config = campusData && campusData.config;
-      if (!config) return '';
-      if (Array.isArray(config)) {
-        for (var i = 0; i < config.length; i++) {
-          if (config[i] && config[i].key === key) return config[i].value;
-        }
-        return '';
-      }
-      return config[key] || '';
     }
 
     function findById(list, id) {
@@ -4118,35 +4099,13 @@
 
     /* ========================================================
        BUILDINGS & ENTRANCES
-       The local admin passes no Maps key (v4 has none), so the Google Map below stays off and the tab edits
-       building fields, coordinates and the entrance list without map picking.
+       No map in this tab (v4 has no map key): it edits building fields, coordinates and the entrance list.
        ======================================================== */
-    var buildingsMap = null;
-    var buildingsMapLoaded = false;
-    var buildingsMapLoading = false;
     var buildingsSelectedBuilding = null;
-    var buildingsMarkers = [];           // building markers on overview map
-    var buildingsEntrances = [];         // [{name, lat, lng, marker|null}] for the selected building
-    var buildingsCenterMarker = null;
-    var buildingsPickingGps = false;
-    var CAMPUS_CENTER = { lat: 36.6155, lng: -88.3215 };
-
-    function mapsAvailable() {
-      return !!(buildingsMap && typeof google !== 'undefined' && google.maps);
-    }
-
-    function setBuildingsMapVisible(visible) {
-      document.getElementById('buildings-map-wrap').style.display = visible ? '' : 'none';
-      document.getElementById('buildings-map-empty').style.display = visible ? 'none' : '';
-      document.getElementById('buildings-pick-gps-btn').style.display = visible ? '' : 'none';
-      document.getElementById('buildings-entrance-help').textContent = visible ?
-        'Click the map to add entrances. Drag markers to reposition.' :
-        'Without the map, entrances can be renamed or removed here; adding or moving them needs the map.';
-    }
+    var buildingsEntrances = [];         // [{name, lat, lng}] for the selected building
 
     /**
-     * Initialize the Buildings tab. Populates dropdown from campusData.buildings,
-     * loads Google Maps API if a key is configured, refreshes building markers.
+     * Initialize the Buildings tab. Populates dropdown from campusData.buildings.
      */
     function initBuildingsTab() {
       if (!campusData || !campusData.buildings) return;
@@ -4166,119 +4125,16 @@
         sel.value = currentVal;
       }
 
-      if (typeof google !== 'undefined' && google.maps) {
-        buildingsMapLoaded = true;
-        setBuildingsMapVisible(true);
-        if (!buildingsMap) {
-          onBuildingsMapsReady();
-        } else {
-          refreshBuildingMarkers();
-        }
-        return;
-      }
-
-      // The browser key comes with the campus data (Script Properties first,
-      // Config sheet fallback on the server). Never shown in the page.
-      var apiKey = campusData.mapsApiKey || getConfigValue('mapsApiKey');
-      if (!apiKey) {
-        setBuildingsMapVisible(false);
-        return;
-      }
-      setBuildingsMapVisible(true);
-      if (buildingsMapLoading) return; // already loading
-      buildingsMapLoading = true;
-      var script = document.createElement('script');
-      script.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(apiKey) + '&callback=onBuildingsMapsReady';
-      script.async = true;
-      script.defer = true;
-      script.onerror = function() {
-        buildingsMapLoading = false;
-        setBuildingsMapVisible(false);
-        showMessage('Google Maps failed to load.', 'error');
-      };
-      document.head.appendChild(script);
     }
 
-    /**
-     * Callback when Google Maps API is loaded.
-     * Creates the map in buildings-map-wrap, adds click listener, loads markers.
-     */
-    function onBuildingsMapsReady() {
-      buildingsMapLoaded = true;
-      buildingsMapLoading = false;
-      setBuildingsMapVisible(true);
-
-      if (!buildingsMap) {
-        buildingsMap = new google.maps.Map(document.getElementById('buildings-map-wrap'), {
-          center: CAMPUS_CENTER,
-          zoom: 16,
-          mapTypeId: 'satellite',
-          clickableIcons: false
-        });
-
-        buildingsMap.addListener('click', onBuildingsMapClick);
-      }
-
-      refreshBuildingMarkers();
-      // A building may already be selected (chosen before the map finished loading)
-      if (buildingsSelectedBuilding) onBuildingsSelectChange();
-    }
-
-    /**
-     * Clear and re-create building markers on the overview map.
-     * Each building with lat/lng gets a marker. Clicking a marker selects that building.
-     */
-    function refreshBuildingMarkers() {
-      for (var i = 0; i < buildingsMarkers.length; i++) {
-        buildingsMarkers[i].setMap(null);
-      }
-      buildingsMarkers = [];
-
-      if (!mapsAvailable() || !campusData || !campusData.buildings) return;
-
-      var buildings = campusData.buildings;
-      for (var j = 0; j < buildings.length; j++) {
-        var b = buildings[j];
-        var lat = parseFloat(b.lat);
-        var lng = parseFloat(b.lng);
-        if (isNaN(lat) || isNaN(lng)) continue;
-
-        var marker = new google.maps.Marker({
-          position: { lat: lat, lng: lng },
-          map: buildingsMap,
-          draggable: false,
-          title: b.name || b.id
-        });
-
-        (function(buildingId) {
-          marker.addListener('click', function() {
-            document.getElementById('buildings-select').value = buildingId;
-            onBuildingsSelectChange();
-          });
-        })(b.id);
-
-        buildingsMarkers.push(marker);
-      }
-    }
-
-    /**
-     * Handle building dropdown selection change.
-     * Overview mode: hide detail, zoom out, clear entrance markers.
-     * Building selected: show detail, populate form, zoom to building, load entrances.
-     */
     function onBuildingsSelectChange() {
       var buildingId = document.getElementById('buildings-select').value;
       var detailDiv = document.getElementById('buildings-detail');
-      buildingsPickingGps = false;
 
       if (!buildingId) {
         buildingsSelectedBuilding = null;
         detailDiv.style.display = 'none';
-        clearBuildingEntrances();
-        if (mapsAvailable()) {
-          buildingsMap.setCenter(CAMPUS_CENTER);
-          buildingsMap.setZoom(16);
-        }
+        buildingsEntrances = [];
         return;
       }
 
@@ -4302,63 +4158,7 @@
       document.getElementById('buildings-edit-lat').value = building.lat || '';
       document.getElementById('buildings-edit-lng').value = building.lng || '';
 
-      if (mapsAvailable()) {
-        var centerLat = parseFloat(building.lat) || CAMPUS_CENTER.lat;
-        var centerLng = parseFloat(building.lng) || CAMPUS_CENTER.lng;
-        buildingsMap.setCenter({ lat: centerLat, lng: centerLng });
-        buildingsMap.setZoom(18);
-      }
-
       loadBuildingEntrances(building);
-    }
-
-    /**
-     * Map click handler for the Buildings tab.
-     * If picking GPS: update lat/lng inputs and move/create center marker.
-     * If building selected: prompt for entrance name, add draggable marker.
-     * If no building: show guidance message.
-     */
-    function onBuildingsMapClick(event) {
-      var clickLat = event.latLng.lat();
-      var clickLng = event.latLng.lng();
-
-      if (buildingsPickingGps) {
-        document.getElementById('buildings-edit-lat').value = clickLat.toFixed(6);
-        document.getElementById('buildings-edit-lng').value = clickLng.toFixed(6);
-
-        if (buildingsCenterMarker) {
-          buildingsCenterMarker.setPosition(event.latLng);
-        } else {
-          buildingsCenterMarker = new google.maps.Marker({
-            position: event.latLng,
-            map: buildingsMap,
-            draggable: false,
-            title: 'Building Center',
-            icon: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png'
-          });
-        }
-
-        buildingsPickingGps = false;
-        showMessage('Building GPS updated. Click Save Building to persist.', 'info');
-        return;
-      }
-
-      if (!buildingsSelectedBuilding) {
-        showMessage('Select a building first, or use + Add Building.', 'info');
-        return;
-      }
-
-      var name = prompt('Entrance name:', 'Main Entrance');
-      if (!name) return;
-
-      buildingsEntrances.push({
-        name: name,
-        lat: clickLat,
-        lng: clickLng,
-        marker: createBuildingEntranceMarker(clickLat, clickLng, name)
-      });
-      renderBuildingEntrancesList();
-      showMessage('Entrance added. Click Save Entrances to persist.', 'info');
     }
 
     /**
@@ -4496,33 +4296,10 @@
     }
 
     /**
-     * Enter GPS picking mode. Next map click sets building lat/lng.
-     */
-    function pickBuildingGps() {
-      if (!mapsAvailable()) {
-        showMessage('The map is not available; type the coordinates instead.', 'error');
-        return;
-      }
-      buildingsPickingGps = true;
-      showMessage('Click the map to set building GPS location.', 'info');
-    }
-
-    function clearBuildingEntrances() {
-      for (var i = 0; i < buildingsEntrances.length; i++) {
-        if (buildingsEntrances[i].marker) buildingsEntrances[i].marker.setMap(null);
-      }
-      buildingsEntrances = [];
-      if (buildingsCenterMarker) {
-        buildingsCenterMarker.setMap(null);
-        buildingsCenterMarker = null;
-      }
-    }
-
-    /**
-     * Load a building's entrances (and its center marker when the map is up).
+     * Load a building's entrances.
      */
     function loadBuildingEntrances(building) {
-      clearBuildingEntrances();
+      buildingsEntrances = [];
 
       var existing = Array.isArray(building.entrances) ? building.entrances : [];
       for (var j = 0; j < existing.length; j++) {
@@ -4530,59 +4307,10 @@
         var lat = parseFloat(ent.lat);
         var lng = parseFloat(ent.lng);
         if (isNaN(lat) || isNaN(lng)) continue;
-        var name = ent.name || 'Entrance';
-        buildingsEntrances.push({
-          name: name,
-          lat: lat,
-          lng: lng,
-          marker: createBuildingEntranceMarker(lat, lng, name)
-        });
-      }
-
-      var bldLat = parseFloat(building.lat);
-      var bldLng = parseFloat(building.lng);
-      if (mapsAvailable() && !isNaN(bldLat) && !isNaN(bldLng)) {
-        buildingsCenterMarker = new google.maps.Marker({
-          position: { lat: bldLat, lng: bldLng },
-          map: buildingsMap,
-          draggable: false,
-          title: 'Building Center: ' + (building.name || building.id),
-          icon: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png'
-        });
+        buildingsEntrances.push({ name: ent.name || 'Entrance', lat: lat, lng: lng });
       }
 
       renderBuildingEntrancesList();
-    }
-
-    /**
-     * Create a draggable entrance marker on the buildings map
-     * (returns null when the map is not available).
-     */
-    function createBuildingEntranceMarker(lat, lng, name) {
-      if (!mapsAvailable()) return null;
-      var marker = new google.maps.Marker({
-        position: { lat: lat, lng: lng },
-        map: buildingsMap,
-        draggable: true,
-        title: name,
-        label: name ? name[0].toUpperCase() : 'E',
-        icon: {
-          url: 'https://maps.google.com/mapfiles/ms/icons/red-dot.png'
-        }
-      });
-
-      marker.addListener('dragend', function() {
-        for (var k = 0; k < buildingsEntrances.length; k++) {
-          if (buildingsEntrances[k].marker === marker) {
-            buildingsEntrances[k].lat = marker.getPosition().lat();
-            buildingsEntrances[k].lng = marker.getPosition().lng();
-            break;
-          }
-        }
-        renderBuildingEntrancesList();
-      });
-
-      return marker;
     }
 
     /**
@@ -4598,7 +4326,7 @@
       if (buildingsEntrances.length === 0) {
         var empty = document.createElement('li');
         empty.style.color = 'var(--text-light)';
-        empty.textContent = mapsAvailable() ? 'No entrances yet. Click the map to add one.' : 'No entrances recorded.';
+        empty.textContent = 'No entrances recorded.';
         list.appendChild(empty);
       }
 
@@ -4622,10 +4350,6 @@
             var newName = prompt('New entrance name:', ent.name);
             if (newName) {
               buildingsEntrances[idx].name = newName;
-              if (buildingsEntrances[idx].marker) {
-                buildingsEntrances[idx].marker.setTitle(newName);
-                buildingsEntrances[idx].marker.setLabel(newName[0].toUpperCase());
-              }
               renderBuildingEntrancesList();
             }
           };
@@ -4635,7 +4359,6 @@
           deleteBtn.className = 'delete-btn';
           deleteBtn.textContent = 'Delete';
           deleteBtn.onclick = function() {
-            if (buildingsEntrances[idx].marker) buildingsEntrances[idx].marker.setMap(null);
             buildingsEntrances.splice(idx, 1);
             renderBuildingEntrancesList();
           };

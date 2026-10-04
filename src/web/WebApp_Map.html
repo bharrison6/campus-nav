@@ -54,19 +54,26 @@ function loadOutdoorGraph(path) {
   });
 }
 
+/* The basemap files are independent: fetched at once, merged in the manifest's order when the last one answers. */
 function loadBaseLayers(list, cb) {
-  var parts = [];
-  var i = 0;
-  function next() {
-    if (i >= list.length) { cb(MSCNMapStyle.mergeBase(parts)); return; }
-    var path = list[i++];
+  var got = [];
+  var left = list.length;
+  if (!left) { cb(MSCNMapStyle.mergeBase([])); return; }
+  function done() {
+    if (--left > 0) { return; }
+    var parts = [];
+    for (var k = 0; k < got.length; k++) { if (got[k]) { parts.push(got[k]); } }
+    cb(MSCNMapStyle.mergeBase(parts));
+  }
+  function load(i) {
+    var path = list[i];
     var m = /layers\/([A-Za-z0-9_-]+)\.geojson$/.exec(path);
     MSCNData.getMapFile(path, function (err, fc) {
-      if (!err && fc && isArray(fc.features)) { parts.push({ fc: fc, hint: m ? m[1] : null }); }
-      next();
+      if (!err && fc && isArray(fc.features)) { got[i] = { fc: fc, hint: m ? m[1] : null }; }
+      done();
     });
   }
-  next();
+  for (var i = 0; i < list.length; i++) { load(i); }
 }
 
 function outerRing(geom) {
@@ -180,13 +187,14 @@ function createMap(ml) {
   var b = MAPV.bounds || [-88.333, 36.606, -88.310, 36.625];
   var padX = Math.max(0.004, (b[2] - b[0]) * 0.35);
   var padY = Math.max(0.003, (b[3] - b[1]) * 0.35);
+  var open = openingView(b);
   var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   var map = new ml.Map({
     container: canvas,
     style: MSCNMapStyle.build(readMapTokens(), styleOptions()),
-    bounds: [[b[0], b[1]], [b[2], b[3]]],
+    bounds: [[open.bounds[0], open.bounds[1]], [open.bounds[2], open.bounds[3]]],
     fitBoundsOptions: { padding: 30 },
-    pitch: 45,
+    pitch: open.pitch,
     bearing: -12,
     maxPitch: 70,
     minZoom: 13.5,
@@ -213,6 +221,18 @@ function createMap(ml) {
     var onTheme = function () { applyMapTheme(); };
     if (mq.addEventListener) { mq.addEventListener('change', onTheme); } else if (mq.addListener) { mq.addListener(onTheme); }
   }
+}
+
+/* The opening camera: the manifest's defaultView (the academic core, build.config.json map.defaultView) or, without
+   one, the whole building envelope. maxBounds stays the padded envelope, so the full campus is a zoom-out away (on a
+   portrait phone a zoom-out and a pan). */
+function openingView(envelope) {
+  var v = MAPV.manifest && MAPV.manifest.defaultView;
+  var bb = v && isArray(v.bounds) && v.bounds.length === 4 ? v.bounds : null;
+  for (var i = 0; bb && i < 4; i++) { if (typeof bb[i] !== 'number' || !isFinite(bb[i])) { bb = null; } }
+  if (bb && !(bb[0] < bb[2] && bb[1] < bb[3])) { bb = null; }
+  var pitch = v && typeof v.pitch === 'number' && v.pitch >= 0 && v.pitch <= 70 ? v.pitch : 45;
+  return { bounds: bb || envelope, pitch: pitch };
 }
 
 function onMapLoad() {

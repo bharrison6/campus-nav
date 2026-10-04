@@ -2,5 +2,11 @@
   "basePath": "/campus-nav/",
   "domain": "",
   "siteUrl": "https://bharrison6.github.io/campus-nav/",
-  "analytics": { "provider": "goatcounter", "site": "" }
+  "analytics": { "provider": "goatcounter", "site": "" },
+  "map": {
+    "defaultView": {
+      "buildings": ["bld-it", "bld-ep", "bld-cc", "bld-fh", "bld-we", "bld-la", "bld-old-fa", "bld-fa", "bld-wl", "bld-pl", "bld-lc", "bld-wi", "bld-wr", "bld-bauernfeind"],
+      "pitch": 45
+    }
+  }
 }

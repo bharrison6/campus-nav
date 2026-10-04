@@ -78,6 +78,41 @@ test('the campus map renders in 2.5D with OpenStreetMap attribution, in the app\
   await expect(page.locator('#map-locate')).toBeVisible();
 });
 
+test('the map opens on the academic core (quad, IT, EP) at a 45-degree tilt; the whole campus is a zoom-out away', async ({ page }) => {
+  await boot(page);
+  await mapReady(page);
+  const view = await page.evaluate(() => {
+    const m = (window as any).MAPV.map;
+    const b = m.getBounds();
+    const env = (window as any).MAPV.bounds;
+    const fit = m.cameraForBounds([[env[0], env[1]], [env[2], env[3]]], { padding: 30, pitch: m.getPitch(), bearing: m.getBearing() });
+    return { w: b.getWest(), s: b.getSouth(), e: b.getEast(), n: b.getNorth(), pitch: m.getPitch(), zoom: m.getZoom(), envelopeZoom: fit.zoom,
+      core: (window as any).MAPV.manifest.defaultView };
+  });
+  expect(view.core.buildings).toEqual(expect.arrayContaining(['bld-it', 'bld-ep']));
+  expect(view.pitch).toBeCloseTo(45, 0);
+  const inView = (c: { lng: number; lat: number }, v: any) => c.lng >= v.w && c.lng <= v.e && c.lat >= v.s && c.lat <= v.n;
+  for (const bid of ['bld-it', 'bld-ep', 'bld-fh', 'bld-wr']) expect(inView(centerOf(bid), view), bid).toBe(true);
+  // the far end of campus (the Animal Health Technology Center, about 1.6 km west) is not in the opening view
+  const far = centerOf('bld-cp');
+  expect(inView(far, view)).toBe(false);
+  // the opening view is the core, not the 2.7 km envelope: at least a zoom level closer than fitting the envelope
+  expect(view.zoom - view.envelopeZoom).toBeGreaterThan(1);
+  // zoomed all the way out the view spans the campus scale (km, not the core's few hundred m), and maxBounds is the
+  // envelope, so the far end is in reach (on a portrait phone by a pan as well)
+  const out = await page.evaluate((c) => {
+    const m = (window as any).MAPV.map;
+    m.jumpTo({ zoom: m.getMinZoom(), pitch: 0, bearing: 0 });
+    const b = m.getBounds();
+    const wide = { w: b.getWest(), s: b.getSouth(), e: b.getEast(), n: b.getNorth() };
+    m.jumpTo({ center: [c.lng, c.lat] });
+    const p = m.getBounds();
+    return { wide, panned: { w: p.getWest(), s: p.getSouth(), e: p.getEast(), n: p.getNorth() } };
+  }, far);
+  expect(meters({ lng: out.wide.w, lat: out.wide.s }, { lng: out.wide.e, lat: out.wide.s })).toBeGreaterThan(1800);
+  expect(inView(far, out.panned), JSON.stringify(out.panned)).toBe(true);
+});
+
 test('search flies the map to a building, and a room opens its floor in the building view', async ({ page }) => {
   await boot(page);
   await mapReady(page);
@@ -250,6 +285,39 @@ test.describe('GPS', () => {
     await expect(step(page)).toHaveAttribute('data-step-kind', 'door');
     await expect(page.getByRole('tab', { name: 'Indoor' })).toHaveAttribute('aria-selected', 'true');
   });
+
+  // Midpoints of real edges (Codex review v4, finding 2): e13 a path 72 m long, e5 IT's connector to it-1-n0490. The
+  // drawn walk starts at the blue dot and counts the half edge; on a connector the walk to that door and the door
+  // come before the floor plan.
+  for (const [id, door] of [['e13', null], ['e5', 'it-1-n0490']] as const) {
+    test(`a blue dot mid-edge on ${id}: the drawn walk starts at the dot, door before floor plan`, async ({ page, context }) => {
+      const e = GRAPH.edges.find((x: any) => x.id === id);
+      const a = GRAPH.nodes.find((n: any) => n.id === e.from);
+      const b = GRAPH.nodes.find((n: any) => n.id === e.to);
+      const mid = { lng: (a.lng + b.lng) / 2, lat: (a.lat + b.lat) / 2 };
+      await context.setGeolocation({ latitude: mid.lat, longitude: mid.lng, accuracy: 5 });
+      await boot(page);
+      await mapReady(page);
+      await page.locator('#map-locate').click();
+      await expect(page.locator('#map-locate')).toHaveAttribute('data-gps-state', 'on');
+      await search(page, 'IT 241', 'IT 241');
+      await page.locator('#map-room-nav').click();
+      await expect(page.locator('#route-panel')).toContainText('From your location');
+      const r = await page.evaluate(async () => {
+        const route = (window as any).NAV.route;
+        const lines = (await (window as any).MAPV.map.getSource('route').getData()).features;
+        return { kinds: route.steps.map((s: any) => s.kind), first: route.steps[0], door: route.steps.find((s: any) => s.kind === 'door'), lead: route.lead, lines };
+      });
+      expect(r.kinds[0]).toBe('outdoor');
+      expect(meters({ lng: r.first.coords[0][0], lat: r.first.coords[0][1] }, mid)).toBeLessThan(1);
+      expect(r.first.distance).toBeGreaterThan(e.distance / 2 - 0.2);
+      const walk = r.lines.find((f: any) => f.properties.step === 0);
+      expect(meters({ lng: walk.geometry.coordinates[0][0], lat: walk.geometry.coordinates[0][1] }, { lng: r.lead[1][0], lat: r.lead[1][1] })).toBeLessThan(0.3);
+      const doorAt = r.kinds.indexOf('door');
+      expect(r.kinds.slice(0, doorAt).every((k: string) => k === 'outdoor')).toBe(true);
+      if (door) expect(r.door.nodeId).toBe(door);
+    });
+  }
 
   test('indoors the app asks for a QR code instead of trusting GPS', async ({ page, context }) => {
     await context.setGeolocation({ latitude: EP_CENTER.lat, longitude: EP_CENTER.lng, accuracy: 20 }); // inside EP's footprint

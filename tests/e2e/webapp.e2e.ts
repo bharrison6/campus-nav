@@ -151,8 +151,16 @@ test('without a start, routes begin at the building entrance', async ({ page }) 
   await searchAndOpen(page, 'IT 143', 'IT 143');
   await page.getByRole('button', { name: 'Navigate here' }).click();
   await expect(page.locator('#route-panel')).toContainText('From the building entrance');
-  await expect(page.locator('#route-panel')).toContainText('Arrive at IT 143');
   await expect(activeRoute(page)).toHaveCount(1);
+  // the automatic start is one of IT's primary doors (the common ones), not the side door nearest the room
+  const r = await page.evaluate(() => {
+    const route = (window as any).NAV.route;
+    const g = (window as any).APP.graph;
+    const first = route.steps[0].nodeIds[0];
+    return { last: route.steps[route.steps.length - 1].title, first, primary: !g.hasOutdoor || g.nodes[first].primary === true };
+  });
+  expect(r.last).toBe('Arrive at IT 143');
+  expect(r.primary, r.first).toBe(true);
 });
 
 test('EP 1322 (exterior door only): reachable from outside; from it, out its own door and back in by a primary door', async ({ page }) => {
