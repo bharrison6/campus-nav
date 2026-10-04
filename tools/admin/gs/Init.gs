@@ -60,6 +60,10 @@ function initSystem() {
  * Data contract v2. Every lane reads these shapes. v4 additions (columns appended, so older rows stay valid):
  * Buildings.levels / Buildings.height (extrusion on the campus map; seeded by the campus-map build, overridable) and
  * NavNodes.primary (an entrance visitors are routed to; seeded by the primary-entrance heuristic, overridable).
+ * v5: Rooms.access and NavNodes.access, "main" | "alt" | "emergency" (doors, entrances, waypoints and corridor rooms;
+ * blank elsewhere), seeded by the pipeline and the campus-map build, overridable. NavNodes.primary is retired: an old
+ * primary override reads as access (true main, false alt; scripts/data/overrides.mjs) and the column is kept only
+ * until the admin and the app read access.
  *  - text:  columns forced to plain-text format so Sheets keeps "0141" as "0141".
  *  - json:  columns stored as JSON strings and parsed on read.
  *  - bools: boolean columns with the default used when a cell is blank.
@@ -82,15 +86,15 @@ function getSheetDefinitions_() {
     },
     {
       name: 'Rooms',
-      headers: ['id', 'floorId', 'number', 'label', 'type', 'polygon', 'centerX', 'centerY', 'searchable'],
-      text: ['id', 'floorId', 'number', 'label', 'type'],
+      headers: ['id', 'floorId', 'number', 'label', 'type', 'polygon', 'centerX', 'centerY', 'searchable', 'access'],
+      text: ['id', 'floorId', 'number', 'label', 'type', 'access'],
       json: ['polygon'],
       bools: { searchable: true }
     },
     {
       name: 'NavNodes',
-      headers: ['id', 'floorId', 'x', 'y', 'type', 'roomId', 'linkId', 'primary'],
-      text: ['id', 'floorId', 'type', 'roomId', 'linkId'],
+      headers: ['id', 'floorId', 'x', 'y', 'type', 'roomId', 'linkId', 'primary', 'access'],
+      text: ['id', 'floorId', 'type', 'roomId', 'linkId', 'access'],
       bools: { primary: false }
     },
     {
@@ -166,11 +170,14 @@ function applyTextFormats_(sheet, def) {
   }
 }
 
-/** Seeds the Config tab (dataVersion only; no secrets ever live in seed code). */
+/**
+ * Seeds the Config tab: dataVersion and routing.altFactor (v5: an alt door, hallway or path costs its length times
+ * this; data/overrides/config.json may change it). No secrets ever live in seed code.
+ */
 function seedConfig_(ss) {
   var configSheet = ss.getSheetByName('Config');
   if (configSheet && configSheet.getLastRow() <= 1) {
-    configSheet.getRange(2, 1, 1, 2).setValues([['dataVersion', '1']]);
+    configSheet.getRange(2, 1, 2, 2).setValues([['dataVersion', '1'], ['routing.altFactor', '3']]);
   }
 }
 

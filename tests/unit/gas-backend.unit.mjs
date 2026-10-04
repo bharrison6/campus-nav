@@ -23,14 +23,14 @@ function getGeneratedFloorsSeed() { return [
   ['floor-it-3','bld-it',3,'Mezzanine','FP_floor_it_3',5000,3350,0.0254,false]
 ]; }
 function getGeneratedRoomsSeed() { return [
-  ['room-it-1-0141','floor-it-1','0141','141 Office','office','[[0,0],[10,0],[10,10]]',5,5,true],
-  ['room-it-1-0140B','floor-it-1','0140B','140B','storage',[[0,0],[1,1],[2,0]],1,1,false],
-  ['room-it-3-0301','floor-it-3','0301','301','mechanical','',1,1,false]
+  ['room-it-1-0141','floor-it-1','0141','141 Office','office','[[0,0],[10,0],[10,10]]',5,5,true,''],
+  ['room-it-1-0140B','floor-it-1','0140B','140B','storage',[[0,0],[1,1],[2,0]],1,1,false,''],
+  ['room-it-3-0301','floor-it-3','0301','301','mechanical','',1,1,false,'']
 ]; }
 function getGeneratedNavNodesSeed() { return [
-  ['n1','floor-it-1',0,0,'stair','','it-stair-1'],
-  ['n2','floor-it-1',10,0,'room','room-it-1-0141',''],
-  ['n3','floor-it-3',0,0,'stair','','it-stair-1']
+  ['n1','floor-it-1',0,0,'stair','','it-stair-1',''],
+  ['n2','floor-it-1',10,0,'room','room-it-1-0141','',''],
+  ['n3','floor-it-3',0,0,'stair','','it-stair-1','']
 ]; }
 function getGeneratedNavEdgesSeed() { return [
   ['e1','n1','n2',3.2,false,true],
@@ -59,7 +59,7 @@ test('initSystem creates and seeds; idempotent; no PIN or settings any more', ()
   const init = g.initSystem();
   assert.equal(init.created, true);
   assert.deepEqual(init.seeded, { Buildings: BUILDINGS, Floors: 2, Rooms: 3, NavNodes: 3, NavEdges: 2 });
-  assert.equal(init.counts.Config, 1);
+  assert.equal(init.counts.Config, 2, 'dataVersion and routing.altFactor');
   assert.deepEqual(init.schemaMismatch, []);
   assert.equal(init.floorSeedSource, 'generated');
   assert.equal(init.settings, undefined);
@@ -199,7 +199,7 @@ test('real seed: init writes every generated floor, room, node and edge (pipelin
     NavNodes: sum((f) => f.nav.nodes.length),
     NavEdges: sum((f) => f.nav.edges.length) + crossFloor.length,
   });
-  assert.deepEqual(realInit.seeded, { Buildings: 89, Floors: 6, Rooms: 491, NavNodes: 1825, NavEdges: 1945 });
+  assert.deepEqual(realInit.seeded, { Buildings: 89, Floors: 6, Rooms: 491, NavNodes: 1845, NavEdges: 1965 });
 });
 
 test('real seed: the largest cell is far under the Sheets limit, and the runtime enforces the limit', () => {

@@ -14,7 +14,9 @@
 // while the building has fewer than 2, or fewer than 4 and they score at least 0.75 of the best. A door within 8 m of
 // one already chosen (the other leaf of a pair, the second door of a vestibule) is skipped, and so is a door on the
 // same face as a chosen one (within 30 m and facing within 60 degrees of it): the set covers different approaches.
-// The operator overrides the choice per node in the admin (NavNodes.primary).
+// The chosen doors are the building's main entrances (v5 access class "main"; scripts/campus-map/build.mjs
+// autoEntranceAccess makes the rest alt, or emergency out of a stairwell). The operator overrides the class per node in
+// the admin (NavNodes.access; a v4 NavNodes.primary override still reads as main or alt).
 import { round } from '../lib/geometry.mjs';
 
 export const WEIGHTS = { room: 0.35, width: 0.2, path: 0.3, facing: 0.15 };

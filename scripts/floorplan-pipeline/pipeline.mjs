@@ -5,15 +5,25 @@ import { BUILDINGS, FLOORS, planAssetName } from './config.mjs';
 import { parseAll } from './stages/parse.mjs';
 import { extractFloor } from './stages/extract.mjs';
 import { assembleOpenings, inferMissingOpenings } from './stages/doors.mjs';
-import { buildFloorGraph, components, FLOOR_CHANGE_METERS } from './stages/graph.mjs';
+import { accessOf, buildFloorGraph, components, FLOOR_CHANGE_METERS } from './stages/graph.mjs';
 import { buildSvg } from './stages/svg.mjs';
 import { emitGas } from './stages/emit-gas.mjs';
 import { carryEntrances, withEntrances } from './stages/primary-entrances.mjs';
-import { classifyBuilding, floorEvidence, isSearchable, polygonIoU } from './lib/classify.mjs';
+import { classifyBuilding, corridorCandidates, floorEvidence, isSearchable, polygonIoU, refineCirculation } from './lib/classify.mjs';
 import { findShaftXs, mergeCollinear, primsToSegments, SegmentIndex } from './lib/detect.mjs';
 import { dist, round } from './lib/geometry.mjs';
 
 const WALL_LAYER = (L) => /^A-BLDG$/i.test(L);
+
+/** data/review/corridor-candidates.json: one candidate per line. */
+export function formatCandidates(candidates) {
+  const head = {
+    generated: 'scripts/floorplan-pipeline/run.mjs (npm run pipeline)',
+    note: 'Rooms typed other that look like circulation (hallway, lobby, vestibule, alcove), with the evidence and a confidence in [0, 1]. The admin floor-plan editor shows them; accepting one writes rooms.json type corridor.',
+  };
+  const lines = candidates.map((c) => '  ' + JSON.stringify(c));
+  return JSON.stringify(head).slice(0, -1) + `,"candidates":[\n${lines.join(',\n')}${lines.length ? '\n' : ''}]}\n`;
+}
 
 function median(xs) {
   if (!xs.length) return null;
@@ -21,7 +31,7 @@ function median(xs) {
   return s[Math.floor(s.length / 2)];
 }
 
-export function runPipeline({ inDir, outDir, gasDir, cacheDir, floors = FLOORS, forceParse = false, log = console.log, write = true }) {
+export function runPipeline({ inDir, outDir, gasDir, cacheDir, floors = FLOORS, forceParse = false, log = console.log, write = true, stableIds = true, reviewDir }) {
   log('parse');
   const parsed = parseAll(floors, inDir, cacheDir, { force: forceParse, log });
 
@@ -67,6 +77,10 @@ export function runPipeline({ inDir, outDir, gasDir, cacheDir, floors = FLOORS, 
     }
   }
 
+  log('circulation');
+  const circulation = {};
+  for (const x of F) circulation[x.floor.floorId] = refineCirculation(x.fp, x.openings).map((r) => ({ number: r.number, why: r.typeEvidence }));
+
   log('ids + inferred passages + graph');
   for (const x of F) {
     const { floor, fp } = x;
@@ -77,7 +91,11 @@ export function runPipeline({ inDir, outDir, gasDir, cacheDir, floors = FLOORS, 
       r.svgLabel = r.label;
     }
     x.inferred = inferMissingOpenings(fp, x.openings);
-    const g = buildFloorGraph(fp, x.openings, x.wallIndex, { idPrefix: floor.floorId.replace(/^floor-/, '') });
+    // Node ids carry over from the committed floor JSON (stages/graph.mjs assignIds), so retyping a room does not
+    // renumber the floor under the overrides, QR locations and outdoor graph that hold those ids.
+    const prevPath = outDir && path.join(outDir, `${floor.floorId}.json`);
+    const previous = stableIds && prevPath && fs.existsSync(prevPath) ? JSON.parse(fs.readFileSync(prevPath, 'utf8')).nav : null;
+    const g = buildFloorGraph(fp, x.openings, x.wallIndex, { idPrefix: floor.floorId.replace(/^floor-/, ''), previous });
     x.graph = g;
   }
 
@@ -105,7 +123,9 @@ export function runPipeline({ inDir, outDir, gasDir, cacheDir, floors = FLOORS, 
 
   log('svg + reachability + outputs');
   const outFloors = [];
-  const report = { generated: 'scripts/floorplan-pipeline/run.mjs', floors: {}, verticalStacks, frameChecks, crossFloorEdges: crossEdges.length };
+  const report = { generated: 'scripts/floorplan-pipeline/run.mjs', floors: {}, verticalStacks, frameChecks, crossFloorEdges: crossEdges.length, circulation };
+  // Circulation-like rooms left `other`: suggestions for the admin floor-plan editor (public floors only).
+  const candidates = F.filter((x) => x.floor.public).flatMap((x) => corridorCandidates(x.fp, x.openings, x.graph));
   // Building-level components (floor graphs + cross-floor edges).
   const allNodes = F.flatMap((x) => x.graph.nodes);
   const allEdges = [...F.flatMap((x) => x.graph.edges.map((e) => ({ from: e.from.id, to: e.to.id }))), ...crossEdges.map((e) => ({ from: e.from, to: e.to }))];
@@ -186,7 +206,7 @@ export function runPipeline({ inDir, outDir, gasDir, cacheDir, floors = FLOORS, 
       // to the OpenStreetMap footprint (scripts/campus-map/georef-fit.mjs). null when the drawing has none.
       gross: fp.gross ? fp.gross.map((p) => [round(p[0], 1), round(p[1], 1)]) : null,
       rooms: fp.rooms.map((r) => ({
-        id: r.id, number: r.number, label: r.label, type: r.type, typeEvidence: r.typeEvidence, searchable: r.searchable,
+        id: r.id, number: r.number, label: r.label, type: r.type, ...(r.type === 'corridor' ? { access: 'main' } : {}), typeEvidence: r.typeEvidence, searchable: r.searchable,
         kind: r.kind, linkId: r.linkId || '', areaSqFt: round(r.areaSf, 0), tagAreaSqFt: r.tagAreaSf, useText: r.useText,
         matchedBy: r.matchedBy, closure: r.closure, center: r.center.map((v) => round(v, 1)),
         polygon: r.polygon.map((p) => [round(p[0], 1), round(p[1], 1)]),
@@ -194,7 +214,7 @@ export function runPipeline({ inDir, outDir, gasDir, cacheDir, floors = FLOORS, 
       doors,
       verticals: graph.nodes.filter((n) => n.linkId).map((n) => ({ linkId: n.linkId, type: n.type, roomId: n.roomId, nodeId: n.id })),
       nav: {
-        nodes: graph.nodes.map((n) => ({ id: n.id, type: n.type, x: n.x, y: n.y, roomId: n.roomId || '', linkId: n.linkId || '' })),
+        nodes: graph.nodes.map((n) => ({ id: n.id, type: n.type, x: n.x, y: n.y, roomId: n.roomId || '', linkId: n.linkId || '', ...(accessOf(n) ? { access: accessOf(n) } : {}) })),
         edges: graph.edges.map((e) => ({ id: e.id, from: e.from.id, to: e.to.id, distance: e.distance, floorChange: false, accessible: true })),
       },
       anomalies: [
@@ -245,7 +265,10 @@ export function runPipeline({ inDir, outDir, gasDir, cacheDir, floors = FLOORS, 
     const gas = emitGas(outFloors, crossEdges, gasDir, { unitName: 'inches' });
     report.seedFloorDataBytes = gas.seedBytes;
     fs.writeFileSync(path.join(outDir, 'pipeline-report.json'), JSON.stringify(report, null, 1) + '\n');
+    const review = reviewDir || path.join(outDir, '..', 'review');
+    fs.mkdirSync(review, { recursive: true });
+    fs.writeFileSync(path.join(review, 'corridor-candidates.json'), formatCandidates(candidates));
   }
-  return { floors: outFloors, crossEdges, report, F };
+  return { floors: outFloors, crossEdges, report, F, candidates };
 }
 

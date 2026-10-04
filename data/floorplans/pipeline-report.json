@@ -5,9 +5,9 @@
    "counts": {
     "rooms": 144,
     "roomsByType": {
-     "other": 117,
+     "other": 112,
      "storage": 3,
-     "corridor": 12,
+     "corridor": 17,
      "stair": 2,
      "elevator": 2,
      "mechanical": 8
@@ -19,12 +19,12 @@
     "inferredPassages": 4,
     "entrances": 6,
     "verticals": 4,
-    "nodes": 499,
-    "edges": 532,
-    "blindCorridorAttachments": 4,
+    "nodes": 504,
+    "edges": 537,
+    "blindCorridorAttachments": 5,
     "unreachableRooms": 0,
     "isolatedEntrances": 0,
-    "svgBytes": 137817,
+    "svgBytes": 137832,
     "wallSegments": 3132,
     "fixtureSegments": 0,
     "droppedSegments": 10
@@ -34,7 +34,7 @@
    "inferredPassages": [
     {
      "room": "0114A",
-     "to": "0115P"
+     "to": "0115O"
     },
     {
      "room": "0108B",
@@ -59,12 +59,12 @@
    "counts": {
     "rooms": 172,
     "roomsByType": {
-     "other": 115,
+     "other": 112,
      "storage": 8,
+     "corridor": 17,
      "elevator": 2,
      "mechanical": 31,
-     "stair": 2,
-     "corridor": 14
+     "stair": 2
     },
     "matchedLabels": 170,
     "doors": 137,
@@ -78,7 +78,7 @@
     "blindCorridorAttachments": 7,
     "unreachableRooms": 0,
     "isolatedEntrances": 0,
-    "svgBytes": 160914,
+    "svgBytes": 160923,
     "wallSegments": 3763,
     "fixtureSegments": 0,
     "droppedSegments": 5
@@ -100,7 +100,7 @@
     },
     {
      "room": "0215D",
-     "to": "0215"
+     "to": "0200E"
     },
     {
      "room": "UNK-1",
@@ -158,9 +158,9 @@
    "counts": {
     "rooms": 88,
     "roomsByType": {
-     "other": 64,
+     "other": 60,
      "storage": 6,
-     "corridor": 10,
+     "corridor": 14,
      "restroom": 4,
      "stair": 3,
      "elevator": 1
@@ -172,12 +172,12 @@
     "inferredPassages": 4,
     "entrances": 8,
     "verticals": 4,
-    "nodes": 371,
-    "edges": 397,
+    "nodes": 385,
+    "edges": 411,
     "blindCorridorAttachments": 12,
     "unreachableRooms": 1,
     "isolatedEntrances": 1,
-    "svgBytes": 301077,
+    "svgBytes": 301089,
     "wallSegments": 4934,
     "fixtureSegments": 1572,
     "droppedSegments": 240
@@ -224,10 +224,10 @@
    "counts": {
     "rooms": 82,
     "roomsByType": {
-     "other": 62,
+     "other": 60,
      "storage": 4,
      "restroom": 4,
-     "corridor": 8,
+     "corridor": 10,
      "stair": 3,
      "elevator": 1
     },
@@ -238,12 +238,12 @@
     "inferredPassages": 2,
     "entrances": 0,
     "verticals": 4,
-    "nodes": 367,
-    "edges": 383,
+    "nodes": 368,
+    "edges": 384,
     "blindCorridorAttachments": 5,
     "unreachableRooms": 0,
     "isolatedEntrances": 0,
-    "svgBytes": 292274,
+    "svgBytes": 292280,
     "wallSegments": 5170,
     "fixtureSegments": 1414,
     "droppedSegments": 170
@@ -508,5 +508,73 @@
   ]
  },
  "crossFloorEdges": 10,
- "seedFloorDataBytes": 371647
+ "circulation": {
+  "floor-it-1": [
+   {
+    "number": "0112",
+    "why": "narrow passage (inradius 49 in) joining 2 hallways and 2 other spaces"
+   },
+   {
+    "number": "0115Q",
+    "why": "open link between 2 hallways (area lines or openings, no door)"
+   },
+   {
+    "number": "0115O",
+    "why": "open link between 2 hallways (area lines or openings, no door)"
+   },
+   {
+    "number": "0140C",
+    "why": "hall serving 7 spaces, 13 ft wide at most"
+   },
+   {
+    "number": "0130",
+    "why": "open link between 2 hallways (area lines or openings, no door)"
+   }
+  ],
+  "floor-it-2": [
+   {
+    "number": "0200E",
+    "why": "circulation number 0200E with passages to 10 spaces, 3 of them hallways"
+   },
+   {
+    "number": "0250Q",
+    "why": "hall serving 19 spaces, 15 ft wide at most"
+   },
+   {
+    "number": "0253T",
+    "why": "open link between 2 hallways (area lines or openings, no door)"
+   }
+  ],
+  "floor-it-3": [],
+  "floor-ep-1": [
+   {
+    "number": "1311",
+    "why": "hall serving 8 spaces, 14 ft wide at most"
+   },
+   {
+    "number": "1357",
+    "why": "hall serving 9 spaces, 11 ft wide at most"
+   },
+   {
+    "number": "1300",
+    "why": "circulation number 1300 with passages to 4 spaces, 2 of them hallways"
+   },
+   {
+    "number": "1300T",
+    "why": "circulation number 1300T with passages to 5 spaces, 2 of them hallways"
+   }
+  ],
+  "floor-ep-2": [
+   {
+    "number": "2300R",
+    "why": "open link between 2 hallways (area lines or openings, no door)"
+   },
+   {
+    "number": "2300",
+    "why": "circulation number 2300 with passages to 3 spaces, 2 of them hallways"
+   }
+  ],
+  "floor-ep-3": []
+ },
+ "seedFloorDataBytes": 387178
 }
