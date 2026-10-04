@@ -73,12 +73,15 @@ async function toItSecondFloor(page: Page) {
   for (let i = 0; i < 12; i++) {
     const s = await page.evaluate(() => { const r = (window as any).NAV.route; const st = r.steps[(window as any).NAV.stepIndex]; return st.floorId + ':' + st.kind; });
     if (s.startsWith('floor-it-2:')) break;
+    const at = await page.evaluate(() => (window as any).NAV.stepIndex);
     await page.locator('#route-next').click();
+    await expect(page.locator('#route-step .count')).toContainText(`Step ${at + 2} of`);
   }
   await expect(page.locator('#floor-picker [aria-checked="true"]')).toHaveText('Second Floor');
 }
 
 test('an emergency exit is drawn on the floor plan and never on a route; the route enters by a main door', async ({ page }) => {
+  test.slow(); // a cross-building route: its outdoor steps fly the software-rendered (SwiftShader) map
   await patchClasses(page);
   await boot(page);
   await routeEpToIt203(page);
@@ -107,6 +110,7 @@ test('an emergency exit is drawn on the floor plan and never on a route; the rou
 });
 
 test('"Use side doors and paths" flips the route onto the side door, says so, and is remembered', async ({ page }) => {
+  test.slow(); // a cross-building route: its outdoor steps fly the software-rendered (SwiftShader) map
   await patchClasses(page);
   await boot(page);
   await routeEpToIt203(page);
