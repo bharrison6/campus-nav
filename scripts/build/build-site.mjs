@@ -9,8 +9,8 @@
 //   config.json              {mapsApiKey, analytics: {provider, site}, basePath, domain}; the key comes ONLY from the
 //                            MAPS_API_KEY environment variable at build time (repository secret in CI), never from a file
 //   data/campus.json         \
-//   data/version.json         } the campus-data export (scripts/data/export-campus-data.mjs); plans of public
-//   floors/<floorId>.svg     /  floors only (the build fails if a hidden floor's plan is in the export)
+//   data/version.json         } the campus-data export (scripts/data/export-campus-data.mjs): public floors only;
+//   floors/<floorId>.svg     /  the build fails if a hidden floor or a plan without a published floor is in it
 //   data/schedules/<id>.json official schedules (data/schedules/*.json), checked against the campus data
 //   data/links.json          {linkId: {title, url}}
 //   CNAME                    only when build.config.json names a domain
@@ -172,12 +172,15 @@ export function buildSite({ out = join(ROOT, 'dist'), configPath = join(ROOT, 'b
   }
   const version = readJson(join(dataDir, 'version.json'));
   if (version.version === undefined || version.version === null || version.version === '') fail('data/version.json has no version');
+  const hidden = campus.floors.filter((f) => !isPublicFloor(f)).map((f) => f.id);
+  if (hidden.length) fail(`campus.json carries hidden floor(s) ${hidden.join(', ')}; only public floors are published`);
   if (existsSync(join(dataDir, 'floors'))) renameSync(join(dataDir, 'floors'), join(out, 'floors'));
   else mkdirSync(join(out, 'floors'));
-  const missing = campus.floors.filter(isPublicFloor).map((f) => f.id).filter((id) => !existsSync(join(out, 'floors', `${id}.svg`)));
-  if (missing.length) log(`[build] warning: no floor plan SVG for public floor(s) ${missing.join(', ')}; the app draws a simplified plan`);
-  const hidden = campus.floors.filter((f) => !isPublicFloor(f)).map((f) => f.id).filter((id) => existsSync(join(out, 'floors', `${id}.svg`)));
-  if (hidden.length) fail(`the export published the plan of hidden floor(s) ${hidden.join(', ')}`);
+  const published = new Set(campus.floors.map((f) => `${f.id}.svg`));
+  const stray = readdirSync(join(out, 'floors')).filter((n) => !published.has(n));
+  if (stray.length) fail(`floor plans for floors that are not published: ${stray.join(', ')}`);
+  const missing = campus.floors.map((f) => f.id).filter((id) => !existsSync(join(out, 'floors', `${id}.svg`)));
+  if (missing.length) log(`[build] warning: no floor plan SVG for floor(s) ${missing.join(', ')}; the app draws a simplified plan`);
 
   // 2. official schedules and links, checked against the data they point into
   const linksPath = join(ROOT, 'data', 'links.json');

@@ -11,14 +11,15 @@ and how to change the data. The README covers the code, the drawings pipeline an
 |---|---|
 | `index.html` | the app (`src/web/WebApp.html` with its modules inlined) |
 | `config.json` | `{mapsApiKey, analytics: {provider, site}, basePath, domain}`, made at build time |
-| `data/campus.json`, `data/version.json` | campus data and its version (the browser cache key) |
-| `floors/<floorId>.svg` | public floor plans (hidden floors' plans are not published) |
+| `data/campus.json`, `data/version.json` | campus data of the public floors and its version (the browser cache key) |
+| `floors/<floorId>.svg` | public floor plans |
 | `data/schedules/<id>.json`, `data/links.json` | official event schedules and the links they cite |
 | `404.html` | sends a mistyped or old path back to the app, keeping `?room=`, `?qr=`, `?sched=` |
 | `CNAME` | only when a custom domain is configured |
 
 The facilities drawings are never published and never in the repository; only the plans derived from them
-are. Every URL inside the app is relative, so one build works at `https://bharrison6.github.io/campus-nav/`
+are. Hidden floors (`public: false`, today the IT mezzanine and the EP penthouse) are left out entirely: no plan,
+rooms, nodes or QR locations of theirs are published; the local admin still shows them. Every URL inside the app is relative, so one build works at `https://bharrison6.github.io/campus-nav/`
 and at a domain root.
 
 ## 1. Turn on Pages (once)
@@ -84,7 +85,7 @@ Printed QR codes keep working only while their URL resolves: before switching, c
 
 Every push to `main` runs the workflow: `npm ci`, `npm test` (unit and pipeline tests; the drawings are not on
 the runner, so the tests that need them are skipped), `npm run build` with the `MAPS_API_KEY` secret, then the
-deploy. A failing test or a build check (a bad schedule, a broken link id, a hidden floor's plan in the export)
+deploy. A failing test or a build check (a bad schedule, a broken link id, a hidden floor in the export)
 stops the run before anything is published, and the live site stays as it was. Watch a run under **Actions**;
 re-run one there by hand. Nothing else deploys the site.
 

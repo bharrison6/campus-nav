@@ -1,5 +1,6 @@
-// The web app's pathfinding and search modules on the REAL campus data: what getAllCampusData returns
-// once the generated SeedFloorData.gs is seeded (built here by running the .gs files in dev/gas-runtime.cjs).
+// The web app's pathfinding and search modules on the REAL campus data the site publishes: what
+// getPublicCampusData returns (the export's campus.json, hidden floors absent) once the generated
+// SeedFloorData.gs is seeded (built here by running the .gs files in dev/gas-runtime.cjs).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -10,7 +11,8 @@ const { makeRuntime } = require('../../dev/gas-runtime.cjs');
 
 const gas = makeRuntime(); // the backend in tools/admin/gs (GS_DIR)
 gas.ctx.initSystem();
-const data = gas.run('getAllCampusData', []);
+const data = gas.run('getPublicCampusData', []);
+const full = gas.run('getAllCampusData', []); // the admin's view, hidden floors included
 
 const P = loadInclude('WebApp_Pathfinding.html', 'MSCNPath');
 const S = loadInclude('WebApp_Search.html', 'MSCNSearch');
@@ -65,6 +67,23 @@ test('EP 1322 connects only through its own exterior door', () => {
   const r1322 = P.nodesForRoom(g, 'room-ep-1-1322');
   assert.ok(P.findPath(g, P.entranceIds(g, 'bld-ep'), r1322), 'reachable from outside');
   assert.equal(P.findPath(g, r1322, P.nodesForRoom(g, 'room-ep-2-2321')), null, 'no indoor route from 1322');
+});
+
+test('the published data gives the same graph and search as the full data filtered by the client', () => {
+  // Positive control: the full data does hold hidden floors, and the client's floorFilter is what hid them.
+  assert.ok(full.floors.some((f) => !isPublic(f)));
+  assert.ok(data.floors.every(isPublic), 'no hidden floor is published');
+  const gFull = P.buildGraph(full, { floorFilter: isPublic });
+  const gBare = P.buildGraph(data, {}); // no filter at all: absence alone must be enough
+  const adj = (gr) => Object.keys(gr.adj).sort().map((k) => k + ':' + gr.adj[k].map((e) => e.to || e.id || JSON.stringify(e)).sort().join(','));
+  assert.deepEqual(Object.keys(gBare.nodes).sort(), Object.keys(gFull.nodes).sort());
+  assert.deepEqual(adj(gBare), adj(gFull));
+  assert.deepEqual(Object.keys(gBare.floors).sort(), ['floor-ep-1', 'floor-ep-2', 'floor-it-1', 'floor-it-2']);
+  const entries = (ix) => ix.entries.map((e) => e.title).sort();
+  assert.deepEqual(entries(S.buildIndex(data, {})), entries(S.buildIndex(full, { floorFilter: isPublic })));
+  // Routes across IT 1-2 and EP 1-2 work on the bare published graph.
+  assert.ok(P.findPath(gBare, P.nodesForRoom(gBare, 'room-it-1-0141'), P.nodesForRoom(gBare, 'room-it-2-0241')));
+  assert.ok(P.findPath(gBare, P.entranceIds(gBare, 'bld-ep'), P.nodesForRoom(gBare, 'room-ep-2-2321'), { accessibleOnly: true }));
 });
 
 test('hidden floors are out of the public graph and search', () => {

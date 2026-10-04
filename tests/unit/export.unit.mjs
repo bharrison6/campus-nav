@@ -28,9 +28,11 @@ const EMPTY = dir();
 // The v2 backend's own answer, no overrides layer involved.
 const plain = makeRuntime();
 plain.ctx.initSystem();
-const reference = plain.run('getAllCampusData', []);
-// Only public floors' plans are published (the IT mezzanine and the EP penthouse are hidden).
-const PUBLIC_FLOORS = reference.floors.filter(isPublicFloor).map((f) => f.id);
+const full = plain.run('getAllCampusData', []); // what the local admin sees, hidden floors included
+const reference = plain.run('getPublicCampusData', []); // what the site publishes
+// Only public floors are published (the IT mezzanine and the EP penthouse are hidden).
+const PUBLIC_FLOORS = full.floors.filter(isPublicFloor).map((f) => f.id);
+const HIDDEN_FLOORS = full.floors.filter((f) => !isPublicFloor(f)).map((f) => f.id);
 
 const withoutVersion = (c) => ({ ...c, version: '', config: c.config.map((r) => (r.key === 'dataVersion' ? { ...r, value: '' } : r)) });
 
@@ -41,7 +43,7 @@ test('the committed overrides files are the eight collections, each a JSON array
   }
 });
 
-test('no overrides: campus.json is exactly what getAllCampusData returns (only version differs); the diff is empty', () => {
+test('no overrides: campus.json is exactly what getPublicCampusData returns (only version differs); the diff is empty', () => {
   const x = buildExport({ overridesDir: EMPTY });
   assert.deepEqual(Object.keys(x.campus), ['contractVersion', 'version', 'config', 'buildings', 'floors', 'rooms', 'navNodes', 'navEdges', 'photos', 'qrLocations']);
   assert.deepEqual(withoutVersion(x.campus), withoutVersion(reference));
@@ -68,19 +70,42 @@ test('deterministic: the same inputs give byte-identical files (version.json too
   assert.equal(fs.readFileSync(path.join(a, 'floors', 'floor-it-1.svg'), 'utf8'), plain.run('getFloorPlanSvg', ['floor-it-1']));
 });
 
-test('hidden floors stay in campus.json but their plans are never written', () => {
+test('hidden floors are not published: no floor, room, node, edge, photo, QR location or plan of theirs', () => {
   assert.deepEqual(PUBLIC_FLOORS, ['floor-it-1', 'floor-it-2', 'floor-ep-1', 'floor-ep-2']);
-  const hidden = reference.floors.filter((f) => !isPublicFloor(f)).map((f) => f.id);
-  assert.deepEqual(hidden, ['floor-it-3', 'floor-ep-3']);
+  assert.deepEqual(HIDDEN_FLOORS, ['floor-it-3', 'floor-ep-3']);
+  const hidden = new Set(HIDDEN_FLOORS);
+  // Positive controls: the full data the admin sees does carry hidden-floor records and edges into them.
+  const fullHiddenNodes = new Set(full.navNodes.filter((n) => hidden.has(n.floorId)).map((n) => n.id));
+  assert.ok(full.rooms.some((r) => hidden.has(r.floorId)), 'full data has rooms on hidden floors');
+  assert.ok(fullHiddenNodes.size > 0, 'full data has nodes on hidden floors');
+  assert.ok(full.navEdges.some((e) => fullHiddenNodes.has(e.fromNodeId) !== fullHiddenNodes.has(e.toNodeId)),
+    'full data has cross-floor edges from a public floor into a hidden one');
+
   const out = dir();
-  const r = exportCampusData({ outDir: out, overridesDir: EMPTY });
+  exportCampusData({ outDir: out, overridesDir: EMPTY });
   assert.deepEqual(fs.readdirSync(path.join(out, 'floors')).sort(), PUBLIC_FLOORS.map((id) => `${id}.svg`).sort());
   const campus = JSON.parse(fs.readFileSync(path.join(out, 'campus.json'), 'utf8'));
-  assert.deepEqual(campus.floors.map((f) => f.id).filter((id) => hidden.includes(id)), hidden);
-  // A floor made public by an override gets its plan published.
+  assert.deepEqual(campus.floors.map((f) => f.id), PUBLIC_FLOORS);
+  assert.ok(campus.floors.every(isPublicFloor), 'no floor with public false');
+  for (const c of ['rooms', 'navNodes', 'photos', 'qrLocations']) {
+    assert.deepEqual(campus[c].filter((r) => hidden.has(r.floorId)).map((r) => r.id), [], `${c} on hidden floors`);
+  }
+  // The published graph is closed: no dangling edge, node room or QR node.
+  const nodeIds = new Set(campus.navNodes.map((n) => n.id));
+  const roomIds = new Set(campus.rooms.map((r) => r.id));
+  const floorIds = new Set(PUBLIC_FLOORS);
+  assert.deepEqual(campus.navEdges.filter((e) => !nodeIds.has(e.fromNodeId) || !nodeIds.has(e.toNodeId)).map((e) => e.id), []);
+  assert.deepEqual(campus.navNodes.filter((n) => n.roomId && !roomIds.has(n.roomId)).map((n) => n.id), []);
+  assert.deepEqual(campus.rooms.filter((r) => !floorIds.has(r.floorId)).map((r) => r.id), []);
+  assert.deepEqual(campus.qrLocations.filter((q) => q.nodeId && !nodeIds.has(q.nodeId)).map((q) => q.id), []);
+  assert.ok(campus.rooms.length < full.rooms.length && campus.navEdges.length < full.navEdges.length);
+
+  // A floor made public by an override is published with its rooms and plan.
   const ov = dir({ floors: [{ id: 'floor-it-3', public: true }] });
-  assert.ok(buildExport({ overridesDir: ov }).floors.some((f) => f.id === 'floor-it-3'));
-  assert.ok(r.version);
+  const x = buildExport({ overridesDir: ov });
+  assert.ok(x.campus.floors.some((f) => f.id === 'floor-it-3'));
+  assert.ok(x.campus.rooms.some((r) => r.floorId === 'floor-it-3'));
+  assert.ok(x.floors.some((f) => f.id === 'floor-it-3'));
   for (const v of [false, 'false', 'FALSE']) assert.equal(isPublicFloor({ public: v }), false, String(v));
   for (const v of [true, 'true', undefined, '']) assert.equal(isPublicFloor({ public: v }), true, String(v));
 });

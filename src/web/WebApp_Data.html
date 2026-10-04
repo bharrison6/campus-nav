@@ -5,7 +5,7 @@
  * to the page (no leading slash), so one build serves at /campus-nav/ and at a domain root.
  *   config.json                 {mapsApiKey, analytics: {provider, site}, basePath, domain}
  *   data/version.json           {version, builtAt, gitSha}   (the cache key for campus data and floor plans)
- *   data/campus.json            what getAllCampusData returned (no mapsApiKey row)
+ *   data/campus.json            the public campus data (getPublicCampusData: no hidden floors, no mapsApiKey row)
  *   floors/<floorId>.svg        a floor plan
  *   data/schedules/<id>.json    an official event schedule;  data/links.json  {linkId: {title, url}}
  * DOM-free at load time (tests/unit loads it in a bare VM). ES5 syntax.

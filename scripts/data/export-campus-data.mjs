@@ -5,11 +5,13 @@
 //
 // Runs the backend (tools/admin/gs) in the Apps Script stand-in, seeds it as initSystem() does (SeedData.gs + the
 // pipeline's SeedFloorData.gs), merges data/overrides/*.json, and writes:
-//   <dir>/campus.json            exactly what getAllCampusData returns: { contractVersion, version, config, buildings,
-//                                floors, rooms, navNodes, navEdges, photos, qrLocations }; config is key/value rows and
-//                                never holds mapsApiKey (the site's config.json carries the key)
-//   <dir>/floors/<floorId>.svg   each PUBLIC floor's plan (the FP_<floorId>.html asset, via getFloorPlanSvg); a floor
-//                                with public = false stays in campus.json, but its plan is never written
+//   <dir>/campus.json            exactly what getPublicCampusData returns: { contractVersion, version, config,
+//                                buildings, floors, rooms, navNodes, navEdges, photos, qrLocations } without the hidden
+//                                floors (public = false) and everything on them (rooms, nodes, edges touching those
+//                                nodes, indoor photos, QR locations); config is key/value rows and never holds
+//                                mapsApiKey (the site's config.json carries the key). The local admin still reads
+//                                getAllCampusData, hidden floors included.
+//   <dir>/floors/<floorId>.svg   each public floor's plan (the FP_<floorId>.html asset, via getFloorPlanSvg)
 //   <dir>/version.json           { version, builtAt, gitSha }
 // version is a content hash of campus.json and the plans, so the same inputs give the same files; builtAt is the
 // build time (SOURCE_DATE_EPOCH when set) and gitSha the commit (GITHUB_SHA, else git rev-parse HEAD, else '').
@@ -28,11 +30,13 @@ export const isPublicFloor = (f) => !(f && (f.public === false || String(f.publi
 /** The export as data (no files): { campus, floors: [{ id, svg }] (public floors only), missingPlans, report }. */
 export function buildExport({ gsDir, overridesDir = OVERRIDES_DIR, extraCode, props } = {}) {
   const engine = openCampus({ gsDir, overridesDir, extraCode, props });
-  const campus = engine.gas.run('getAllCampusData', []);
+  const campus = engine.gas.run('getPublicCampusData', []);
   campus.config = campus.config.filter((c) => c.key !== 'mapsApiKey');
+  const leaked = campus.floors.filter((f) => !isPublicFloor(f)).map((f) => f.id);
+  if (leaked.length) throw new Error(`getPublicCampusData kept hidden floor(s) ${leaked.join(', ')}`);
   const floors = [];
   const missingPlans = [];
-  for (const f of campus.floors.filter(isPublicFloor)) {
+  for (const f of campus.floors) {
     try {
       floors.push({ id: f.id, svg: engine.gas.run('getFloorPlanSvg', [f.id]) });
     } catch (e) {

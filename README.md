@@ -11,7 +11,8 @@ operator's one-time steps: [`docs/go-live.md`](docs/go-live.md).
 
 Indoor coverage today: **Collins Industry and Technology Center (IT, building 0135)** and **Engineering and
 Physics (EP, building 0174)**, floors 1 and 2 of each, drawn from the university's AutoCAD floor plans. The
-IT mezzanine and the EP penthouse are in the data but hidden from visitors (their plans are not published).
+IT mezzanine and the EP penthouse are in the admin's data but not published: neither their plans nor anything
+on them reaches the site.
 The outdoor map covers 89 campus buildings.
 
 ## Architecture
@@ -91,8 +92,10 @@ The outdoor map covers 89 campus buildings.
 ```
 
 The export runs the backend `.gs` code in the Node stand-in, seeds it the way the v2 `initSystem()` seeded a
-new sheet, merges the overrides, and writes exactly what `getAllCampusData` returns (the Maps key is never in
-it; the site's `config.json` carries the key) plus the plans of public floors. `version` is a content hash, so
+new sheet, merges the overrides, and writes exactly what `getPublicCampusData` returns: the data without hidden
+floors and everything on them (rooms, nodes, the edges into them, indoor photos, QR locations). The Maps key is
+never in it (the site's `config.json` carries the key). It adds the plans of the published floors. The local
+admin reads `getAllCampusData`, so it still shows and edits hidden floors. `version` is a content hash, so
 the same inputs give byte-identical files; `version.json` adds `builtAt` and `gitSha`. `npm run export:data`
 writes it to `build/data` for a look.
 
@@ -173,7 +176,7 @@ optionally enables the Buildings map in the admin (a key that allows localhost; 
 `config.json` (`{mapsApiKey, analytics, basePath, domain}`), `data/campus.json`, `data/version.json`,
 `floors/<floorId>.svg` (public floors only), `data/schedules/<id>.json`, `data/links.json`, `404.html`, and
 `CNAME` when a domain is configured. The build refuses root-relative URLs in the page, a schedule that names an
-unknown building, a room on a hidden floor or a missing link, and a hidden floor's plan in the export. The Maps
+unknown building, a room that is not published or a missing link, and a hidden floor (or its plan) in the export. The Maps
 key comes only from the `MAPS_API_KEY` environment variable (the repository secret in CI).
 
 ## Development and tests
