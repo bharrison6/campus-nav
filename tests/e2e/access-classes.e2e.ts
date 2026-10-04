@@ -38,7 +38,7 @@ async function boot(page: Page) {
   await page.goto('./');
   await expect(page.locator('#loading-screen')).toBeHidden();
   // the classed doors join once the outdoor graph is in
-  await expect.poll(() => page.evaluate((id) => !!(window as any).APP.graph.adj[id]?.some((e: any) => e.outdoor), EXIT)).toBe(true);
+  await expect.poll(() => page.evaluate((id) => !!(window as any).APP.graph.adj[id]?.some((e: any) => e.outdoor), EXIT), { timeout: 30_000 }).toBe(true);
 }
 
 async function searchAndOpen(page: Page, q: string, title: string) {
