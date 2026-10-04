@@ -251,6 +251,37 @@ test('admin: toggling primary and setting levels/height are overrides the export
   assert.equal(ac.height, 9);
 });
 
+test('admin: an entrance moved, added or deleted in the admin is where the export puts it in the rebuilt outdoor graph', () => {
+  const dir = path.join(tmp, 'ov-entrance');
+  fs.cpSync(path.join(ROOT, 'data', 'overrides'), dir, { recursive: true });
+  const engine = openCampus({ overridesDir: dir });
+  const before = engine.gas.run('getAllCampusData', []).navNodes;
+  const moved = before.find((n) => n.id === 'it-1-n0492');
+  engine.gas.run('updateNavNode', [{ id: 'it-1-n0492', x: Number(moved.x) + 1000 }]);
+  const added = engine.gas.run('saveNavNode', [{ floorId: 'floor-it-1', x: Number(moved.x) + 300, y: Number(moved.y) - 400, type: 'entrance', primary: true }]);
+  const addedId = (added && (added.id || (added.record && added.record.id))) || null;
+  engine.gas.run('deleteNavNode', [{ id: 'it-1-n0493' }]);
+  engine.save();
+  const exported = buildExport({ overridesDir: dir }).campus.navNodes;
+  const out = buildCampusMap(loadInputs({ overridesDir: dir }));
+  const gnode = (id) => out.graph.nodes.find((n) => n.id === id);
+  const xnode = (id) => exported.find((n) => n.id === id);
+  const apart = (id) => haversine(gnode(id).lat, gnode(id).lng, xnode(id).lat, xnode(id).lng);
+  // moved by 1,000 drawing units (25 m): graph and export agree within 1 m, and both left the committed spot
+  assert.ok(apart('it-1-n0492') < 1, `it-1-n0492 graph vs export ${apart('it-1-n0492')} m`);
+  const committed = graph.nodes.find((n) => n.id === 'it-1-n0492');
+  assert.ok(haversine(committed.lat, committed.lng, gnode('it-1-n0492').lat, gnode('it-1-n0492').lng) > 20, 'the graph follows the edit');
+  assert.ok(out.graph.edges.some((e) => e.kind === 'connector' && (e.from === 'it-1-n0492' || e.to === 'it-1-n0492')), 'the moved door is still joined');
+  // added as a primary entrance: joined, at the exported point
+  assert.ok(addedId, 'saveNavNode returned the new id');
+  assert.ok(gnode(addedId), 'the added entrance is in the graph');
+  assert.ok(apart(addedId) < 1, `${addedId} graph vs export ${apart(addedId)} m`);
+  // deleted: in neither
+  assert.equal(xnode('it-1-n0493'), undefined);
+  assert.equal(gnode('it-1-n0493'), undefined);
+  assert.ok(!Object.values(out.entranceBlocks).flat().some((e) => e.nodeId === 'it-1-n0493'), 'not scored either');
+});
+
 // ---- aerial ----
 
 test('aerial (when present): manifest, every tile on disk, under the cap, NAIP credited', { skip: !fs.existsSync(path.join(ROOT, 'data/campus-map/aerial.json')) && 'no aerial layer' }, () => {

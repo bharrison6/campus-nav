@@ -40,6 +40,17 @@ export function readEntranceFacing(dir) {
   return out;
 }
 
+/**
+ * The effective entrance set: the entrance nodes of a campus payload (the engine's output, data/overrides merged, so
+ * a node the admin moved, put on another floor, added or deleted is where the admin left it), in the order given.
+ * The exporter places exactly these on the map (addCampusGeo) and the campus-map build scores and joins exactly
+ * these to the outdoor graph (scripts/campus-map/build.mjs), so the two cannot disagree on where a door is.
+ * @return {Object[]} [{nodeId, floorId, x, y, node}]
+ */
+export function campusEntrances(campus) {
+  return (campus.navNodes || []).filter((n) => n.type === 'entrance').map((n) => ({ nodeId: n.id, floorId: n.floorId, x: Number(n.x), y: Number(n.y), node: n }));
+}
+
 /** The compass side a door faces, from its outward bearing (degrees from north): North, Northeast, ... */
 export function compassSide(bearingDeg) {
   return COMPASS[Math.round((((bearingDeg % 360) + 360) % 360) / 45) % 8];
@@ -69,24 +80,21 @@ export function addCampusGeo(campus, georef, facing = {}) {
     if (a.type === 'entrance' && !inner.has(a.id)) inner.set(a.id, b);
     if (b.type === 'entrance' && !inner.has(b.id)) inner.set(b.id, a);
   }
-  for (const n of campus.navNodes) {
-    if (n.type !== 'entrance') {
-      delete n.primary;
-      continue;
-    }
+  for (const n of campus.navNodes) if (n.type !== 'entrance') delete n.primary;
+  for (const { node: n, floorId, x, y } of campusEntrances(campus)) {
     report.entrances++;
     n.primary = toBool(n.primary);
     if (n.primary) report.primary++;
-    const f = floors.get(n.floorId);
+    const f = floors.get(floorId);
     const rec = f && georef[f.buildingId];
     if (!rec) continue;
-    const [lng, lat] = svgToLngLatWith(rec, Number(n.x), Number(n.y), n.floorId);
+    const [lng, lat] = svgToLngLatWith(rec, x, y, floorId);
     n.lat = R6(lat);
     n.lng = R6(lng);
     report.located++;
     if (!byBuilding.has(f.buildingId)) byBuilding.set(f.buildingId, []);
     const i = inner.get(n.id);
-    const out = facing[n.id] != null ? facing[n.id] : i ? svgBearingWith(rec, Number(n.x) - Number(i.x), Number(n.y) - Number(i.y)) : null;
+    const out = facing[n.id] != null ? facing[n.id] : i ? svgBearingWith(rec, x - Number(i.x), y - Number(i.y)) : null;
     byBuilding.get(f.buildingId).push({ n, level: Number(f.level) || 1, side: out == null ? 'Building' : compassSide(out) });
   }
   for (const b of campus.buildings) {
