@@ -5005,6 +5005,9 @@
        click adds a vertex to a draft line or polygon; Finish saves it. A drawn
        path's ends snap (server side) to an entrance or path within 4 m.
        ======================================================== */
+    // Removing a path or entrance (or making a drawn entrance emergency) is checked on a walking graph the server
+    // rebuilds in memory first.
+    var SLOW_CHECK_MESSAGE = 'Checking that nothing is cut off (the walking graph is rebuilt in memory, about 15 s)...';
     var mapEd = {
       ml: null, map: null, data: null, basemap: null, loading: false, tool: 'select',
       draft: [], draftReplaces: '', draftName: '', selected: null, entrancePoint: null, pollTimer: null, lastRebuildAt: ''
@@ -5504,6 +5507,7 @@
       if (p._kind === 'floor') {
         runServer('updateNavNode', [{ id: p._id, access: access, primary: access === 'main' }], done, editorFailure('mapedit-panel', 'Not saved: '));
       } else {
+        if (access === 'emergency' && p._access !== 'emergency') showMessage(SLOW_CHECK_MESSAGE, 'info');
         runServer('updateMapFeature', [{ id: p._id, changes: { access: access } }], done, editorFailure('mapedit-panel', 'Not saved: '));
       }
     }
@@ -5541,6 +5545,7 @@
       if (!s) return;
       var id = s.props.id || s.props._id;
       if (!confirm('Delete ' + id + ' from overrides.geojson?')) return;
+      if (s.layer !== 'dbld-l') showMessage(SLOW_CHECK_MESSAGE, 'info');
       runServer('deleteMapFeature', [{ id: id }], function() {
         afterMapSave('Deleted ' + id + '. Rebuilding the map data...');
       }, editorFailure('mapedit-panel', 'Not deleted: '));
