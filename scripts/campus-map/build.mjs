@@ -132,7 +132,7 @@ export function buildCampusMap({ extract, overridesGeo, seeded, buildingOverride
 
   // ---- outdoor network (before entrances) ----
   const g = new OutdoorGraph();
-  addOsmWays(g, osm);
+  addOsmWays(g, osm, { clip: extract.meta && extract.meta.bbox });
   addOverridePaths(g, ovFeatures);
   report.overrides.pathSnaps = g.report.overrideSnaps;
 

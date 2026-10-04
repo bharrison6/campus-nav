@@ -160,8 +160,12 @@ export class OutdoorGraph {
   }
 }
 
-/** Adds every walkable OSM way to the graph, vertex by vertex. */
-export function addOsmWays(g, osm) {
+/**
+ * Adds every walkable OSM way to the graph, vertex by vertex. With a clip box, vertices outside it are left out (the
+ * OSM map call returns whole ways that cross the box, some reaching kilometers beyond campus) and the way is cut there.
+ */
+export function addOsmWays(g, osm, { clip } = {}) {
+  const inside = (n) => !clip || (n.lat >= clip.minLat && n.lat <= clip.maxLat && n.lon >= clip.minLng && n.lon <= clip.maxLng);
   const crossingNodes = new Set();
   for (const n of osm.nodes.values()) if (n.tags && (n.tags.highway === 'crossing' || n.tags.crossing)) crossingNodes.add(n.id);
   const ways = osm.ways.filter((w) => walkKind(w.tags)).sort((a, b) => a.id - b.id);
@@ -170,7 +174,7 @@ export function addOsmWays(g, osm) {
     let prev = null;
     for (const nid of w.nodes) {
       const n = osm.nodes.get(nid);
-      if (!n) { prev = null; continue; }
+      if (!n || !inside(n)) { prev = null; continue; }
       const id = `n${nid}`;
       g.addNode(id, n.lat, n.lon, crossingNodes.has(nid) || kind === 'crossing' ? 'crossing' : 'path');
       if (prev) g.addEdge(prev, id, kind);
