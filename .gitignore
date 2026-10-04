@@ -47,6 +47,8 @@ Maps/
 # Facilities drawings: never in this repository (they live in MSCN_DWG_DIR, default ../drawings/dwg)
 data/dwg/
 *.dwg
+# ...nor the pipeline's parse cache, which holds every entity extracted from them
+scripts/floorplan-pipeline/.cache/
 
 # ACC kernel — local-only transcripts (§12)
 .transcripts/
