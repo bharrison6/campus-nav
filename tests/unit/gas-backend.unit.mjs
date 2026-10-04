@@ -105,9 +105,9 @@ test('getPublicCampusData drops the non-public floor and everything on it, keeps
 });
 
 test('a Maps key held as a Script Property (as the local admin sets from MSCN_MAPS_API_KEY) reaches getAllCampusData', () => {
-  R.props.mapsApiKey = 'AIzaFAKEFAKEFAKEFAKEFAKE12345';
+  R.props.mapsApiKey = 'test-only-maps-key';
   const cfg = g.getAllCampusData().config.filter((c) => c.key === 'mapsApiKey');
-  assert.deepEqual(cfg, [{ key: 'mapsApiKey', value: 'AIzaFAKEFAKEFAKEFAKEFAKE12345' }]);
+  assert.deepEqual(cfg, [{ key: 'mapsApiKey', value: 'test-only-maps-key' }]);
   delete R.props.mapsApiKey;
   assert.ok(!g.getAllCampusData().config.some((c) => c.key === 'mapsApiKey'));
 });

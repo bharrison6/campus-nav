@@ -73,13 +73,13 @@ test('_new for an id the base now has merges over it and says so', () => {
 
 test('config is keyed by key; mapsApiKey and dataVersion are refused; unknown fields are ignored and reported', () => {
   const { data, report } = applyOverrides(base(), {
-    config: [{ key: 'campusName', _new: true, value: 'Murray State' }, { key: 'mapsApiKey', _new: true, value: 'AIzaX' }, { key: 'dataVersion', value: '9' }],
+    config: [{ key: 'campusName', _new: true, value: 'Murray State' }, { key: 'mapsApiKey', _new: true, value: 'test-only-maps-key' }, { key: 'dataVersion', value: '9' }],
     rooms: [{ id: 'room-a', area: 12 }],
   }, headers);
   assert.deepEqual(data.config, [{ key: 'dataVersion', value: '1' }, { key: 'campusName', value: 'Murray State' }]);
   assert.deepEqual(report.refused.map((r) => r.id), ['mapsApiKey', 'dataVersion']);
   assert.deepEqual(report.ignoredFields, [{ collection: 'rooms', id: 'room-a', field: 'area' }]);
-  assert.ok(!JSON.stringify(data).includes('AIza'));
+  assert.ok(!JSON.stringify(data).includes('test-only-maps-key'));
 });
 
 test('malformed overrides fail loudly', () => {
