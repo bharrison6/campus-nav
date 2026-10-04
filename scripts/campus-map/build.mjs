@@ -2,7 +2,8 @@
 //
 // Inputs: the OpenStreetMap extract (data/campus-map/source/osm-extract.json), the hand-drawn overrides
 // (data/campus-map/overrides.geojson), the seeded buildings, the operator's overrides (data/overrides: Buildings
-// levels/height, NavNodes primary), the pipeline's floor JSON (gross outlines, doors, rooms), and the effective
+// levels/height, NavNodes access (or a legacy primary)), data/overrides/pathAccess.json (outdoor path classes), the
+// pipeline's floor JSON (gross outlines, doors, rooms), and the effective
 // entrance set (campusEntrances in scripts/data/campus-geo.mjs: the exporter's entrance nodes, the operator's moves,
 // floor changes, additions and deletions applied), which replaces the floor JSON's exterior doors before scoring,
 // projecting and joining, so the outdoor graph's doors are where the export puts them.
@@ -13,8 +14,9 @@ import { fromExtract } from './extract.mjs';
 import { haversine, round } from './geo.mjs';
 import { basemapLayers, buildingHeight, clean, feature, footprints, indexOsm, labelPoint, matchBuildings } from './osm.mjs';
 import { boundaryResiduals, fitOutline, unionOutline } from './georef-fit.mjs';
-import { addOsmWays, addOverridePaths, connectEntrance, OutdoorGraph, pruneFragments } from './outdoor-graph.mjs';
+import { ACCESS, addOsmWays, addOverridePaths, applyPathAccess, connectEntrance, overrideFeatureId, OutdoorGraph, pathAccess, pruneFragments } from './outdoor-graph.mjs';
 import { choosePrimary, scoreEntrances, withEntrances } from '../floorplan-pipeline/stages/primary-entrances.mjs';
+import { overrideAccess } from '../data/overrides.mjs';
 
 export { withEntrances };
 import { svgBearingWith, svgToLngLatWith } from '../../src/shared/georef.mjs';
@@ -29,7 +31,45 @@ export function formatGeojson(features, extra = {}) {
 }
 
 const byKey = (k) => (a, b) => (a[k] < b[k] ? -1 : a[k] > b[k] ? 1 : 0);
-const truthy = (v) => v === true || /^(true|1|yes)$/i.test(String(v));
+
+/**
+ * The automatic access class of a scored exterior door (v5): the primary-entrance heuristic's choice is main, a door
+ * out of a stairwell (a stair-tower exit) emergency, any other exterior door alt.
+ */
+export function autoEntranceAccess(chosen, roomType) {
+  if (chosen) return 'main';
+  return roomType === 'stair' ? 'emergency' : 'alt';
+}
+
+/**
+ * The entrances drawn for buildings without floor plans: overrides.geojson Point features with layer "entrances"
+ * ({building, access, label}). Ids are the feature's own id, else "entrance-<building>-<n>" (n counts per building in
+ * file order); access defaults to main. Returns [{id, buildingId, access, label, lat, lng}] and the rejects.
+ */
+export function drawnEntrances(features) {
+  const out = [];
+  const rejected = [];
+  const count = {};
+  features.forEach((f, i) => {
+    const p = f.properties || {};
+    if (p.layer !== 'entrances') return;
+    if (!f.geometry || f.geometry.type !== 'Point' || !p.building) {
+      rejected.push({ feature: i + 1, why: !p.building ? 'no building id' : 'not a Point' });
+      return;
+    }
+    count[p.building] = (count[p.building] || 0) + 1;
+    const [lng, lat] = f.geometry.coordinates;
+    out.push({
+      id: String(f.id || p.id || `entrance-${p.building}-${count[p.building]}`),
+      buildingId: String(p.building),
+      access: ACCESS.includes(p.access) ? p.access : 'main',
+      label: p.label || '',
+      lat: round(lat, 6),
+      lng: round(lng, 6),
+    });
+  });
+  return { entrances: out, rejected };
+}
 
 /** Georeferences one indoor building: fits the union of its public floors' outlines to its footprint. */
 export function georeferenceBuilding(buildingId, floors, footprint) {
@@ -97,14 +137,16 @@ export function effectiveDoors(json, floorId, entrances, doorsById) {
  * @param {Object[]} i.seeded           buildings as the engine returns them ({id, name, lat, lng, hasIndoor})
  * @param {Object[]} i.buildingOverrides data/overrides/buildings.json records
  * @param {Object[]} i.navNodeOverrides  data/overrides/navNodes.json records
+ * @param {Object[]} [i.pathAccessOverrides] data/overrides/pathAccess.json records ({way, access})
  * @param {Object[]} i.floors           [{floorId, json}] every pipeline floor JSON
  * @param {Object} i.pipelineReport     data/floorplans/pipeline-report.json
  * @param {Object[]} [i.entrances]      campusEntrances of the exported campus (loadInputs); omitted, the floor JSON doors
+ * @param {Object} [i.previousGraph]    the committed outdoor-graph.json: unchanged nodes and edges keep their ids
  */
-export function buildCampusMap({ extract, overridesGeo, seeded, buildingOverrides = [], navNodeOverrides = [], floors, pipelineReport, entrances }) {
+export function buildCampusMap({ extract, overridesGeo, seeded, buildingOverrides = [], navNodeOverrides = [], pathAccessOverrides = [], floors, pipelineReport, entrances, previousGraph = null }) {
   const osm = indexOsm(fromExtract(extract));
   const ovFeatures = (overridesGeo && overridesGeo.features) || [];
-  const report = { buildings: {}, georef: {}, entrances: {}, graph: {}, overrides: {} };
+  const report = { buildings: {}, georef: {}, entrances: {}, graph: {}, overrides: {}, access: {} };
 
   // ---- buildings ----
   const replaced = new Set(ovFeatures.filter((f) => f.properties && f.properties.replaces).map((f) => f.properties.replaces));
@@ -112,9 +154,11 @@ export function buildCampusMap({ extract, overridesGeo, seeded, buildingOverride
   ovFeatures.forEach((f, i) => {
     const p = f.properties || {};
     if (p.layer !== 'buildings' || !f.geometry || f.geometry.type !== 'Polygon') return;
-    fps.push({ osmId: `override/${i + 1}`, name: p.name || '', tags: clean({ building: p.building || 'yes', height: p.height, 'building:levels': p.levels }), ring: f.geometry.coordinates[0], override: true, replaces: p.replaces });
+    fps.push({ osmId: overrideFeatureId(f, i), name: p.name || '', tags: clean({ building: p.building || 'yes', height: p.height, 'building:levels': p.levels }), ring: f.geometry.coordinates[0], override: true, replaces: p.replaces, buildingId: p.buildingId });
   });
   const match = matchBuildings(fps, seeded);
+  // A drawn footprint may name its building outright (properties.buildingId), e.g. a new building the operator adds.
+  for (const fp of fps) if (fp.override && fp.buildingId) match.set(fp.osmId, { buildingId: String(fp.buildingId), score: 2, inside: true, distance: 0, nameSim: 1 });
   const seededById = new Map(seeded.map((b) => [b.id, b]));
   const bOver = new Map(buildingOverrides.map((r) => [r.id, r]));
   const buildingFeatures = [];
@@ -150,7 +194,7 @@ export function buildCampusMap({ extract, overridesGeo, seeded, buildingOverride
   for (const f of ovFeatures) {
     const p = f.properties || {};
     if (p.layer !== 'paths') continue;
-    L.paths.push(feature(f.geometry, clean({ kind: p.kind || 'footway', name: p.name, surface: p.surface, steps: p.kind === 'steps', source: 'override' })));
+    L.paths.push(feature(f.geometry, clean({ way: overrideFeatureId(f, ovFeatures.indexOf(f)), kind: p.kind || 'footway', name: p.name, surface: p.surface, steps: p.kind === 'steps', source: 'override' })));
   }
   L.labels = [];
   for (const f of buildingFeatures) {
@@ -167,6 +211,12 @@ export function buildCampusMap({ extract, overridesGeo, seeded, buildingOverride
   addOsmWays(g, osm, { clip: extract.meta && extract.meta.bbox });
   addOverridePaths(g, ovFeatures);
   report.overrides.pathSnaps = g.report.overrideSnaps;
+  report.overrides.pathAccess = applyPathAccess(g, pathAccessOverrides);
+  // The basemap's paths and roads carry the class routing uses (the app draws alt lighter than main).
+  const wayAccess = new Map();
+  for (const e of g.edges.values()) if (e.way) wayAccess.set(e.way, e.access);
+  for (const f of L.paths) f.properties.access = wayAccess.get(f.properties.osmId || f.properties.way) || pathAccess(f.properties.kind);
+  for (const f of L.roads) f.properties.access = wayAccess.get(f.properties.osmId) || 'alt';
 
   // ---- indoor buildings: georef, entrance scores, primaries ----
   const doorsById = new Map();
@@ -178,10 +228,11 @@ export function buildCampusMap({ extract, overridesGeo, seeded, buildingOverride
     const json = entrances ? { ...f.json, doors: effectiveDoors(f.json, f.floorId, entrances, doorsById) } : f.json;
     byBuilding.get(f.json.buildingId).push({ floorId: f.floorId, level: f.json.level, json });
   }
-  const navOver = new Map(navNodeOverrides.filter((r) => 'primary' in r).map((r) => [r.id, truthy(r.primary)]));
+  // The operator's class for a node (access, or a legacy primary flag: true main, false alt).
+  const navOver = new Map(navNodeOverrides.map((r) => [r.id, overrideAccess(r)]).filter(([, a]) => a));
   const georef = {};
   const entranceBlocks = {};
-  const heuristicPrimary = [];
+  const autoAccess = {};
   const entrancesToConnect = [];
   for (const [bid, bf] of [...byBuilding.entries()].sort()) {
     bf.sort((a, b) => a.level - b.level);
@@ -215,46 +266,70 @@ export function buildCampusMap({ extract, overridesGeo, seeded, buildingOverride
     choosePrimary(scored, { distance: (a, b) => haversine(a.lat, a.lng, b.lat, b.lng) });
     // A door's connector must not cross its own floor's outline (the union would also contain terraces on lower roofs).
     const floorOutline = Object.fromEntries(bf.filter((f) => f.json.gross).map((f) => [f.floorId, f.json.gross.map(([x, y]) => svgToLngLatWith(record, x, y, f.floorId))]));
+    // Every main and alt entrance joins the paths (alt ones cost more in routing); emergency exits do not.
+    const byClass = { main: [], alt: [], emergency: [] };
     for (const e of scored) {
-      if (e.primary) heuristicPrimary.push(e.nodeId);
-      const eff = navOver.has(e.nodeId) ? navOver.get(e.nodeId) : e.primary;
-      if (eff) entrancesToConnect.push({ id: e.nodeId, lat: e.lat, lng: e.lng, outline: floorOutline[e.floorId] || null, buildingId: bid, primary: true });
+      e.access = autoEntranceAccess(e.primary, e.roomType);
+      autoAccess[e.nodeId] = e.access;
+      const eff = navOver.get(e.nodeId) || e.access;
+      byClass[eff].push(e.nodeId);
+      if (eff !== 'emergency') entrancesToConnect.push({ id: e.nodeId, lat: e.lat, lng: e.lng, outline: floorOutline[e.floorId] || null, buildingId: bid, access: eff });
     }
     // A door that is the only way into some room (the pipeline's isolated entrances, EP 1322's exterior door) joins
-    // the outdoor graph too, never as primary: without it that room has no route at all.
+    // the outdoor graph too (alt unless the operator says otherwise): without it that room has no route at all.
     const soleAccess = [];
+    const roomTypes = new Map(bf.flatMap((f) => f.json.rooms.map((r) => [r.id, r.type])));
     for (const f of bf) {
       for (const d of f.json.doors) {
         if (!d.exterior || !excluded.has(d.nodeId)) continue;
         const [lng, lat] = svgToLngLatWith(record, d.x, d.y, f.floorId);
-        entrancesToConnect.push({ id: d.nodeId, lat, lng, outline: floorOutline[f.floorId] || null, buildingId: bid, primary: navOver.get(d.nodeId) === true });
+        autoAccess[d.nodeId] = autoEntranceAccess(false, roomTypes.get((d.rooms || [])[0]));
+        const eff = navOver.get(d.nodeId) || autoAccess[d.nodeId];
+        byClass[eff].push(d.nodeId);
+        if (eff !== 'emergency') entrancesToConnect.push({ id: d.nodeId, lat, lng, outline: floorOutline[f.floorId] || null, buildingId: bid, access: eff });
         soleAccess.push(d.nodeId);
       }
     }
     for (const f of bf) {
       entranceBlocks[f.floorId] = scored
         .filter((e) => e.floorId === f.floorId)
-        .map((e) => ({ nodeId: e.nodeId, primary: e.primary, score: e.score, factors: e.factors, roomId: e.roomId, roomType: e.roomType, widthUnits: e.widthUnits, outwardDeg: e.outward, pathMeters: e.pathMeters, pathKind: e.pathKind }));
+        .map((e) => ({ nodeId: e.nodeId, access: e.access, score: e.score, factors: e.factors, roomId: e.roomId, roomType: e.roomType, widthUnits: e.widthUnits, outwardDeg: e.outward, pathMeters: e.pathMeters, pathKind: e.pathKind }));
     }
     report.entrances[bid] = {
       candidates: scored.length,
       excluded: [...excluded],
       soleAccess,
-      primary: scored.filter((e) => e.primary).map((e) => ({ nodeId: e.nodeId, floorId: e.floorId, score: e.score, roomType: e.roomType, widthUnits: e.widthUnits, pathMeters: e.pathMeters })),
-      operatorOverrides: scored.filter((e) => navOver.has(e.nodeId)).map((e) => ({ nodeId: e.nodeId, primary: navOver.get(e.nodeId) })),
+      main: scored.filter((e) => e.primary).map((e) => ({ nodeId: e.nodeId, floorId: e.floorId, score: e.score, roomType: e.roomType, widthUnits: e.widthUnits, pathMeters: e.pathMeters })),
+      byClass,
+      operatorOverrides: [...scored.map((e) => e.nodeId), ...soleAccess].filter((id) => navOver.has(id)).map((id) => ({ nodeId: id, access: navOver.get(id) })),
     };
+  }
+
+  // ---- entrances drawn for buildings without floor plans (layer "entrances") ----
+  const drawn = drawnEntrances(ovFeatures);
+  report.entrances.drawn = { entrances: drawn.entrances.map((e) => ({ id: e.id, buildingId: e.buildingId, access: e.access })), rejected: drawn.rejected };
+  for (const e of drawn.entrances) {
+    if (e.access === 'emergency') continue;
+    const best = bestFootprint.get(e.buildingId);
+    entrancesToConnect.push({ ...e, drawn: true, outline: best ? best.fp.ring : null });
   }
 
   // ---- entrances into the network ----
   for (const e of entrancesToConnect.sort(byKey('id'))) connectEntrance(g, e, { outline: e.outline });
+  const countBy = (list, k) => list.reduce((m, x) => ((m[x[k]] = (m[x[k]] || 0) + 1), m), {});
   report.graph.connectors = g.report.connectors;
   report.graph.prunedFragmentNodes = pruneFragments(g);
   const { comp, sizes } = g.components();
-  const graph = g.toJSON();
+  const graph = g.toJSON(previousGraph);
   report.graph.nodes = graph.nodes.length;
   report.graph.edges = graph.edges.length;
   report.graph.components = sizes;
   report.graph.entrancesInMainComponent = graph.nodes.filter((n) => n.type === 'entrance').every((n) => comp.get(n.id) === 0);
+  report.access = {
+    edges: countBy(graph.edges, 'access'),
+    edgesByKind: graph.edges.reduce((m, e) => ((m[`${e.kind}/${e.access}`] = (m[`${e.kind}/${e.access}`] || 0) + 1), m), {}),
+    graphEntrances: countBy(graph.nodes.filter((n) => n.type === 'entrance'), 'access'),
+  };
 
   // ---- seed for the engine: heuristic primaries and building levels/height ----
   const levels = {};
@@ -264,7 +339,7 @@ export function buildCampusMap({ extract, overridesGeo, seeded, buildingOverride
     const explicit = best && best.fp.tags && parseFloat(best.fp.tags.height) > 0 ? round(parseFloat(best.fp.tags.height), 1) : '';
     levels[b.id] = [h.levels, explicit];
   }
-  const seedGs = buildSeedGs(heuristicPrimary.sort(), levels);
+  const seedGs = buildSeedGs(autoAccess, levels);
 
   // ---- files ----
   const files = {};
@@ -288,13 +363,17 @@ export function buildCampusMap({ extract, overridesGeo, seeded, buildingOverride
 }
 
 /** tools/admin/gs/SeedCampusMap.gs: what the campus-map build gives the engine's seed. */
-export function buildSeedGs(primaryIds, levels) {
+export function buildSeedGs(entranceAccess, levels) {
   const rows = Object.entries(levels).map(([id, v]) => `    ${JSON.stringify(id)}: ${JSON.stringify(v)}`);
+  const ids = Object.keys(entranceAccess).sort();
+  const acc = ids.map((id) => `    ${JSON.stringify(id)}: ${JSON.stringify(entranceAccess[id])}`);
   return (
     `/**\n * SeedCampusMap.gs - GENERATED by scripts/campus-map/run.mjs (npm run campus-map). Do not edit by hand.\n` +
-    ` * The operator's edits go to data/overrides (admin: NavNodes primary, Buildings levels/height).\n */\n\n` +
-    `/**\n * Entrance nodes the primary-entrance heuristic chose (scripts/floorplan-pipeline/stages/primary-entrances.mjs).\n` +
-    ` * @return {Array<string>} ${primaryIds.length} NavNodes ids\n */\nfunction getGeneratedPrimaryEntrances() {\n  return ${JSON.stringify(primaryIds)};\n}\n\n` +
+    ` * The operator's edits go to data/overrides (admin: NavNodes access, Buildings levels/height).\n */\n\n` +
+    `/**\n * The automatic access class of each exterior door (scripts/campus-map/build.mjs autoEntranceAccess): the doors the\n` +
+    ` * primary-entrance heuristic chose (scripts/floorplan-pipeline/stages/primary-entrances.mjs) main, stair-tower exits\n` +
+    ` * emergency, the rest alt.\n * @return {Object} ${ids.length} NavNodes ids -> "main" | "alt" | "emergency"\n */\n` +
+    `function getGeneratedEntranceAccess() {\n  return {\n${acc.join(',\n')}\n  };\n}\n\n` +
     `/**\n * Per building: [levels, height]. levels from OpenStreetMap (building:levels, else height / 3.5 m) or the default by\n` +
     ` * type (academic 3, residence 4, other 2); height (m) only where OpenStreetMap gives one, else ''.\n` +
     ` * @return {Object} buildingId -> [levels, height]\n */\nfunction getGeneratedBuildingLevels() {\n  return {\n${rows.join(',\n')}\n  };\n}\n`

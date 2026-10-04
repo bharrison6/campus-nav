@@ -150,19 +150,24 @@ function getBuildingsSeedRows_() {
 }
 
 /**
- * The generated NavNodes rows with the primary column appended: true for the entrances the campus-map build chose
- * (SeedCampusMap.gs, getGeneratedPrimaryEntrances), false otherwise. Rows that already carry it are kept as they are.
+ * The generated NavNodes rows (SeedFloorData.gs: id .. linkId, access) as sheet rows (id .. linkId, primary, access).
+ * An entrance takes the access class the campus-map build chose (SeedCampusMap.gs, getGeneratedEntranceAccess: the
+ * primary-entrance heuristic's doors main, other exterior doors alt, stair-tower exits emergency), else the
+ * pipeline's; the legacy primary column is true exactly for main entrances. Rows already sheet-wide are kept.
  */
 function getNavNodesSeedRows_() {
   var rows = generatedRows_('getGeneratedNavNodesSeed');
-  var ids = typeof getGeneratedPrimaryEntrances === 'function' ? (getGeneratedPrimaryEntrances() || []) : [];
-  var primary = {};
-  for (var p = 0; p < ids.length; p++) primary[ids[p]] = true;
+  var cls = typeof getGeneratedEntranceAccess === 'function' ? (getGeneratedEntranceAccess() || {}) : {};
   var width = getSheetDefinition_('NavNodes').headers.length;
   var out = [];
   for (var i = 0; i < rows.length; i++) {
     var r = rows[i];
-    out.push(r.length === width - 1 ? r.concat([primary[r[0]] === true]) : r);
+    if (r.length !== width - 1) {
+      out.push(r);
+      continue;
+    }
+    var access = r[4] === 'entrance' && cls[r[0]] ? cls[r[0]] : r[7];
+    out.push(r.slice(0, 7).concat([r[4] === 'entrance' && access === 'main', access]));
   }
   return out;
 }

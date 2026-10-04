@@ -5,6 +5,9 @@
 //     { "id": "room-it-1-0141", "_delete": true }                   removes the record
 //     { "id": "qrloc-1759...", "_new": true, "buildingId": ... }    a record the operator added (all its fields)
 //   config.json is keyed by "key" instead of "id": { "key": "campusName", "value": "Murray State" }.
+//   v5: navNodes and rooms records may set `access` ("main" | "alt" | "emergency"); a navNodes record with the retired
+//   boolean `primary` and no `access` reads as access main (true) or alt (false), so v4 overrides keep working.
+//   pathAccess.json ([{way, access}], outdoor path classes) is not a collection: the campus-map build reads it.
 //
 // Base = seed (SeedData.gs) + pipeline floor data (SeedFloorData.gs), as initSystem() writes them. A partial edit or a
 // delete whose id is not in the base any more (the pipeline stopped emitting that room) is an ORPHAN: reported and
@@ -32,6 +35,21 @@ export const keyOf = (collection) => (collection === 'config' ? 'key' : 'id');
 export const RESERVED_CONFIG_KEYS = ['mapsApiKey', 'dataVersion'];
 
 const FLAGS = ['_delete', '_new'];
+
+/** The access classes of the v5 contract. */
+export const ACCESS_CLASSES = ['main', 'alt', 'emergency'];
+const truthy = (v) => v === true || /^(true|1|yes)$/i.test(String(v));
+
+/**
+ * The access class an override record sets: its `access` when valid, else a legacy `primary` flag (true main, false
+ * alt), else null. Used for navNodes records by the engine merge (applyOverrides) and the campus-map build.
+ */
+export function overrideAccess(r) {
+  if (!r) return null;
+  if (ACCESS_CLASSES.includes(r.access)) return r.access;
+  if ('primary' in r && r.primary !== '' && r.primary != null) return truthy(r.primary) ? 'main' : 'alt';
+  return null;
+}
 
 /** JSON with object keys sorted, so equal values compare equal whatever order their keys were written in. */
 export function canonical(v) {
@@ -83,7 +101,9 @@ export function applyOverrides(base, overrides, headers) {
     const seen = new Set();
     const counts = { edited: 0, added: 0, deleted: 0 };
     const allowed = new Set(headers[collection] || []);
-    for (const o of overrides[collection] || []) {
+    for (const raw of overrides[collection] || []) {
+      // A v4 navNodes override with only `primary` sets the access class it stands for.
+      const o = collection === 'navNodes' && !('access' in raw) && overrideAccess(raw) ? { ...raw, access: overrideAccess(raw) } : raw;
       const id = o[key];
       if (seen.has(id)) report.duplicates.push({ collection, id });
       seen.add(id);

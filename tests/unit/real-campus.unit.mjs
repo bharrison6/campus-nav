@@ -29,7 +29,7 @@ const titles = (q, n) => Array.from(S.search(index, q, n)).map((e) => e.title);
 test('non-searchable public rooms are only corridors, mechanical spaces and unnumbered areas', () => {
   const kinds = new Set(publicRooms.filter((r) => !P.toBool(r.searchable, true)).map((r) => r.type));
   assert.deepEqual([...kinds].sort(), ['corridor', 'mechanical', 'other', 'storage']);
-  assert.equal(searchableRooms.length, 399); // of 486 public rooms
+  assert.equal(searchableRooms.length, 385); // of 486 public rooms (v5: 14 more circulation spaces typed corridor)
 });
 
 test('every searchable room is on the graph and reachable from its building\'s entrances', () => {

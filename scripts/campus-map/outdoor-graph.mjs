@@ -1,11 +1,16 @@
 // The outdoor walking graph: OpenStreetMap footways, paths, pedestrian ways, steps and crossings, plus the roads a
 // walker uses where no sidewalk is mapped (service roads, residential and minor streets), plus the hand-drawn
-// override paths (data/campus-map/overrides.geojson), plus the primary entrances joined by short connectors.
+// override paths (data/campus-map/overrides.geojson), plus the main and alt entrances joined by short connectors.
 //
-//   { nodes: [{id, lat, lng, type: path|crossing|entrance, primary (entrances only)}],
-//     edges: [{id, from, to, distance, accessible, kind}] }
-// Entrance nodes are the primary entrances (primary: true) and any door that is the only way into a room (primary:
-// false; EP 1322's exterior door): routes enter buildings only through these.
+//   { nodes: [{id, lat, lng, type: path|crossing|entrance, access (entrances), primary (entrances, legacy)}],
+//     edges: [{id, from, to, distance, accessible, kind, access, way}] }
+// Entrance nodes are the main and alt entrances (never emergency ones) and any door that is the only way into a room
+// (EP 1322's exterior door), plus the entrances drawn for buildings without floor plans (overrides.geojson layer
+// `entrances`, which also carry buildingId and label): routes enter buildings only through these.
+// v5 access classes: an edge is `main` or `alt` (pathAccess: road alt, every pedestrian kind main; a drawn path's
+// properties.access; data/overrides/pathAccess.json by `way`), and `way` names what it was drawn from (`way/123`, an
+// override feature id, or `connector/<entrance id>`). An entrance's `primary` mirrors access === 'main' for readers
+// that predate access (LEGACY_PRIMARY; drop it once every reader uses access).
 //
 // Nodes sit at every way vertex; ways sharing an OSM node meet there (that is how OSM models an intersection).
 // Ids: OSM vertices "n<osmNodeId>", override vertices "v<feature>-<vertex>", split points "s<k>", entrances keep their
@@ -33,6 +38,17 @@ export function walkKind(tags) {
 
 const R6 = (v) => round(v, 6);
 
+/** Entrance nodes also carry `primary` (= access is main) for readers that predate access classes. */
+export const LEGACY_PRIMARY = true;
+
+export const ACCESS = ['main', 'alt', 'emergency'];
+export const PATH_ACCESS = ['main', 'alt'];
+
+/** The automatic access class of an outdoor edge kind: a road is alt (walkable, not preferred), the rest main. */
+export function pathAccess(kind) {
+  return kind === 'road' ? 'alt' : 'main';
+}
+
 export class OutdoorGraph {
   constructor() {
     this.F = localFrame(CENTER);
@@ -54,12 +70,12 @@ export class OutdoorGraph {
     return this.nodes.get(id);
   }
 
-  addEdge(from, to, kind, accessible = kind !== 'steps', distance) {
+  addEdge(from, to, kind, accessible = kind !== 'steps', distance, { access, way = '' } = {}) {
     if (from === to) return null;
     const a = this.nodes.get(from);
     const b = this.nodes.get(to);
     const id = `e${this.nextEdge++}`;
-    const e = { id, from, to, distance: round(distance != null ? distance : haversine(a.lat, a.lng, b.lat, b.lng), 2), accessible, kind };
+    const e = { id, from, to, distance: round(distance != null ? distance : haversine(a.lat, a.lng, b.lat, b.lng), 2), accessible, kind, access: access || pathAccess(kind), way };
     this.edges.set(id, e);
     this.adj.get(from).add(id);
     this.adj.get(to).add(id);
@@ -105,8 +121,9 @@ export class OutdoorGraph {
     const id = `s${this.nextSplit++}`;
     this.addNode(id, lat, lng, edge.kind === 'crossing' ? 'crossing' : 'path');
     this.removeEdge(edge.id);
-    this.addEdge(a.id, id, edge.kind, edge.accessible);
-    this.addEdge(id, b.id, edge.kind, edge.accessible);
+    const props = { access: edge.access, way: edge.way };
+    this.addEdge(a.id, id, edge.kind, edge.accessible, undefined, props);
+    this.addEdge(id, b.id, edge.kind, edge.accessible, undefined, props);
     return id;
   }
 
@@ -143,20 +160,61 @@ export class OutdoorGraph {
   /**
    * The published shape. Entrance nodes keep their indoor ids; every other node is renumbered "o1".."oN" in the order
    * of its build id (so the file stays compact and a rebuild from the same inputs gives the same ids); edges "e1".."eN"
-   * in node order.
+   * in node order. With the previous published graph, a node at the same coordinates keeps its id and so does an edge
+   * between the same two nodes; new ones number on from the highest previous id. A change of inputs (an entrance
+   * joined, a path drawn) then leaves the rest of the ids alone (the app's tests and saved positions name them).
    */
-  toJSON() {
+  toJSON(previous = null) {
     const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
     const sorted = [...this.nodes.values()].sort((a, b) => cmp(a.id, b.id));
     const rename = new Map();
+    const num = (id) => Number(String(id).slice(1)) || 0;
+    const prevAt = new Map();
     let k = 0;
-    for (const n of sorted) rename.set(n.id, n.type === 'entrance' ? n.id : `o${++k}`);
-    const nodes = sorted.map((n) => (n.type === 'entrance' ? { id: n.id, lat: n.lat, lng: n.lng, type: n.type, primary: !!n.primary } : { id: rename.get(n.id), lat: n.lat, lng: n.lng, type: n.type }));
+    let ke = 0;
+    const prevEdge = new Map();
+    if (previous) {
+      for (const n of previous.nodes || []) {
+        if (n.type === 'entrance') continue;
+        const at = `${n.lat},${n.lng}`;
+        if (!prevAt.has(at)) prevAt.set(at, []);
+        prevAt.get(at).push(n.id);
+        k = Math.max(k, num(n.id));
+      }
+      for (const e of previous.edges || []) {
+        prevEdge.set([e.from, e.to].sort().join(' '), e.id);
+        ke = Math.max(ke, num(e.id));
+      }
+    }
+    const fresh = [];
+    for (const n of sorted) {
+      if (n.type === 'entrance') rename.set(n.id, n.id);
+      else {
+        const list = prevAt.get(`${n.lat},${n.lng}`);
+        if (list && list.length) rename.set(n.id, list.shift());
+        else fresh.push(n);
+      }
+    }
+    for (const n of fresh) rename.set(n.id, `o${++k}`);
+    const entrance = (n) => {
+      const o = { id: n.id, lat: n.lat, lng: n.lng, type: n.type, access: n.access || 'main' };
+      if (LEGACY_PRIMARY) o.primary = o.access === 'main';
+      if (n.buildingId) o.buildingId = n.buildingId;
+      if (n.label) o.label = n.label;
+      return o;
+    };
+    const nodes = sorted.map((n) => (n.type === 'entrance' ? entrance(n) : { id: rename.get(n.id), lat: n.lat, lng: n.lng, type: n.type }));
     const edges = [...this.edges.values()]
-      .map((e) => ({ from: rename.get(e.from), to: rename.get(e.to), distance: round(e.distance, 1), accessible: e.accessible, kind: e.kind, key: [rename.get(e.from), rename.get(e.to)].sort().join(' ') }))
-      .sort((a, b) => cmp(a.key, b.key))
-      .map((e, i) => ({ id: `e${i + 1}`, from: e.from, to: e.to, distance: e.distance, accessible: e.accessible, kind: e.kind }));
-    return { nodes, edges };
+      .map((e) => ({ ...e, from: rename.get(e.from), to: rename.get(e.to), distance: round(e.distance, 1), key: [rename.get(e.from), rename.get(e.to)].sort().join(' ') }))
+      .sort((a, b) => cmp(a.key, b.key));
+    const used = new Set();
+    for (const e of edges) {
+      const id = previous ? prevEdge.get(e.key) : `e${++ke}`;
+      e.id = id && !used.has(id) ? id : null;
+      if (e.id) used.add(e.id);
+    }
+    for (const e of edges) if (!e.id) e.id = `e${++ke}`;
+    return { nodes, edges: edges.map((e) => ({ id: e.id, from: e.from, to: e.to, distance: e.distance, accessible: e.accessible, kind: e.kind, access: e.access, way: e.way })) };
   }
 }
 
@@ -177,7 +235,7 @@ export function addOsmWays(g, osm, { clip } = {}) {
       if (!n || !inside(n)) { prev = null; continue; }
       const id = `n${nid}`;
       g.addNode(id, n.lat, n.lon, crossingNodes.has(nid) || kind === 'crossing' ? 'crossing' : 'path');
-      if (prev) g.addEdge(prev, id, kind);
+      if (prev) g.addEdge(prev, id, kind, undefined, undefined, { way: `way/${w.id}` });
       prev = id;
     }
   }
@@ -185,9 +243,19 @@ export function addOsmWays(g, osm, { clip } = {}) {
 }
 
 /**
+ * The id of an overrides.geojson feature: its own `id` (or properties.id) when it has one, else `override/<n>` with
+ * n its 1-based position in the file. Paths use it as their edges' `way`, so pathAccess.json can reclass them.
+ */
+export function overrideFeatureId(f, index) {
+  const p = f.properties || {};
+  return String(f.id || p.id || `override/${index + 1}`);
+}
+
+/**
  * Adds the override paths (LineStrings with layer "paths"). Each endpoint snaps to the nearest graph vertex within
  * 3 m, else onto the nearest edge within 6 m (splitting it); interior vertices stay unjoined, like OSM ways that cross
- * without a shared node. Returns the snap report.
+ * without a shared node. A path's `access` (main or alt) is properties.access, else the automatic class of its kind.
+ * Returns the snap report.
  */
 export function addOverridePaths(g, features) {
   let fi = 0;
@@ -196,6 +264,7 @@ export function addOverridePaths(g, features) {
     const p = f.properties || {};
     if (p.layer !== 'paths' || !f.geometry || f.geometry.type !== 'LineString') continue;
     const kind = p.kind === 'steps' || p.steps ? 'steps' : p.kind || 'footway';
+    const props = { way: overrideFeatureId(f, fi - 1), access: PATH_ACCESS.includes(p.access) ? p.access : pathAccess(kind) };
     const coords = f.geometry.coordinates;
     const ids = [];
     coords.forEach(([lng, lat], i) => {
@@ -229,8 +298,37 @@ export function addOverridePaths(g, features) {
       }
       ids.push(id);
     });
-    for (let i = 0; i + 1 < ids.length; i++) g.addEdge(ids[i], ids[i + 1], kind);
+    for (let i = 0; i + 1 < ids.length; i++) g.addEdge(ids[i], ids[i + 1], kind, undefined, undefined, props);
   }
+}
+
+/**
+ * Applies data/overrides/pathAccess.json ([{way, access}]) to every edge drawn from that way. Returns
+ * {applied: [{way, access, edges}], unknown: [way], invalid: [record]}: an entry that names no edge is reported (and
+ * stays in the file for the operator), a malformed one is reported and skipped.
+ */
+export function applyPathAccess(g, entries = []) {
+  const report = { applied: [], unknown: [], invalid: [] };
+  const byWay = new Map();
+  for (const e of g.edges.values()) {
+    if (!e.way) continue;
+    if (!byWay.has(e.way)) byWay.set(e.way, []);
+    byWay.get(e.way).push(e);
+  }
+  for (const r of entries) {
+    if (!r || typeof r.way !== 'string' || !PATH_ACCESS.includes(r.access)) {
+      report.invalid.push(r);
+      continue;
+    }
+    const list = byWay.get(r.way);
+    if (!list) {
+      report.unknown.push(r.way);
+      continue;
+    }
+    for (const e of list) e.access = r.access;
+    report.applied.push({ way: r.way, access: r.access, edges: list.length });
+  }
+  return report;
 }
 
 /**
@@ -239,7 +337,10 @@ export function addOverridePaths(g, features) {
  * @return {{nodeId, to, meters, viaKind, straight: boolean}} straight = longer than `maxMeters` (reported)
  */
 export function connectEntrance(g, ent, { outline, maxMeters = 30 } = {}) {
-  g.addNode(ent.id, ent.lat, ent.lng, 'entrance').primary = !!ent.primary;
+  const node = g.addNode(ent.id, ent.lat, ent.lng, 'entrance');
+  node.access = ent.access || 'main';
+  if (ent.label) node.label = ent.label;
+  if (ent.drawn && ent.buildingId) node.buildingId = ent.buildingId;
   const P = g.F.toXY(ent.lat, ent.lng);
   const ring = outline ? outline.map(([lng, lat]) => g.F.toXY(lat, lng)) : null;
   // A door sits in the wall (on a curved wall, at its inner face), so the connector may start inside the outline for
@@ -263,7 +364,7 @@ export function connectEntrance(g, ent, { outline, maxMeters = 30 } = {}) {
   const road = cands.find((c) => c.edge.kind === 'road');
   const pick = foot && (!road || foot.d <= road.d + 10) ? foot : road;
   const to = g.splitAt(pick.edge, pick.point);
-  g.addEdge(ent.id, to, 'connector', true);
+  g.addEdge(ent.id, to, 'connector', true, undefined, { access: 'main', way: `connector/${ent.id}` });
   const r = { nodeId: ent.id, to, meters: round(pick.d, 1), viaKind: pick.edge.kind, straight: pick.d > maxMeters };
   g.report.connectors.push(r);
   return r;

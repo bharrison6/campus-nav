@@ -24,6 +24,9 @@ export function loadInputs({ overridesDir = OVERRIDES_DIR } = {}) {
     seeded,
     buildingOverrides: readJson(path.join(overridesDir, 'buildings.json'), []),
     navNodeOverrides: readJson(path.join(overridesDir, 'navNodes.json'), []),
+    pathAccessOverrides: readJson(path.join(overridesDir, 'pathAccess.json'), []),
+    // the committed graph, so ids that still name the same node or edge do not move
+    previousGraph: readJson(path.join(OUT_DIR, 'outdoor-graph.json'), null),
     // the exporter's entrance set (public floors, the operator's moves, floor changes, additions and deletions)
     entrances: campusEntrances(engine.gas.run('getPublicCampusData', [])),
     floors,

@@ -180,3 +180,143 @@ export function isSearchable(room) {
   return !['corridor', 'mechanical'].includes(room.type);
 }
 
+
+// ---- circulation spaces the shape test misses (v5) ----
+//
+// Measured on the v4 data: of 358 `other` rooms, the hallways the shape test missed are wide or short halls that serve
+// many rooms (IT 0250Q serves 21, EP 1357 serves 9), lobbies and halls in a floor's circulation numbering (IT 0200E,
+// EP 1300, 2300, 1300T), and open links that join two hallways with area lines and no door (IT 0115O, 0115Q, 0130).
+// refineCirculation types those `corridor` where the passages give strong evidence; corridorCandidates lists the rest
+// of the circulation-like `other` rooms (vestibules, alcoves, small halls) for the admin floor-plan editor.
+
+function convexHullArea(pts) {
+  const p = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  if (p.length < 3) return 0;
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lower = [];
+  for (const q of p) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], q) <= 0) lower.pop();
+    lower.push(q);
+  }
+  const upper = [];
+  for (const q of p.slice().reverse()) {
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], q) <= 0) upper.pop();
+    upper.push(q);
+  }
+  const h = lower.slice(0, -1).concat(upper.slice(0, -1));
+  let s = 0;
+  for (let i = 0; i < h.length; i++) s += h[i][0] * h[(i + 1) % h.length][1] - h[(i + 1) % h.length][0] * h[i][1];
+  return Math.abs(s) / 2;
+}
+
+/** Area of the room over the area of its convex hull: about 1 for a rectangle, lower for an L or T. */
+export function convexity(polygon) {
+  let s = 0;
+  for (let i = 0; i < polygon.length; i++) s += polygon[i][0] * polygon[(i + 1) % polygon.length][1] - polygon[(i + 1) % polygon.length][0] * polygon[i][1];
+  const hull = convexHullArea(polygon);
+  return hull ? Math.abs(s) / 2 / hull : 1;
+}
+
+/** Per room index: what its passages connect. { neighbors: Set, hallways: Set, doors, open, exterior }. */
+export function passageEvidence(fp, openings) {
+  const out = new Map(fp.rooms.map((r, i) => [i, { neighbors: new Set(), hallways: new Set(), doors: 0, open: 0, exterior: 0 }]));
+  for (const o of openings) {
+    for (const [p, q] of [[o.a, o.b], [o.b, o.a]]) {
+      if (p < 0) continue;
+      const e = out.get(p);
+      if (o.kind === 'door' || o.kind === 'inferred') e.doors++;
+      else e.open++;
+      if (q < 0) e.exterior++;
+      else {
+        e.neighbors.add(q);
+        if (fp.rooms[q].type === 'corridor') e.hallways.add(q);
+      }
+    }
+  }
+  return out;
+}
+
+/** The rule (if any) that makes an `other` room a hallway, with its evidence text; null when the evidence is weak. */
+export function circulationRule(r, e) {
+  const n = e.neighbors.size;
+  const h = e.hallways.size;
+  if (isCirculationNumber(r.number) && r.areaSf >= 80 && n >= 3 && h >= 1) {
+    return `circulation number ${r.number} with passages to ${n} spaces, ${h} of them hallways`;
+  }
+  if (!e.doors && !e.exterior && h >= 2 && r.areaSf >= 40) {
+    return `open link between ${h} hallways (area lines or openings, no door)`;
+  }
+  if (n >= 7 && r.inradius <= 96 && h >= 1) {
+    return `hall serving ${n} spaces, ${Math.round((2 * r.inradius) / 12)} ft wide at most`;
+  }
+  if (r.inradius <= 60 && corridorShape(r).elong >= 8 && h >= 2 && n >= 3) {
+    return `narrow passage (inradius ${Math.round(r.inradius)} in) joining ${h} hallways and ${n - h} other spaces`;
+  }
+  return null;
+}
+
+/**
+ * Types more circulation spaces `corridor` on one floor (after classifyBuilding, before the graph). Repeats while
+ * rooms change (a new hallway is a neighbor of the next), at most three passes. Returns the rooms it retyped.
+ */
+export function refineCirculation(fp, openings) {
+  const moved = [];
+  for (let pass = 0; pass < 3; pass++) {
+    const ev = passageEvidence(fp, openings);
+    const now = [];
+    fp.rooms.forEach((r, i) => {
+      if (r.kind !== 'room' || r.type !== 'other') return;
+      const why = circulationRule(r, ev.get(i));
+      if (why) now.push([r, why]);
+    });
+    if (!now.length) break;
+    for (const [r, why] of now) {
+      r.type = 'corridor';
+      r.typeEvidence = why;
+      moved.push(r);
+    }
+  }
+  return moved;
+}
+
+/**
+ * Circulation-like rooms still typed `other`, for review in the admin floor-plan editor (data/review/
+ * corridor-candidates.json). Evidence is weighed into a confidence in [0, 1]; rooms at 0.35 or more are listed.
+ * @param {Object} fp      the floor (rooms typed, ids set)
+ * @param {Object[]} openings
+ * @param {Object} graph   the floor graph (hub map, edges) to see whether routes pass through the room
+ */
+export function corridorCandidates(fp, openings, graph) {
+  const ev = passageEvidence(fp, openings);
+  const degree = new Map();
+  for (const e of graph.edges) for (const n of [e.from, e.to]) degree.set(n.id, (degree.get(n.id) || 0) + 1);
+  const out = [];
+  fp.rooms.forEach((r, i) => {
+    if (r.kind !== 'room' || r.type !== 'other') return;
+    const e = ev.get(i);
+    const n = e.neighbors.size;
+    const cs = corridorShape(r);
+    const conv = convexity(r.polygon);
+    const hub = graph.hub.get(i);
+    const evidence = [];
+    let c = 0;
+    const add = (w, text) => {
+      c += w;
+      evidence.push(text);
+    };
+    if (isCirculationNumber(r.number)) add(0.3, `circulation-style number ${r.number}`);
+    if (e.exterior && r.areaSf <= 300 && n >= 1 && n <= 2) add(0.35, `vestibule: an exterior door and ${n} inner passage${n === 1 ? '' : 's'}, ${Math.round(r.areaSf)} sf`);
+    if (n >= 4) add(Math.min(0.35, 0.2 + 0.03 * (n - 4)), `passages to ${n} spaces`);
+    if (cs.narrow && cs.elong >= 8) add(0.2, `narrow and long (inradius ${Math.round(r.inradius)} in, area/inradius^2 ${Math.round(cs.elong)})`);
+    if (conv < 0.75) add(0.1, `L or T shaped (convexity ${conv.toFixed(2)})`);
+    if (e.open && e.hallways.size) add(0.15, `open to ${e.hallways.size} hallway${e.hallways.size === 1 ? '' : 's'} (area line or opening, no door)`);
+    if (hub && (degree.get(hub.id) || 0) >= 3) add(0.15, `routes pass through it (${degree.get(hub.id)} passages meet at its center)`);
+    if (r.number.startsWith('UNK-')) add(0.1, 'no room number in the drawing');
+    const confidence = round(Math.min(1, c), 2);
+    if (confidence < 0.35) return;
+    out.push({ roomId: r.id, number: r.number, label: r.label, floorId: fp.floor.floorId, areaSqFt: Math.round(r.areaSf), confidence, evidence });
+  });
+  return out.sort((a, b) => b.confidence - a.confidence || (a.roomId < b.roomId ? -1 : 1));
+}
+
+const round = (v, d) => Math.round(v * 10 ** d) / 10 ** d;

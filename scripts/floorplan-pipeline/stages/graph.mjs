@@ -2,6 +2,7 @@
 //   room       one hub per non-corridor room, at its pole of inaccessibility (stair / elevator for verticals)
 //   waypoint   corridor centerline points (sampled medial axis, simplified), and area lines between corridors
 //   door       each passage between two spaces; entrance when the other side is outside
+// Doors, entrances and waypoints carry an access class (accessOf): main, alt or emergency.
 // Edges: room hub <-> its doors; door <-> nearest visible point on each adjacent corridor's centerline (the
 // centerline edge is split there); centerline chains; cross-floor stair/elevator links. Distances in meters.
 import { dist, segmentsIntersect, round } from '../lib/geometry.mjs';
@@ -30,7 +31,7 @@ export function lineOfSight(p, q, wallIndex, skip = LOS_SKIP) {
   return !wallIndex.query(bb).some((sg) => segmentsIntersect(s, e, sg[0], sg[1]));
 }
 
-export function buildFloorGraph(fp, openings, wallIndex, { idPrefix }) {
+export function buildFloorGraph(fp, openings, wallIndex, { idPrefix, previous = null }) {
   const mpu = fp.units.metersPerUnit;
   const nodes = [];
   const edges = [];
@@ -153,6 +154,9 @@ export function buildFloorGraph(fp, openings, wallIndex, { idPrefix }) {
     let type = o.exterior ? 'entrance' : 'door';
     if (o.kind === 'area-line' && corrA && corrB) type = 'waypoint';
     const n = addNode(type, o.p);
+    // Access class (v5): an exterior door out of a stairwell is a stair-tower exit (emergency); any other exterior
+    // door is alt until the campus-map build picks the main ones; interior doors are main.
+    if (type === 'entrance') n.access = ra.type === 'stair' ? 'emergency' : 'alt';
     n.opening = o;
     o.nodeId = n.id;
     for (const idx of [o.a, o.b]) {
@@ -171,18 +175,73 @@ export function buildFloorGraph(fp, openings, wallIndex, { idPrefix }) {
     deg.set(e.to.id, (deg.get(e.to.id) || 0) + 1);
   }
   const kept = nodes.filter((n) => n.type !== 'waypoint' || deg.get(n.id));
-  // Renumber ids densely so the sheet looks tidy.
-  const remap = new Map();
-  kept.forEach((n, i) => {
-    const id = `${idPrefix}-n${String(i + 1).padStart(4, '0')}`;
-    remap.set(n.id, id);
-    n.id = id;
-  });
+  const remap = assignIds(kept, edges, idPrefix, previous);
   for (const o of openings) if (o.nodeId) o.nodeId = remap.get(o.nodeId) || o.nodeId;
-  edges.forEach((e, i) => {
-    e.id = `${idPrefix}-e${String(i + 1).padStart(4, '0')}`;
-  });
   return { nodes: kept, edges, hub, blindAttach };
+}
+
+/**
+ * Node and edge ids. Without a previous graph they are dense in creation order (`it-1-n0001`...). With one (the
+ * committed floor JSON's nav block) every node that is still there keeps its id: a room's hub (room, stair, elevator)
+ * by its roomId, any other node by type and position. New nodes and edges take ids after the highest previous one.
+ * Ids are what overrides, QR locations and the outdoor graph hold, so a change of room typing (which adds or removes
+ * nodes) must not renumber the rest of the floor. Rerunning on its own output gives the same ids.
+ * @return {Map} creation id -> final id
+ */
+export function assignIds(nodes, edges, idPrefix, previous) {
+  const pad = (k) => String(k).padStart(4, '0');
+  const remap = new Map();
+  if (!previous || !previous.nodes || !previous.nodes.length) {
+    nodes.forEach((n, i) => {
+      const id = `${idPrefix}-n${pad(i + 1)}`;
+      remap.set(n.id, id);
+      n.id = id;
+    });
+    edges.forEach((e, i) => {
+      e.id = `${idPrefix}-e${pad(i + 1)}`;
+    });
+    return remap;
+  }
+  const isHub = (t) => t === 'room' || t === 'stair' || t === 'elevator';
+  const key = (n) => (isHub(n.type) && n.roomId ? `hub|${n.roomId}` : `${n.type}|${n.x}|${n.y}`);
+  const num = (id, letter) => {
+    const m = new RegExp(`-${letter}(\\d+)$`).exec(id);
+    return m ? Number(m[1]) : 0;
+  };
+  const byKey = new Map();
+  for (const p of previous.nodes) {
+    const k = key(p);
+    if (!byKey.has(k)) byKey.set(k, []);
+    byKey.get(k).push(p.id);
+  }
+  let nextNode = Math.max(0, ...previous.nodes.map((p) => num(p.id, 'n')));
+  const fresh = [];
+  for (const n of nodes) {
+    const list = byKey.get(key(n));
+    if (list && list.length) remap.set(n.id, list.shift());
+    else fresh.push(n);
+  }
+  for (const n of fresh) remap.set(n.id, `${idPrefix}-n${pad(++nextNode)}`);
+  for (const n of nodes) n.id = remap.get(n.id);
+  const pair = (a, b) => (a < b ? `${a}|${b}` : `${b}|${a}`);
+  const prevEdge = new Map((previous.edges || []).map((e) => [pair(e.from, e.to), e.id]));
+  let nextEdge = Math.max(0, ...(previous.edges || []).map((e) => num(e.id, 'e')));
+  const used = new Set();
+  for (const e of edges) {
+    const id = prevEdge.get(pair(e.from.id, e.to.id));
+    if (id && !used.has(id)) {
+      e.id = id;
+      used.add(id);
+    } else e.id = null;
+  }
+  for (const e of edges) if (!e.id) e.id = `${idPrefix}-e${pad(++nextEdge)}`;
+  return remap;
+}
+
+/** The access class of a graph node: its own (entrances), main for any other door or waypoint, '' for hubs. */
+export function accessOf(n) {
+  if (n.access) return n.access;
+  return n.type === 'door' || n.type === 'waypoint' || n.type === 'entrance' ? 'main' : '';
 }
 
 /** Connected components over nodes/edges (union-find); returns Map nodeId -> component id. */

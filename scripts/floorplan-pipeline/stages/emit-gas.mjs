@@ -1,5 +1,5 @@
 // Stage "emit-gas": FP_<floorId>.html (raw <svg> per floor) and SeedFloorData.gs (row arrays in the header order of
-// the v2 data contract: Floors, Rooms, NavNodes, NavEdges).
+// the v2 data contract: Floors, Rooms, NavNodes, NavEdges; v5 appends `access` to Rooms and NavNodes).
 import fs from 'node:fs';
 import path from 'node:path';
 import { planAssetName } from '../config.mjs';
@@ -7,8 +7,8 @@ import { round } from '../lib/geometry.mjs';
 
 export const HEADERS = {
   Floors: ['id', 'buildingId', 'level', 'label', 'planAsset', 'widthPx', 'heightPx', 'metersPerPixel', 'public'],
-  Rooms: ['id', 'floorId', 'number', 'label', 'type', 'polygon', 'centerX', 'centerY', 'searchable'],
-  NavNodes: ['id', 'floorId', 'x', 'y', 'type', 'roomId', 'linkId'],
+  Rooms: ['id', 'floorId', 'number', 'label', 'type', 'polygon', 'centerX', 'centerY', 'searchable', 'access'],
+  NavNodes: ['id', 'floorId', 'x', 'y', 'type', 'roomId', 'linkId', 'access'],
   NavEdges: ['id', 'fromNodeId', 'toNodeId', 'distance', 'floorChange', 'accessible'],
 };
 
@@ -20,7 +20,7 @@ export function roomRows(floors) {
   const rows = [];
   for (const f of floors) {
     for (const r of f.rooms) {
-      rows.push([r.id, f.floorId, r.number, r.label, r.type, JSON.stringify(r.polygon), r.center[0], r.center[1], r.searchable]);
+      rows.push([r.id, f.floorId, r.number, r.label, r.type, JSON.stringify(r.polygon), r.center[0], r.center[1], r.searchable, r.type === 'corridor' ? 'main' : '']);
     }
   }
   return rows;
@@ -28,7 +28,7 @@ export function roomRows(floors) {
 
 export function nodeRows(floors) {
   const rows = [];
-  for (const f of floors) for (const n of f.nav.nodes) rows.push([n.id, f.floorId, n.x, n.y, n.type, n.roomId || '', n.linkId || '']);
+  for (const f of floors) for (const n of f.nav.nodes) rows.push([n.id, f.floorId, n.x, n.y, n.type, n.roomId || '', n.linkId || '', n.access || '']);
   return rows;
 }
 

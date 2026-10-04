@@ -1,4 +1,4 @@
-{"meta": {"source":"api.openstreetmap.org/api/0.6/map","fetchedAt":"2026-10-04T15:17:38.981Z","bbox":{"minLat":36.6065,"minLng":-88.3425,"maxLat":36.625,"maxLng":-88.3135},"license":"ODbL 1.0","attribution":"© OpenStreetMap contributors (ODbL 1.0, https://www.openstreetmap.org/copyright)"},
+{"meta": {"source":"api.openstreetmap.org/api/0.6/map","fetchedAt":"2026-10-04T20:23:38.430Z","bbox":{"minLat":36.6065,"minLng":-88.3425,"maxLat":36.625,"maxLng":-88.3135},"license":"ODbL 1.0","attribution":"© OpenStreetMap contributors (ODbL 1.0, https://www.openstreetmap.org/copyright)"},
 "nodes": [
   [162565625,36.622806,-88.3165018],
   [162565627,36.622484,-88.3165688],

@@ -563,7 +563,8 @@
     "x": 152.9,
     "y": 200.8,
     "roomId": "",
-    "linkId": ""
+    "linkId": "",
+    "access": "main"
    },
    {
     "id": "ep-3-n0006",
@@ -571,7 +572,8 @@
     "x": 356.9,
     "y": 232.8,
     "roomId": "",
-    "linkId": ""
+    "linkId": "",
+    "access": "main"
    },
    {
     "id": "ep-3-n0007",
@@ -579,7 +581,8 @@
     "x": 304.9,
     "y": 200.8,
     "roomId": "",
-    "linkId": ""
+    "linkId": "",
+    "access": "main"
    },
    {
     "id": "ep-3-n0008",
@@ -587,7 +590,8 @@
     "x": 336.9,
     "y": 232.8,
     "roomId": "",
-    "linkId": ""
+    "linkId": "",
+    "access": "main"
    },
    {
     "id": "ep-3-n0009",
@@ -595,7 +599,8 @@
     "x": 465.4,
     "y": 238.6,
     "roomId": "",
-    "linkId": ""
+    "linkId": "",
+    "access": "main"
    },
    {
     "id": "ep-3-n0010",
@@ -603,7 +608,8 @@
     "x": 1557.4,
     "y": 470.6,
     "roomId": "",
-    "linkId": ""
+    "linkId": "",
+    "access": "main"
    },
    {
     "id": "ep-3-n0011",
@@ -611,7 +617,8 @@
     "x": 465.4,
     "y": 306.6,
     "roomId": "",
-    "linkId": ""
+    "linkId": "",
+    "access": "main"
    },
    {
     "id": "ep-3-n0012",
@@ -619,7 +626,8 @@
     "x": 497.4,
     "y": 338.6,
     "roomId": "",
-    "linkId": ""
+    "linkId": "",
+    "access": "main"
    },
    {
     "id": "ep-3-n0013",
@@ -627,7 +635,8 @@
     "x": 561.4,
     "y": 338.6,
     "roomId": "",
-    "linkId": ""
+    "linkId": "",
+    "access": "main"
    },
    {
     "id": "ep-3-n0014",
@@ -635,7 +644,8 @@
     "x": 689.4,
     "y": 466.6,
     "roomId": "",
-    "linkId": ""
+    "linkId": "",
+    "access": "main"
    },
    {
     "id": "ep-3-n0015",
@@ -643,7 +653,8 @@
     "x": 931.4,
     "y": 460.6,
     "roomId": "",
-    "linkId": ""
+    "linkId": "",
+    "access": "main"
    },
    {
     "id": "ep-3-n0016",
@@ -651,7 +662,8 @@
     "x": 1173.4,
     "y": 454.6,
     "roomId": "",
-    "linkId": ""
+    "linkId": "",
+    "access": "main"
    },
    {
     "id": "ep-3-n0017",
@@ -659,7 +671,8 @@
     "x": 1189.4,
     "y": 470.6,
     "roomId": "",
-    "linkId": ""
+    "linkId": "",
+    "access": "main"
    },
    {
     "id": "ep-3-n0018",
@@ -667,7 +680,8 @@
     "x": 1373.4,
     "y": 470.6,
     "roomId": "",
-    "linkId": ""
+    "linkId": "",
+    "access": "main"
    },
    {
     "id": "ep-3-n0019",
@@ -675,7 +689,8 @@
     "x": 408.4,
     "y": 206.8,
     "roomId": "",
-    "linkId": ""
+    "linkId": "",
+    "access": "main"
    },
    {
     "id": "ep-3-n0020",
@@ -683,7 +698,8 @@
     "x": 856,
     "y": 740.6,
     "roomId": "",
-    "linkId": ""
+    "linkId": "",
+    "access": "main"
    },
    {
     "id": "ep-3-n0021",
@@ -691,7 +707,8 @@
     "x": 849.1,
     "y": 462.7,
     "roomId": "",
-    "linkId": ""
+    "linkId": "",
+    "access": "main"
    },
    {
     "id": "ep-3-n0022",
@@ -699,7 +716,8 @@
     "x": 1855.5,
     "y": 704.6,
     "roomId": "",
-    "linkId": ""
+    "linkId": "",
+    "access": "alt"
    },
    {
     "id": "ep-3-n0023",
@@ -707,7 +725,8 @@
     "x": 770,
     "y": 791.4,
     "roomId": "",
-    "linkId": ""
+    "linkId": "",
+    "access": "main"
    },
    {
     "id": "ep-3-n0024",
@@ -715,7 +734,8 @@
     "x": 761.9,
     "y": 464.8,
     "roomId": "",
-    "linkId": ""
+    "linkId": "",
+    "access": "main"
    }
   ],
   "edges": [
