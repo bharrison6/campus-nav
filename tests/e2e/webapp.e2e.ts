@@ -138,7 +138,7 @@ test('route across floors draws a path, steps switch floors, avoid-stairs uses t
   await expect(activeRoute(page)).toHaveCount(1);
   await expect(page.locator('#viewer .fv-marker--dest')).toHaveCount(1);
 
-  await page.locator('label.switch').click();
+  await page.locator('label.switch', { hasText: 'Avoid stairs' }).click();
   await expect(panel).toContainText('Take the elevator up to Second Floor');
 
   await page.locator('#route-close').click();
@@ -179,7 +179,7 @@ test('EP 1322 (exterior door only): reachable from outside; from it, out its own
   await expect(panel.locator('#route-sentence')).toHaveText(/^Leave by the .+, walk \d+ m along the path, enter by the .+, take the (stairs|elevator) up to Second Floor, arrive at EP 2321\.$/);
   const kinds = () => page.evaluate(() => (window as any).NAV.route.steps.map((s: any) => s.kind).join(','));
   expect(await kinds()).toMatch(/^walk,outdoor,door,walk/);
-  await page.locator('label.switch').click();
+  await page.locator('label.switch', { hasText: 'Avoid stairs' }).click();
   await expect(panel.locator('#route-sentence')).toHaveText(/take the elevator up to Second Floor, arrive at EP 2321\.$/);
 });
 
@@ -191,7 +191,7 @@ test('without the outdoor graph EP 1322 is cut off from the rest of EP, with no 
   await page.getByRole('button', { name: 'Navigate here' }).click();
   const panel = page.locator('#route-panel');
   await expect(panel).toContainText('No route was found between these points.');
-  await page.locator('label.switch').click();
+  await page.locator('label.switch', { hasText: 'Avoid stairs' }).click();
   await expect(panel).toContainText('No route was found between these points.');
   await expect(panel).not.toContainText('Turn off');
 });

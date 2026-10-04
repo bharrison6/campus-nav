@@ -241,7 +241,7 @@ test('"Avoid stairs" applies outdoors: a steps shortcut gives way to the step-fr
   await expect.poll(async () => (await outdoorStep()).steps).toBe(true);
   const withSteps = await outdoorStep();
   expect(withSteps.detail).toContain('including steps');
-  await panel.locator('label.switch').click();
+  await panel.locator('label.switch', { hasText: 'Avoid stairs' }).click();
   await expect.poll(async () => (await outdoorStep()).steps).toBe(false);
   const flat = await outdoorStep();
   expect(flat.detail).not.toContain('including steps');
