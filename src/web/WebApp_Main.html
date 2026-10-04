@@ -1,6 +1,6 @@
 <script>
 /*
- * Main: tabs, the persistent search box, keyboard handling, and the boot sequence. ES5.
+ * Main: tabs, the persistent search box, keyboard handling, the service worker, and the boot sequence. ES5.
  */
 var VIEWS = ['map', 'indoor', 'schedule', 'scan'];
 
@@ -20,6 +20,9 @@ function switchToView(name) {
   APP.view = name;
   if (prev === 'scan' && name !== 'scan') { stopScan(); }
   if (name !== 'map') { closeBuildingSheet(); }
+  /* The route panel is shared by the map and the floor plan. */
+  $('route-panel').hidden = !NAV.route || (name !== 'map' && name !== 'indoor');
+  if (name === 'map' && window.MAPV) { MAPV.onShow(); }
   if (name === 'indoor') { indoorOnShow(); }
   if (name === 'schedule') { renderSchedule(); }
 }
@@ -106,7 +109,9 @@ function chooseSearchResult(i, fromKeyboard) {
   input.blur();
   MSCNAnalytics.track('search', e.kind);
   if (e.kind === 'room') {
-    openRoom(e.roomId, { moveFocus: fromKeyboard });
+    /* On the map a room flies there (its floor in the building view); on the floor plan it opens as before. */
+    if (APP.view === 'map' && MAPV.mode === 'map' && MAPV.ready) { focusRoomOnMap(e.roomId); }
+    else { openRoom(e.roomId, { moveFocus: fromKeyboard }); }
   } else if (buildingHasIndoor(APP.by.buildings[e.buildingId]) && APP.view === 'indoor') {
     selectBuilding(e.buildingId);
   } else {
@@ -133,6 +138,48 @@ function initSearch() {
   };
 }
 
+/* ---------- service worker (offline; decision mscn-v4-gps-offline-and-google-as-exit-only) ---------- */
+var SW = { reg: null, waiting: null, reloading: false };
+
+/* HTTPS and localhost only (browsers refuse workers elsewhere anyway). The worker is sw.js next to the page. */
+function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) { return; }
+  var h = window.location.hostname;
+  if (window.location.protocol !== 'https:' && h !== 'localhost' && h !== '127.0.0.1' && h !== '[::1]') { return; }
+  navigator.serviceWorker.register('sw.js').then(function (reg) {
+    if (!reg) { return; }
+    SW.reg = reg;
+    if (reg.waiting && navigator.serviceWorker.controller) { offerUpdate(reg.waiting); }
+    reg.addEventListener('updatefound', function () {
+      var w = reg.installing;
+      if (!w) { return; }
+      w.addEventListener('statechange', function () {
+        if (w.state === 'installed' && navigator.serviceWorker.controller) { offerUpdate(w); }
+      });
+    });
+  }, function () { /* no offline copy; the app still works online */ });
+  navigator.serviceWorker.addEventListener('controllerchange', function () {
+    if (SW.reloading) { window.location.reload(); }
+  });
+}
+
+/* A newer deploy finished caching: "Campus Nav was updated. Reload". */
+function offerUpdate(worker) {
+  SW.waiting = worker;
+  var b = $('update-banner');
+  b.hidden = false;
+  $('update-reload').onclick = function () {
+    SW.reloading = true;
+    b.hidden = true;
+    worker.postMessage({ type: 'skipWaiting' });
+  };
+}
+
+/* A new data version: ask the browser to fetch the new sw.js (its precache carries the new data). */
+function checkForUpdate() {
+  if (SW.reg && SW.reg.update) { try { SW.reg.update(); } catch (e) { /* best effort */ } }
+}
+
 /* ---------- boot ---------- */
 /* Share links point at this page itself (static hosting: the page URL is the app URL). */
 function readAppUrl() {
@@ -152,7 +199,8 @@ function onDataReady(data, version, stale) {
   }
   $('stale-banner').hidden = !stale;
   initIndoor();
-  whenSiteConfig(initMap);
+  initRoute();
+  initMap();
   renderSchedule();
   var screen = $('loading-screen');
   screen.className = 'is-done';
@@ -181,6 +229,7 @@ function initApp() {
   });
   loadSiteConfig();
   loadCampusData(onDataReady);
+  registerServiceWorker();
 }
 
 initApp();

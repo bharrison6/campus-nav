@@ -6,8 +6,8 @@
 //       Files are served under --base, a directory URL serves its index.html, /campus-nav redirects to
 //       /campus-nav/, and any miss under --base answers 404 with the site's 404.html. Requests outside --base
 //       get a plain 404 (so a root-relative URL in the app shows up as a failure), except "/" which redirects
-//       to --base. --build runs scripts/build/build-site.mjs into --dist first. MAPS_API_KEY in the
-//       environment reaches the build only; nothing here stores it.
+//       to --base. --build runs scripts/build/build-site.mjs into --dist first (MSCN_CAMPUS_MAP_ROOT in the
+//       environment points the build at a fixture campus map; tests only).
 //   npm run serve    = serve the last build (dist/) at http://localhost:8787/campus-nav/
 //   npm run preview  = build dist/ first, then serve it
 // The admin page is not served here: npm run admin (tools/admin/server.mjs).
@@ -32,8 +32,8 @@ function send(res, status, type, body, extra) {
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml',
-  '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg',
-  '.ico': 'image/x-icon', '.txt': 'text/plain; charset=utf-8', '.webmanifest': 'application/manifest+json',
+  '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.geojson': 'application/geo+json', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg',
+  '.ico': 'image/x-icon', '.webp': 'image/webp', '.txt': 'text/plain; charset=utf-8', '.webmanifest': 'application/manifest+json',
 };
 
 export function normalizeBase(base) {

@@ -6,8 +6,15 @@
 // dist/
 //   index.html               src/web/WebApp.html with every include resolved (scripts/build/render-page.mjs)
 //   404.html                 sends unknown paths to the app root with the query kept (GitHub Pages serves it for any miss)
-//   config.json              {mapsApiKey, analytics: {provider, site}, basePath, domain}; the key comes ONLY from the
-//                            MAPS_API_KEY environment variable at build time (repository secret in CI), never from a file
+//   config.json              {analytics: {provider, site}, basePath, domain} (no map key of any kind: the map is MapLibre
+//                            drawing committed OpenStreetMap data, decision mscn-v4-gps-offline-and-google-as-exit-only)
+//   vendor/                  MapLibre GL JS (ESM build + worker + CSS, from node_modules, for offline use; no CDN),
+//                            modules.mjs (src/web/modules.mjs: loads MapLibre and the georef module for the classic page),
+//                            georef.mjs (src/shared/georef.mjs, the SVG <-> lng/lat transform shared with the exporter)
+//   data/campus-map/**       the committed campus map (buildings, basemap layers, outdoor graph, optional aerial tiles)
+//   data/georef/<id>.json    each indoor building's floor-frame transform
+//   data/map-manifest.json   what of the above exists: {buildings, basemap[], outdoorGraph, aerial, georef{id: doc}}
+//   sw.js                    the service worker with its precache manifest (scripts/build/service-worker.mjs)
 //   data/campus.json         \
 //   data/version.json         } the campus-data export (scripts/data/export-campus-data.mjs): public floors only;
 //   floors/<floorId>.svg     /  the build fails if a hidden floor or a plan without a published floor is in it
@@ -16,11 +23,12 @@
 //   CNAME                    only when build.config.json names a domain
 // Every URL the page uses is relative, so the same dist/ serves at /campus-nav/ and at a domain root.
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isPublicFloor } from '../data/export-campus-data.mjs';
 import { renderPage } from './render-page.mjs';
+import { precacheEntries, serviceWorkerSource } from './service-worker.mjs';
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const WEB_SRC = join(ROOT, 'src', 'web');
@@ -48,11 +56,93 @@ export function loadBuildConfig(path) {
   };
 }
 
-/** The public config.json. The Maps key is read from the environment here and nowhere else. */
-export function siteConfig(cfg, env) {
-  const key = String((env && env.MAPS_API_KEY) || '').trim();
-  if (key && !/^[A-Za-z0-9_-]{20,}$/.test(key)) fail('MAPS_API_KEY is set but does not look like a Google API key');
-  return { mapsApiKey: key, analytics: cfg.analytics, basePath: cfg.basePath, domain: cfg.domain };
+/** The public config.json. There is no map key: v4 draws its own map (MapLibre + committed OSM data). */
+export function siteConfig(cfg) {
+  return { analytics: cfg.analytics, basePath: cfg.basePath, domain: cfg.domain };
+}
+
+/** MapLibre's browser files (ESM build, its shared chunk and worker, CSS), copied for offline use. */
+export const MAPLIBRE_FILES = ['maplibre-gl.mjs', 'maplibre-gl-shared.mjs', 'maplibre-gl-worker.mjs', 'maplibre-gl.css'];
+
+export function maplibreDir(root = ROOT) {
+  const dir = join(root, 'node_modules', 'maplibre-gl', 'dist');
+  for (const f of MAPLIBRE_FILES) if (!existsSync(join(dir, f))) fail(`maplibre-gl is not installed (missing ${f}); run npm ci`);
+  return dir;
+}
+
+function copyTree(from, to, filter) {
+  let n = 0;
+  if (!existsSync(from)) return 0;
+  for (const name of readdirSync(from)) {
+    const src = join(from, name);
+    const dst = join(to, name);
+    if (statSync(src).isDirectory()) { n += copyTree(src, dst, filter); continue; }
+    if (filter && !filter(src)) continue;
+    mkdirSync(to, { recursive: true });
+    copyFileSync(src, dst);
+    n++;
+  }
+  return n;
+}
+
+function readJsonChecked(p, what) {
+  try { return readJson(p); } catch (e) { return fail(`${what}: ${e.message}`); }
+}
+
+/**
+ * The campus map (lane J's data; contract in plan mscn-v4-campus-map-2-5d) copied into the site, and its manifest.
+ * mapRoot is the repository root, or a fixture tree with the same layout (MSCN_CAMPUS_MAP_ROOT; tests only).
+ *   <mapRoot>/data/campus-map/{buildings.geojson, basemap.geojson | layers/*.geojson, outdoor-graph.json, aerial.json, aerial/**}
+ *   <mapRoot>/data/georef/<buildingId>.json, <mapRoot>/src/shared/georef.mjs
+ * Every piece is optional; the app draws what exists (no buildings file: the building-list fallback).
+ */
+export function copyCampusMap(mapRoot, out) {
+  const srcMap = join(mapRoot, 'data', 'campus-map');
+  const srcRef = join(mapRoot, 'data', 'georef');
+  const manifest = { buildings: null, basemap: [], outdoorGraph: null, aerial: null, georef: {}, georefModule: false, fixture: false };
+  const dstMap = join(out, 'data', 'campus-map');
+  copyTree(srcMap, dstMap, (p) => !/\.(md|txt)$/i.test(p));
+  const has = (p) => existsSync(join(dstMap, p));
+  if (has('buildings.geojson')) {
+    const fc = readJsonChecked(join(dstMap, 'buildings.geojson'), 'campus-map/buildings.geojson');
+    if (fc.type !== 'FeatureCollection' || !Array.isArray(fc.features)) fail('campus-map/buildings.geojson is not a FeatureCollection');
+    manifest.buildings = 'data/campus-map/buildings.geojson';
+    manifest.fixture = !!fc.fixture;
+  }
+  if (has('basemap.geojson')) manifest.basemap.push('data/campus-map/basemap.geojson');
+  if (has('layers')) {
+    for (const f of readdirSync(join(dstMap, 'layers')).filter((n) => n.endsWith('.geojson')).sort()) manifest.basemap.push('data/campus-map/layers/' + f);
+  }
+  for (const b of manifest.basemap) {
+    const fc = readJsonChecked(join(out, b), b);
+    if (fc.type !== 'FeatureCollection') fail(`${b} is not a FeatureCollection`);
+  }
+  if (has('outdoor-graph.json')) {
+    const g = readJsonChecked(join(dstMap, 'outdoor-graph.json'), 'campus-map/outdoor-graph.json');
+    if (!Array.isArray(g.nodes) || !Array.isArray(g.edges)) fail('campus-map/outdoor-graph.json lacks nodes/edges');
+    manifest.outdoorGraph = 'data/campus-map/outdoor-graph.json';
+  }
+  if (has('aerial.json') && has('aerial')) {
+    const a = readJsonChecked(join(dstMap, 'aerial.json'), 'campus-map/aerial.json');
+    manifest.aerial = Object.assign({ tiles: 'data/campus-map/aerial/{z}/{x}/{y}.jpg' }, a);
+  }
+  if (existsSync(srcRef)) {
+    mkdirSync(join(out, 'data', 'georef'), { recursive: true });
+    for (const f of readdirSync(srcRef).filter((n) => n.endsWith('.json')).sort()) {
+      const doc = readJsonChecked(join(srcRef, f), 'georef/' + f);
+      const id = doc.buildingId || f.replace(/\.json$/, '');
+      if (!doc.transform) fail(`georef/${f} has no transform`);
+      copyFileSync(join(srcRef, f), join(out, 'data', 'georef', f));
+      manifest.georef[id] = doc;
+    }
+  }
+  const mod = join(mapRoot, 'src', 'shared', 'georef.mjs');
+  if (existsSync(mod)) {
+    mkdirSync(join(out, 'vendor'), { recursive: true });
+    copyFileSync(mod, join(out, 'vendor', 'georef.mjs'));
+    manifest.georefModule = true;
+  }
+  return manifest;
 }
 
 export function notFoundPage(basePath) {
@@ -198,23 +288,47 @@ export function buildSite({ out = join(ROOT, 'dist'), configPath = join(ROOT, 'b
   if (errors.length) fail('official schedules / links:\n  ' + errors.join('\n  '));
   writeFileSync(join(out, 'data', 'links.json'), JSON.stringify(links));
 
-  // 3. the page, its config, 404 and CNAME
+  // 3. the map: MapLibre (vendored), the module loader, the campus map data and its manifest
+  const vendor = join(out, 'vendor');
+  mkdirSync(vendor, { recursive: true });
+  const mlDir = maplibreDir();
+  for (const f of MAPLIBRE_FILES) copyFileSync(join(mlDir, f), join(vendor, f));
+  const mlLicense = join(mlDir, '..', 'LICENSE.txt');
+  if (existsSync(mlLicense)) copyFileSync(mlLicense, join(vendor, 'maplibre-gl-LICENSE.txt'));
+  copyFileSync(join(WEB_SRC, 'modules.mjs'), join(vendor, 'modules.mjs'));
+  const mapRoot = env.MSCN_CAMPUS_MAP_ROOT ? resolve(ROOT, env.MSCN_CAMPUS_MAP_ROOT) : ROOT;
+  const map = copyCampusMap(mapRoot, out);
+  writeFileSync(join(out, 'data', 'map-manifest.json'), JSON.stringify(map));
+  if (map.fixture) log(`[build] campus map from the FIXTURE ${relative(ROOT, mapRoot)} (MSCN_CAMPUS_MAP_ROOT); not for deployment`);
+
+  // 4. the page, its config, 404 and CNAME
   const html = renderPage(WEB_SRC, 'WebApp');
   const rootUrls = findRootRelativeUrls(html);
   if (rootUrls.length) fail('root-relative URLs would break the sub-path site: ' + rootUrls.slice(0, 5).join(' | '));
   writeFileSync(join(out, 'index.html'), html);
-  const site = siteConfig(cfg, env);
+  const site = siteConfig(cfg);
   writeFileSync(join(out, 'config.json'), JSON.stringify(site, null, 2) + '\n');
   writeFileSync(join(out, '404.html'), notFoundPage(cfg.basePath));
   if (cfg.domain) writeFileSync(join(out, 'CNAME'), cfg.domain + '\n');
 
+  // 5. the service worker, last: its precache manifest hashes every file above
+  const precache = precacheEntries(out);
+  writeFileSync(join(out, 'sw.js'), serviceWorkerSource({ version: version.version, entries: precache }));
+
+  const bytes = (p) => (existsSync(p) ? statSync(p).size : 0);
   const summary = {
     out, version: version.version, basePath: cfg.basePath, domain: cfg.domain || null,
-    mapsKey: site.mapsApiKey ? 'set' : 'none (key-free fallback)', analytics: cfg.analytics.site ? cfg.analytics.provider : 'off',
+    analytics: cfg.analytics.site ? cfg.analytics.provider : 'off',
     floors: readdirSync(join(out, 'floors')).length, schedules: schedules.length, indexBytes: Buffer.byteLength(html),
+    maplibreBytes: MAPLIBRE_FILES.reduce((n, f) => n + bytes(join(vendor, f)), 0),
+    map: { buildings: !!map.buildings, basemap: map.basemap.length, outdoorGraph: !!map.outdoorGraph, aerial: !!map.aerial,
+      georef: Object.keys(map.georef), fixture: map.fixture },
+    precache: precache.length,
   };
-  log(`[build] ${relative(ROOT, out) || out}: index.html ${summary.indexBytes} B, ${summary.floors} floor plans, ${summary.schedules} schedule(s), ` +
-    `data ${summary.version}, base ${summary.basePath}${summary.domain ? ', CNAME ' + summary.domain : ''}, Maps key ${summary.mapsKey}, analytics ${summary.analytics}`);
+  log(`[build] ${relative(ROOT, out) || out}: index.html ${summary.indexBytes} B, MapLibre ${summary.maplibreBytes} B, ${summary.floors} floor plans, ` +
+    `${summary.schedules} schedule(s), data ${summary.version}, base ${summary.basePath}${summary.domain ? ', CNAME ' + summary.domain : ''}, ` +
+    `map ${map.buildings ? 'buildings' : 'NO buildings'}/${map.basemap.length} basemap/${map.outdoorGraph ? 'graph' : 'no graph'}/` +
+    `${map.aerial ? 'aerial' : 'no aerial'}/georef ${summary.map.georef.join(',') || 'none'}, sw ${precache.length} files, analytics ${summary.analytics}`);
   return summary;
 }
 

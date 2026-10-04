@@ -2,17 +2,21 @@
 
 The public app is a static site on GitHub Pages: nobody signs in to use it, and nothing runs on a server.
 `.github/workflows/pages.yml` tests, builds and deploys it on every push to `main`. This page is the operator's
-whole checklist: the one-time steps (Pages, analytics, the Maps key, an optional domain), how deploys happen,
-and how to change the data. The README covers the code, the drawings pipeline and the overrides format.
+whole checklist: the one-time steps (Pages, analytics, an optional domain), how deploys happen, and how to change
+the data. The README covers the code, the drawings pipeline and the overrides format. There is no map key: the
+campus map is drawn by the site itself (MapLibre on OpenStreetMap data committed to the repository).
 
 ## What is published
 
 | File | What it is |
 |---|---|
 | `index.html` | the app (`src/web/WebApp.html` with its modules inlined) |
-| `config.json` | `{mapsApiKey, analytics: {provider, site}, basePath, domain}`, made at build time |
+| `config.json` | `{analytics: {provider, site}, basePath, domain}`, made at build time |
 | `data/campus.json`, `data/version.json` | campus data of the public floors and its version (the browser cache key) |
 | `floors/<floorId>.svg` | public floor plans |
+| `data/campus-map/**`, `data/georef/*.json`, `data/map-manifest.json` | the campus map: buildings, paths and other layers (OpenStreetMap), the outdoor walking graph, optional aerial photos (USDA NAIP, public domain), each indoor building's placement on the map |
+| `vendor/` | MapLibre GL JS and the page's two small modules, served from the site itself |
+| `sw.js` | the service worker: after a first visit the app works offline |
 | `data/schedules/<id>.json`, `data/links.json` | official event schedules and the links they cite |
 | `404.html` | sends a mistyped or old path back to the app, keeping `?room=`, `?qr=`, `?sched=` |
 | `CNAME` | only when a custom domain is configured |
@@ -51,21 +55,14 @@ banner. It loads only when a site code is configured.
 
 What someone types into search is never sent.
 
-## 3. The Google Maps key (optional)
+## 3. The campus map (nothing to configure)
 
-Without a key the Map tab shows a building list with "Open in Google Maps" walking links, which needs no key.
-With a key it shows the interactive map.
-
-1. In Google Cloud, create a **new** browser API key (the v2 key is retired; do not reuse it). Restrict it:
-   - Application restriction: **Websites**, referrers `https://bharrison6.github.io/campus-nav/*` (add the custom
-     domain's `https://<domain>/*` when there is one).
-   - API restriction: **Maps JavaScript API** only.
-2. Repository **Settings > Secrets and variables > Actions > New repository secret**: name `MAPS_API_KEY`,
-   value the key.
-3. Re-run the workflow. The build log says `Maps key set` (it never prints the key).
-
-A browser key is visible to anyone who opens `config.json`; the referrer restriction is what protects it.
-Never put the key in `build.config.json`, the overrides, or anywhere else in the repository.
+The Map tab is the site's own map: no Google Maps key, no billing, no tile server. Google Maps (Android and
+desktop) or Apple Maps (iPhone, iPad) open only from the "Directions to campus" links, at the chosen door. If a
+`MAPS_API_KEY` repository secret was ever created for v3, delete it under **Settings > Secrets and variables >
+Actions**; nothing reads it any more, and the Google Cloud key can be deleted too. The map's data is refreshed by
+the scripts that generate `data/campus-map/` (README, campus-map data section); OpenStreetMap's license requires
+the attribution the map always shows.
 
 ## 4. A custom domain (optional, later)
 
@@ -76,21 +73,19 @@ Never put the key in `build.config.json`, the overrides, or anywhere else in the
    `CNAME` and serves from the root.
 4. **Settings > Pages > Custom domain**: enter the same name, wait for the DNS check, tick **Enforce HTTPS**.
    With an Actions deployment this setting is what binds the domain; the `CNAME` file is kept for clarity.
-5. Add `https://nav.example.org/*` to the Maps key's referrers.
-
 Printed QR codes keep working only while their URL resolves: before switching, confirm the old
 `bharrison6.github.io/campus-nav/` address redirects to the new domain.
 
 ## 5. How deploys happen
 
 Every push to `main` runs the workflow: `npm ci`, `npm test` (unit and pipeline tests; the drawings are not on
-the runner, so the tests that need them are skipped), `npm run build` with the `MAPS_API_KEY` secret, then the
-deploy. A failing test or a build check (a bad schedule, a broken link id, a hidden floor in the export)
+the runner, so the tests that need them are skipped), `npm run build`, then the deploy. A failing test or a build check (a bad schedule, a broken link id, a hidden floor in the export)
 stops the run before anything is published, and the live site stays as it was. Watch a run under **Actions**;
 re-run one there by hand. Nothing else deploys the site.
 
-Visitors' browsers keep a copy of the campus data and check `data/version.json` on each visit; a deploy with
-changed data has a new version, so they download the new data on their next visit.
+Visitors' browsers keep a copy of the app and its data (the service worker) and check `data/version.json` on
+each visit; a deploy with changed data has a new version and a new `sw.js`, so the browser fetches the new copy in
+the background and the app offers "Campus Nav was updated. Reload".
 
 ## 6. Changing the data
 
@@ -118,5 +113,8 @@ code of that URL): it opens in the Schedule tab, read-only, and visitors can add
   site, checks the campus data is fetched and a floor plan draws. `APP_URL=<address>` checks another address.
 - The site opens with no sign-in; Map, Indoor, Schedule and Scan tabs work on a phone.
 - `?room=room-it-2-0241&nav=1` opens a route; `?sched=eday-sample` opens the sample schedule.
-- With a key: the interactive map shows; without: the building list with walking links.
+- The Map tab shows the 2.5D campus map with the OpenStreetMap credit; "View inside" on IT or EP shows its floors;
+  "Navigate here" walks along the paths to a door and switches to the floor plan at the door step.
+- With location allowed, the locate button shows the blue dot; with the network off after one visit, the app still
+  opens (Chrome DevTools > Network > Offline, then reload).
 - With analytics: the GoatCounter dashboard shows the visit within a few minutes.

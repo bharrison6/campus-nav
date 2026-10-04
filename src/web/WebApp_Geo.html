@@ -1,0 +1,163 @@
+<script>
+/*
+ * MSCNGeo: small geodesy for the campus map, the outdoor graph and GPS. Pure ES5, no DOM (Node unit tests load it).
+ * Points are [lng, lat] arrays (GeoJSON order) or {lng, lat} objects; distances are meters.
+ *   haversine(a, b)                         great-circle distance
+ *   local(origin) -> {toXY(p), toLngLat(x, y)}   equirectangular meters around origin (x east, y north); fine at campus scale
+ *   projectOnSegment(p, a, b)               {t (0..1), point [lng, lat], dist}
+ *   nearestEdge(edges, p, accept?)          over [{id, from, to, a, b, ...}]: {edge, t, point, dist, dFrom, dTo}
+ *   distanceToLine(p, coords)               to a polyline [[lng, lat], ...]
+ *   circle(center, radius, n)               closed ring approximating a circle
+ *   cone(center, headingDeg, length, spreadDeg)  closed ring: the GPS heading wedge
+ *   pointInRing(p, ring), bbox(coords), bearing(a, b), compass(deg) -> 'north'|'north-east'|...
+ */
+var MSCNGeo = (function () {
+  'use strict';
+
+  var R = 6371008.8;
+  var D2R = Math.PI / 180;
+
+  function lng(p) { return p && p.lng !== undefined ? Number(p.lng) : Number(p[0]); }
+  function lat(p) { return p && p.lat !== undefined ? Number(p.lat) : Number(p[1]); }
+  function arr(p) { return [lng(p), lat(p)]; }
+
+  function haversine(a, b) {
+    if (!a || !b) { return 0; }
+    var dLat = (lat(b) - lat(a)) * D2R;
+    var dLng = (lng(b) - lng(a)) * D2R;
+    var h = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat(a) * D2R) * Math.cos(lat(b) * D2R) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+  }
+
+  function local(origin) {
+    var lat0 = lat(origin);
+    var lng0 = lng(origin);
+    var kx = Math.cos(lat0 * D2R) * R * D2R;
+    var ky = R * D2R;
+    return {
+      toXY: function (p) { return [(lng(p) - lng0) * kx, (lat(p) - lat0) * ky]; },
+      toLngLat: function (x, y) { return [lng0 + x / kx, lat0 + y / ky]; }
+    };
+  }
+
+  function projectOnSegment(p, a, b) {
+    var L = local(p);
+    var A = L.toXY(a);
+    var B = L.toXY(b);
+    var dx = B[0] - A[0];
+    var dy = B[1] - A[1];
+    var len2 = dx * dx + dy * dy;
+    var t = len2 > 0 ? -(A[0] * dx + A[1] * dy) / len2 : 0;
+    if (t < 0) { t = 0; } else if (t > 1) { t = 1; }
+    var x = A[0] + t * dx;
+    var y = A[1] + t * dy;
+    return { t: t, point: L.toLngLat(x, y), dist: Math.sqrt(x * x + y * y) };
+  }
+
+  /* edges: [{a: [lng, lat] | {lng, lat}, b: ..., ...}]; accept(edge) may skip some (e.g. steps when avoiding stairs). */
+  function nearestEdge(edges, p, accept) {
+    var best = null;
+    for (var i = 0; i < edges.length; i++) {
+      var e = edges[i];
+      if (accept && !accept(e)) { continue; }
+      var pr = projectOnSegment(p, e.a, e.b);
+      if (!best || pr.dist < best.dist) { best = { edge: e, t: pr.t, point: pr.point, dist: pr.dist }; }
+    }
+    if (best) {
+      best.dFrom = haversine(best.point, best.edge.a);
+      best.dTo = haversine(best.point, best.edge.b);
+    }
+    return best;
+  }
+
+  function distanceToLine(p, coords) {
+    if (!coords || !coords.length) { return Infinity; }
+    if (coords.length === 1) { return haversine(p, coords[0]); }
+    var best = Infinity;
+    for (var i = 1; i < coords.length; i++) {
+      var d = projectOnSegment(p, coords[i - 1], coords[i]).dist;
+      if (d < best) { best = d; }
+    }
+    return best;
+  }
+
+  function circle(center, radius, n) {
+    n = n || 48;
+    var L = local(center);
+    var ring = [];
+    for (var i = 0; i < n; i++) {
+      var a = 2 * Math.PI * i / n;
+      ring.push(L.toLngLat(radius * Math.cos(a), radius * Math.sin(a)));
+    }
+    ring.push(ring[0]);
+    return ring;
+  }
+
+  /* A wedge pointing along a compass heading (0 = north, clockwise). */
+  function cone(center, headingDeg, length, spreadDeg) {
+    var L = local(center);
+    var ring = [[lng(center), lat(center)]];
+    var steps = 8;
+    for (var i = 0; i <= steps; i++) {
+      var h = (headingDeg - spreadDeg / 2 + spreadDeg * i / steps) * D2R;
+      ring.push(L.toLngLat(length * Math.sin(h), length * Math.cos(h)));
+    }
+    ring.push(ring[0]);
+    return ring;
+  }
+
+  function pointInRing(p, ring) {
+    var x = lng(p);
+    var y = lat(p);
+    var inside = false;
+    for (var i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      var xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+      if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) { inside = !inside; }
+    }
+    return inside;
+  }
+
+  function bbox(coords) {
+    var b = [Infinity, Infinity, -Infinity, -Infinity];
+    for (var i = 0; i < coords.length; i++) {
+      var x = lng(coords[i]);
+      var y = lat(coords[i]);
+      if (x < b[0]) { b[0] = x; } if (y < b[1]) { b[1] = y; }
+      if (x > b[2]) { b[2] = x; } if (y > b[3]) { b[3] = y; }
+    }
+    return b[0] === Infinity ? null : b;
+  }
+
+  /* Compass bearing from a to b, degrees clockwise from north. */
+  function bearing(a, b) {
+    var p1 = lat(a) * D2R;
+    var p2 = lat(b) * D2R;
+    var dl = (lng(b) - lng(a)) * D2R;
+    var y = Math.sin(dl) * Math.cos(p2);
+    var x = Math.cos(p1) * Math.sin(p2) - Math.sin(p1) * Math.cos(p2) * Math.cos(dl);
+    return (Math.atan2(y, x) / D2R + 360) % 360;
+  }
+
+  var POINTS = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'];
+  function compass(deg) { return POINTS[Math.round((((deg % 360) + 360) % 360) / 45) % 8]; }
+
+  return {
+    R: R,
+    lng: lng,
+    lat: lat,
+    arr: arr,
+    haversine: haversine,
+    local: local,
+    projectOnSegment: projectOnSegment,
+    nearestEdge: nearestEdge,
+    distanceToLine: distanceToLine,
+    circle: circle,
+    cone: cone,
+    pointInRing: pointInRing,
+    bbox: bbox,
+    bearing: bearing,
+    compass: compass
+  };
+})();
+</script>

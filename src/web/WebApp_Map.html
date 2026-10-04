@@ -1,151 +1,707 @@
 <script>
 /*
- * Map: Google Maps with building markers when config.json carries mapsApiKey (injected at build time
- * from the MAPS_API_KEY secret, never committed); otherwise, or when the map fails to load, a building list with key-free
- * "Open in Google Maps" walking-direction links. ES5.
+ * Map: the campus map (decision mscn-v4-maplibre-with-committed-osm-and-aerial-data). MapLibre GL JS, vendored into
+ * the site and loaded by vendor/modules.mjs, draws the committed campus data (data/map-manifest.json names what exists:
+ * OpenStreetMap buildings and basemap layers, the outdoor footpath graph, the optional aerial tiles, each indoor
+ * building's georeference) in the app's own colors, light and dark (the --map-* tokens, WebApp_MapStyle). Buildings
+ * stand in 2.5D (extruded, tilt and rotate); IT and EP open into a "building view" of their real floors, stacked; search
+ * flies the map to a building or room; the route's outdoor walk, its doors and the blue dot are drawn here.
+ * No map key, no tile server, no Google. Without WebGL, module support, or campus-map data, the tab is a building list
+ * with "Directions to campus" links and routes still work. ES5.
  */
-var MAP = { mode: null, map: null, markers: {}, timer: null };
+var MAPV = {
+  mode: null, map: null, ml: null, manifest: null, ready: false,
+  buildings: null, base: null, centers: {}, footprints: {}, featureIds: {}, bounds: null,
+  aerialOn: false, view: null, selectedFeature: null, pendingRoute: null, follow: false, outdoor: null,
+  statusDismissed: null
+};
 
-function mapsKey() {
-  var k = (APP.site && APP.site.mapsApiKey) || getConfigValue('mapsApiKey');
-  k = k === null || k === undefined ? '' : String(k).replace(/^\s+|\s+$/g, '');
-  if (!k || /REMOVED|^\*+/.test(k)) { return ''; }
-  return k;
-}
+var MAP_FLOOR_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l10 5-10 5L2 7l10-5zm-8.3 9.2L12 15.4l8.3-4.2L22 12l-10 5-10-5 1.7-.8zm0 5L12 20.4l8.3-4.2L22 17l-10 5-10-5 1.7-.8z"/></svg>';
+var MAP_LOCATE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8a4 4 0 100 8 4 4 0 000-8zm8.94 3A8.99 8.99 0 0013 3.06V1h-2v2.06A8.99 8.99 0 003.06 11H1v2h2.06A8.99 8.99 0 0011 20.94V23h2v-2.06A8.99 8.99 0 0020.94 13H23v-2h-2.06zM12 19a7 7 0 110-14 7 7 0 010 14z"/></svg>';
+var MAP_AERIAL_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3 3.5-4.5 4.5 6H5l3.5-4.5z"/></svg>';
+
+/* ---------------- boot ---------------- */
 
 function initMap() {
-  var key = mapsKey();
-  if (!key) {
-    showBuildingList('nokey');
-    return;
-  }
-  MAP.mode = 'loading';
-  $('map-canvas').hidden = false;
-  window.gm_authFailure = function () { showBuildingList('failed'); };
-  window.mscnOnMapsLoaded = onMapsLoaded;
-  var s = document.createElement('script');
-  s.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(key) + '&callback=mscnOnMapsLoaded&loading=async';
-  s.async = true;
-  s.onerror = function () { showBuildingList('failed'); };
-  document.head.appendChild(s);
-  MAP.timer = setTimeout(function () {
-    if (MAP.mode === 'loading') { showBuildingList('failed'); }
-  }, 15000);
+  if (MAPV.mode) { return; }
+  MAPV.mode = 'loading';
+  MSCNData.getMapManifest(function (err, man) {
+    if (err || !man || typeof man !== 'object') { showBuildingList('failed'); return; }
+    MAPV.manifest = man;
+    if (man.outdoorGraph) { loadOutdoorGraph(man.outdoorGraph); }
+    if (!man.buildings) { showBuildingList('nodata'); return; }
+    MSCNData.getMapFile(man.buildings, function (e2, fc) {
+      if (e2 || !fc || !isArray(fc.features)) { showBuildingList('failed'); return; }
+      prepareBuildings(fc);
+      loadBaseLayers(man.basemap || [], function (base) {
+        MAPV.base = base;
+        if (!webglAvailable()) { showBuildingList('nowebgl'); return; }
+        whenModules(function (mods) {
+          if (!mods || !mods.maplibregl) { showBuildingList('failed'); return; }
+          try { createMap(mods.maplibregl); } catch (e) { showBuildingList('failed'); }
+        });
+      });
+    });
+  });
 }
 
-function buildingsWithLocation() {
-  var out = [];
-  var list = (APP.data && APP.data.buildings) || [];
-  for (var i = 0; i < list.length; i++) {
-    if (list[i] && list[i].lat !== '' && list[i].lng !== '' && isFinite(Number(list[i].lat)) && isFinite(Number(list[i].lng)) && Number(list[i].lat) !== 0) {
-      out.push(list[i]);
+function loadOutdoorGraph(path) {
+  MSCNData.getMapFile(path, function (err, g) {
+    if (err || !g || !isArray(g.nodes)) { return; }
+    MAPV.outdoor = g;
+    MSCNPath.addOutdoorGraph(APP.graph, g);
+    if (NAV.dest) { computeRoute(); }
+  });
+}
+
+function loadBaseLayers(list, cb) {
+  var parts = [];
+  var i = 0;
+  function next() {
+    if (i >= list.length) { cb(MSCNMapStyle.mergeBase(parts)); return; }
+    var path = list[i++];
+    var m = /layers\/([A-Za-z0-9_-]+)\.geojson$/.exec(path);
+    MSCNData.getMapFile(path, function (err, fc) {
+      if (!err && fc && isArray(fc.features)) { parts.push({ fc: fc, hint: m ? m[1] : null }); }
+      next();
+    });
+  }
+  next();
+}
+
+function outerRing(geom) {
+  if (!geom) { return null; }
+  if (geom.type === 'Polygon') { return geom.coordinates[0]; }
+  if (geom.type === 'MultiPolygon') {
+    var best = null;
+    for (var i = 0; i < geom.coordinates.length; i++) {
+      var r = geom.coordinates[i][0];
+      if (!best || r.length > best.length) { best = r; }
+    }
+    return best;
+  }
+  return null;
+}
+
+/* Footprints, centers and the campus envelope; flags features of buildings with indoor maps. */
+function prepareBuildings(fc) {
+  var box = [Infinity, Infinity, -Infinity, -Infinity];
+  for (var i = 0; i < fc.features.length; i++) {
+    var f = fc.features[i];
+    if (!f) { continue; }
+    f.properties = f.properties || {};
+    var bid = f.properties.buildingId;
+    var b = bid ? APP.by.buildings[bid] : null;
+    f.properties.indoor = !!(b && buildingHasIndoor(b));
+    if (b && !f.properties.name) { f.properties.name = b.name; }
+    var ring = outerRing(f.geometry);
+    if (!ring || !ring.length) { continue; }
+    var bb = MSCNGeo.bbox(ring);
+    if (bb[0] < box[0]) { box[0] = bb[0]; } if (bb[1] < box[1]) { box[1] = bb[1]; }
+    if (bb[2] > box[2]) { box[2] = bb[2]; } if (bb[3] > box[3]) { box[3] = bb[3]; }
+    if (bid) {
+      MAPV.footprints[bid] = ring;
+      var sx = 0, sy = 0, n = ring.length > 1 ? ring.length - 1 : 1;
+      for (var k = 0; k < n; k++) { sx += ring[k][0]; sy += ring[k][1]; }
+      MAPV.centers[bid] = { lng: sx / n, lat: sy / n };
+      MAPV.featureIds[bid] = i;
     }
   }
+  MAPV.buildings = fc;
+  MAPV.bounds = box[0] === Infinity ? null : box;
+}
+
+function webglAvailable() {
+  try {
+    var c = document.createElement('canvas');
+    return !!(window.WebGL2RenderingContext && c.getContext('webgl2'));
+  } catch (e) {
+    return false;
+  }
+}
+
+function whenModules(cb) {
+  if (window.MSCNModules) { cb(window.MSCNModules); return; }
+  var done = false;
+  function fire() { if (done) { return; } done = true; cb(window.MSCNModules || null); }
+  window.addEventListener('mscn-modules', fire);
+  setTimeout(fire, 15000);
+}
+
+/* ---------------- the map ---------------- */
+
+function cssToken(cs, name) { return String(cs.getPropertyValue(name) || '').replace(/^\s+|\s+$/g, ''); }
+
+function readMapTokens() {
+  var cs = window.getComputedStyle(document.documentElement);
+  var m = function (n) { return cssToken(cs, '--map-' + n); };
+  var room = {};
+  for (var i = 0; i < MSCNMapStyle.ROOM_TYPES.length; i++) { room[MSCNMapStyle.ROOM_TYPES[i]] = cssToken(cs, '--room-type-' + MSCNMapStyle.ROOM_TYPES[i]); }
+  return {
+    land: m('land'), green: m('green'), water: m('water'), parking: m('parking'), road: m('road'), roadCasing: m('road-casing'),
+    path: m('path'), pathCasing: m('path-casing'), steps: m('steps'), building: m('building'), buildingIndoor: m('building-indoor'),
+    buildingSelected: m('building-selected'), slab: m('slab'), label: m('label'), labelMuted: m('label-muted'), labelHalo: m('label-halo'),
+    route: m('route'), routeCasing: m('route-casing'), routeDim: m('route-dim'), door: m('door'), gps: m('gps'),
+    start: cssToken(cs, '--start'), dest: cssToken(cs, '--dest'), lightIntensity: m('light'), room: room, roomOther: room.other
+  };
+}
+
+function absUrl(rel) {
+  try { return new URL(rel, document.baseURI).href; } catch (e) { return rel; }
+}
+
+function styleOptions() {
+  var man = MAPV.manifest || {};
+  var aerial = null;
+  if (man.aerial && man.aerial.tiles) {
+    aerial = { tiles: absUrl(man.aerial.tiles), minzoom: man.aerial.minzoom, maxzoom: man.aerial.maxzoom, attribution: man.aerial.attribution, bounds: man.aerial.bounds };
+  }
+  return { buildings: MAPV.buildings, base: MAPV.base, photos: outdoorPhotos(), aerial: aerial, aerialVisible: MAPV.aerialOn, fixture: !!man.fixture };
+}
+
+/* Outdoor photos (campus data `photos`, type outdoor, with lat/lng) as map points; a tap opens the photo viewer. */
+function outdoorPhotos() {
+  var out = [];
+  var list = (APP.data && APP.data.photos) || [];
+  for (var i = 0; i < list.length; i++) {
+    var p = list[i];
+    if (!p || p.type !== 'outdoor' || !isFinite(Number(p.lat)) || !isFinite(Number(p.lng)) || !Number(p.lat)) { continue; }
+    out.push({ type: 'Feature', properties: { photoId: String(p.id) }, geometry: { type: 'Point', coordinates: [Number(p.lng), Number(p.lat)] } });
+  }
+  return { type: 'FeatureCollection', features: out };
+}
+
+function createMap(ml) {
+  MAPV.ml = ml;
+  MAPV.mode = 'map';
+  $('map-fallback').hidden = true;
+  var canvas = $('map-canvas');
+  canvas.hidden = false;
+  var b = MAPV.bounds || [-88.333, 36.606, -88.310, 36.625];
+  var padX = Math.max(0.004, (b[2] - b[0]) * 0.35);
+  var padY = Math.max(0.003, (b[3] - b[1]) * 0.35);
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var map = new ml.Map({
+    container: canvas,
+    style: MSCNMapStyle.build(readMapTokens(), styleOptions()),
+    bounds: [[b[0], b[1]], [b[2], b[3]]],
+    fitBoundsOptions: { padding: 30 },
+    pitch: 45,
+    bearing: -12,
+    maxPitch: 70,
+    minZoom: 13.5,
+    maxZoom: 20.5,
+    maxBounds: [[b[0] - padX, b[1] - padY], [b[2] + padX, b[3] + padY]],
+    attributionControl: { compact: false },
+    fadeDuration: reduce ? 0 : 150
+  });
+  MAPV.map = map;
+  map.addControl(new ml.NavigationControl({ visualizePitch: true, showCompass: true, showZoom: true }), 'top-right');
+  map.addControl(new MapButtons(), 'top-right');
+  map.on('load', onMapLoad);
+  map.on('click', onMapClick);
+  map.on('mousemove', function (e) {
+    if (!MAPV.ready) { return; }
+    var hit = map.queryRenderedFeatures(e.point, { layers: presentLayers(['buildings-3d', 'indoor-rooms-active']) });
+    map.getCanvas().style.cursor = hit.length ? 'pointer' : '';
+  });
+  map.on('error', function (e) {
+    if (window.console && console.warn) { console.warn('[map]', e && e.error ? e.error.message || e.error : e); }
+  });
+  if (window.matchMedia) {
+    var mq = window.matchMedia('(prefers-color-scheme: dark)');
+    var onTheme = function () { applyMapTheme(); };
+    if (mq.addEventListener) { mq.addEventListener('change', onTheme); } else if (mq.addListener) { mq.addListener(onTheme); }
+  }
+}
+
+function onMapLoad() {
+  MAPV.ready = true;
+  $('map-canvas').setAttribute('data-map-ready', 'true');
+  if (MAPV.pendingRoute) { MAPV.showRoute(MAPV.pendingRoute.route, MAPV.pendingRoute.index); MAPV.pendingRoute = null; }
+  if (MAPV.view) { renderIndoorOnMap(); }
+  if (window.GPS) { MAPV.setGps(GPS); }
+}
+
+function presentLayers(ids) {
+  var out = [];
+  for (var i = 0; i < ids.length; i++) { if (MAPV.map && MAPV.map.getLayer(ids[i])) { out.push(ids[i]); } }
   return out;
 }
 
-function onMapsLoaded() {
-  if (MAP.mode !== 'loading') { return; }
-  clearTimeout(MAP.timer);
-  MAP.mode = 'map';
-  var list = buildingsWithLocation();
-  var center = { lat: 36.6155, lng: -88.3215 };
-  if (list.length) {
-    var la = 0, ln = 0;
-    for (var i = 0; i < list.length; i++) { la += Number(list[i].lat); ln += Number(list[i].lng); }
-    center = { lat: la / list.length, lng: ln / list.length };
+function applyMapTheme() {
+  var map = MAPV.map;
+  if (!map || !MAPV.ready) { return; }
+  var t = readMapTokens();
+  var p = MSCNMapStyle.paint(t);
+  for (var layer in p) {
+    if (!p.hasOwnProperty(layer) || !map.getLayer(layer)) { continue; }
+    for (var prop in p[layer]) { if (p[layer].hasOwnProperty(prop)) { map.setPaintProperty(layer, prop, p[layer][prop]); } }
   }
-  MAP.map = new google.maps.Map($('map-canvas'), {
-    center: center, zoom: 17, mapTypeControl: false, streetViewControl: false, fullscreenControl: false,
-    clickableIcons: false, styles: [{ featureType: 'poi', stylers: [{ visibility: 'off' }] }]
-  });
-  for (var k = 0; k < list.length; k++) { addBuildingMarker(list[k]); }
-  addPhotoMarkers();
-  MAP.map.addListener('click', function () { closeBuildingSheet(); });
 }
 
-function addBuildingMarker(b) {
-  var marker = new google.maps.Marker({
-    position: { lat: Number(b.lat), lng: Number(b.lng) },
-    map: MAP.map,
-    title: b.name,
-    label: b.code ? { text: String(b.code), color: '#ffffff', fontSize: '11px', fontWeight: '700' } : null,
-    icon: { path: google.maps.SymbolPath.CIRCLE, scale: 15, fillColor: '#002144', fillOpacity: 1, strokeColor: '#ecac00', strokeWeight: 3 }
-  });
-  marker.addListener('click', function () {
-    showBuildingSheet(b);
-    MAP.map.panTo(marker.getPosition());
-  });
-  MAP.markers[b.id] = marker;
+/* Locate me, 2D/3D, and the aerial layer (when published), styled as one MapLibre control group. */
+function MapButtons() { this._c = null; }
+MapButtons.prototype.onAdd = function () {
+  var c = document.createElement('div');
+  c.className = 'maplibregl-ctrl maplibregl-ctrl-group';
+  var html = '<button type="button" class="mscn-ctrl" id="map-locate" aria-label="Show my location" title="Show my location">' + MAP_LOCATE_ICON + '</button>' +
+    '<button type="button" class="mscn-ctrl" id="map-pitch" aria-label="Flat map" title="Flat map"><span class="ctrl-text">2D</span></button>';
+  if (MAPV.manifest && MAPV.manifest.aerial) {
+    html += '<button type="button" class="mscn-ctrl" id="map-aerial" aria-pressed="false" aria-label="Aerial photo" title="Aerial photo">' + MAP_AERIAL_ICON + '</button>';
+  }
+  c.innerHTML = html;
+  this._c = c;
+  c.querySelector('#map-locate').onclick = onLocateClick;
+  c.querySelector('#map-pitch').onclick = onPitchClick;
+  var aer = c.querySelector('#map-aerial');
+  if (aer) { aer.onclick = function () { setAerial(!MAPV.aerialOn); }; }
+  return c;
+};
+MapButtons.prototype.onRemove = function () { if (this._c && this._c.parentNode) { this._c.parentNode.removeChild(this._c); } };
+
+function onLocateClick() {
+  MAPV.statusDismissed = null;
+  if (GPS.state === 'on' && GPS.fix) {
+    MAPV.map.easeTo({ center: [GPS.fix.lng, GPS.fix.lat], zoom: Math.max(MAPV.map.getZoom(), 17.5), duration: mapDuration(700) });
+    return;
+  }
+  MAPV.follow = true;
+  gpsStart();
 }
 
-function addPhotoMarkers() {
-  var list = (APP.data && APP.data.photos) || [];
-  for (var i = 0; i < list.length; i++) {
-    (function (photo) {
-      if (photo.type !== 'outdoor' || !photo.lat || !photo.lng) { return; }
-      var m = new google.maps.Marker({
-        position: { lat: Number(photo.lat), lng: Number(photo.lng) }, map: MAP.map, title: photo.caption || 'Photo',
-        icon: { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: '#ecac00', fillOpacity: 1, strokeColor: '#ffffff', strokeWeight: 2 }
-      });
-      m.addListener('click', function () { showPanorama(photo); });
-    })(list[i]);
+function onPitchClick() {
+  var map = MAPV.map;
+  var flat = map.getPitch() > 5;
+  map.easeTo({ pitch: flat ? 0 : 45, bearing: flat ? 0 : map.getBearing(), duration: mapDuration(600) });
+  var btn = $('map-pitch');
+  btn.innerHTML = '<span class="ctrl-text">' + (flat ? '3D' : '2D') + '</span>';
+  btn.setAttribute('aria-label', flat ? 'Tilted 3D map' : 'Flat map');
+  btn.title = btn.getAttribute('aria-label');
+}
+
+function setAerial(on) {
+  MAPV.aerialOn = !!on;
+  var map = MAPV.map;
+  if (map && map.getLayer('aerial')) {
+    map.setLayoutProperty('aerial', 'visibility', on ? 'visible' : 'none');
+    map.setPaintProperty('landuse', 'fill-opacity', on ? 0.35 : 1);
+    map.setPaintProperty('parking', 'fill-opacity', on ? 0.5 : 1);
   }
+  var b = $('map-aerial');
+  if (b) { b.setAttribute('aria-pressed', on ? 'true' : 'false'); b.className = 'mscn-ctrl' + (on ? ' is-on' : ''); }
+}
+
+function onMapClick(e) {
+  var map = MAPV.map;
+  var hits = map.queryRenderedFeatures(e.point, { layers: presentLayers(['photos', 'indoor-room-selected', 'indoor-rooms-active', 'buildings-3d']) });
+  if (!hits.length) {
+    if (!MAPV.view) { closeBuildingSheet(); clearSelectedBuilding(); }
+    return;
+  }
+  var f = hits[0];
+  if (f.layer.id === 'photos') {
+    var photos = (APP.data && APP.data.photos) || [];
+    for (var i = 0; i < photos.length; i++) { if (String(photos[i].id) === f.properties.photoId) { showPanorama(photos[i]); } }
+    return;
+  }
+  if (f.layer.id.indexOf('indoor-') === 0 && f.properties.roomId) {
+    showMapRoom(f.properties.roomId, false);
+    return;
+  }
+  var bid = f.properties.buildingId;
+  if (bid && APP.by.buildings[bid]) {
+    selectBuildingOnMap(bid);
+  } else {
+    showPointSheet(e.lngLat, f.properties.name || 'Building');
+  }
+}
+
+/* ---------------- buildings, sheets, fly-to ---------------- */
+
+function clearSelectedBuilding() {
+  if (MAPV.selectedFeature !== null && MAPV.map) {
+    MAPV.map.setFeatureState({ source: 'campus-buildings', id: MAPV.selectedFeature }, { selected: false });
+  }
+  MAPV.selectedFeature = null;
+}
+
+function selectBuildingOnMap(bid) {
+  clearSelectedBuilding();
+  if (MAPV.featureIds.hasOwnProperty(bid) && MAPV.map) {
+    MAPV.selectedFeature = MAPV.featureIds[bid];
+    MAPV.map.setFeatureState({ source: 'campus-buildings', id: MAPV.selectedFeature }, { selected: true });
+  }
+  showBuildingSheet(APP.by.buildings[bid]);
+}
+
+function canShowInside(bid) {
+  var man = MAPV.manifest;
+  var mods = window.MSCNModules;
+  return !!(MAPV.ready && man && man.georef && man.georef[bid] && mods && mods.georef && typeof mods.georef.svgToLngLat === 'function' &&
+    (APP.floorsByBuilding[bid] || []).length);
+}
+
+/* The georef module's svgToLngLat for one building (the module is lane J's src/shared/georef.mjs). */
+function projectorFor(bid) {
+  var doc = MAPV.manifest.georef[bid];
+  var fn = window.MSCNModules.georef.svgToLngLat;
+  return function (x, y) {
+    var r = fn(doc, x, y);
+    return (r && r.length === 2) ? [Number(r[0]), Number(r[1])] : [Number(r.lng), Number(r.lat)];
+  };
 }
 
 function buildingCardHtml(b, headingId) {
   var t = buildingTarget(b.id, null);
-  var ents = b.entrances || [];
   var html = '<h3' + (headingId ? ' id="' + headingId + '"' : '') + '>' + escapeHtml(b.name || b.id) + '</h3>';
   var sub = [];
   if (b.code) { sub.push('Building ' + b.code + (b.number ? ' (' + b.number + ')' : '')); }
   if (buildingHasIndoor(b)) { sub.push('Indoor maps'); }
   if (sub.length) { html += '<div class="sub">' + escapeHtml(sub.join(' · ')) + '</div>'; }
   html += '<div class="row">';
-  if (t) {
-    html += '<a class="btn btn-primary" data-directions="' + escapeHtml(b.id) + '" href="' + escapeHtml(directionsUrl(t.lat, t.lng)) +
-      '" target="_blank" rel="noopener">' + ICONS.walk + 'Open in Google Maps</a>';
-  }
+  html += '<button type="button" class="btn btn-primary" data-nav-building="' + escapeHtml(b.id) + '">' + ICONS.navigate + 'Navigate here</button>';
   if (buildingHasIndoor(b)) {
     html += '<button type="button" class="btn btn-secondary" data-inside="' + escapeHtml(b.id) + '">' + ICONS.building + 'View inside</button>';
   }
   html += '</div>';
-  if (ents.length > 1) {
-    html += '<ul aria-label="Entrances">';
-    for (var i = 0; i < ents.length; i++) {
-      if (!ents[i].lat || !ents[i].lng) { continue; }
-      html += '<li><a href="' + escapeHtml(directionsUrl(ents[i].lat, ents[i].lng)) + '" target="_blank" rel="noopener">Directions to ' +
-        escapeHtml(ents[i].name || 'entrance ' + (i + 1)) + '</a></li>';
-    }
-    html += '</ul>';
+  if (t) {
+    html += '<ul aria-label="Getting here"><li><a data-directions="' + escapeHtml(b.id) + '" href="' + escapeHtml(directionsToCampusUrl(t.lat, t.lng)) +
+      '" target="_blank" rel="noopener">Directions to campus</a></li></ul>';
   }
   return html;
 }
 
 function wireBuildingButtons(root) {
-  var btns = root.querySelectorAll('[data-inside]');
-  for (var i = 0; i < btns.length; i++) {
-    btns[i].onclick = function (e) {
+  var i;
+  var ins = root.querySelectorAll('[data-inside]');
+  for (i = 0; i < ins.length; i++) {
+    ins[i].onclick = function (e) {
       var id = e.currentTarget.getAttribute('data-inside');
       closeBuildingSheet();
+      if (canShowInside(id)) { enterBuildingView(id, null, null); return; }
       switchToView('indoor');
       selectBuilding(id);
     };
   }
+  var nav = root.querySelectorAll('[data-nav-building]');
+  for (i = 0; i < nav.length; i++) {
+    nav[i].onclick = function (e) {
+      var id = e.currentTarget.getAttribute('data-nav-building');
+      closeBuildingSheet();
+      navigateToBuilding(id);
+    };
+  }
 }
 
+function sheetFrame(inner) {
+  return '<div class="sheet-grip" aria-hidden="true"></div><div class="sheet-head"><div class="bcard" style="border:0;padding:0;flex:1">' + inner + '</div>' +
+    '<button type="button" class="sheet-close" id="building-sheet-close" aria-label="Close">' + ICONS.close + '</button></div>';
+}
+
+function showBuildingSheet(b) {
+  if (!b) { return; }
+  var sheet = $('building-sheet');
+  sheet.innerHTML = sheetFrame(buildingCardHtml(b, 'building-sheet-title'));
+  sheet.hidden = false;
+  $('building-sheet-close').onclick = function () { closeBuildingSheet(); clearSelectedBuilding(); };
+  wireBuildingButtons(sheet);
+}
+
+function showPointSheet(lngLat, name) {
+  var sheet = $('building-sheet');
+  sheet.innerHTML = sheetFrame('<h3 id="building-sheet-title">' + escapeHtml(name) + '</h3><div class="sub">Not in the campus directory</div>' +
+    '<div class="row"><button type="button" class="btn btn-primary" id="point-nav">' + ICONS.navigate + 'Navigate here</button></div>');
+  sheet.hidden = false;
+  $('building-sheet-close').onclick = closeBuildingSheet;
+  $('point-nav').onclick = function () { closeBuildingSheet(); navigateToPoint(lngLat.lng, lngLat.lat, name); };
+}
+
+/* A room on the map (search, or a tap in the building view): its floor in the building view, and a sheet. */
+function showMapRoom(roomId, moveCamera) {
+  var room = APP.by.rooms[roomId];
+  var f = room ? APP.by.floors[room.floorId] : null;
+  if (!f) { return; }
+  enterBuildingView(f.buildingId, f.id, roomId, { keepCamera: !moveCamera });
+  var b = APP.by.buildings[f.buildingId];
+  var sheet = $('building-sheet');
+  sheet.innerHTML = sheetFrame('<div class="sheet-kicker">' + escapeHtml((b ? b.name + ' · ' : '') + floorLabel(f.id)) + '</div>' +
+    '<h3 id="building-sheet-title">' + escapeHtml(roomTitle(room)) + '</h3>' +
+    '<div class="row"><button type="button" class="btn btn-primary" id="map-room-nav">' + ICONS.navigate + 'Navigate here</button>' +
+    '<button type="button" class="btn btn-secondary" id="map-room-plan">' + ICONS.building + 'Open floor plan</button></div>');
+  sheet.hidden = false;
+  $('building-sheet-close').onclick = closeBuildingSheet;
+  $('map-room-nav').onclick = function () { closeBuildingSheet(); navigateToRoom(roomId); };
+  $('map-room-plan').onclick = function () { closeBuildingSheet(); openRoom(roomId); };
+}
+
+function closeBuildingSheet() {
+  var s = $('building-sheet');
+  s.hidden = true;
+  s.innerHTML = '';
+}
+
+/* From search: a building flies the map there; with no map, the building list scrolls to its card. */
+function focusBuildingOnMap(buildingId) {
+  var b = APP.by.buildings[buildingId];
+  if (!b) { return; }
+  switchToView('map');
+  if (MAPV.mode === 'map' && MAPV.ready) {
+    if (MAPV.view) { exitBuildingView(); }
+    var c = buildingCenter(buildingId);
+    if (c) { MAPV.map.flyTo({ center: [c.lng, c.lat], zoom: 18, pitch: 50, duration: mapDuration(1100) }); }
+    selectBuildingOnMap(buildingId);
+    return;
+  }
+  var card = $('bcard-' + buildingId);
+  if (card) {
+    card.scrollIntoView({ block: 'center' });
+    card.className = 'bcard is-flash';
+    setTimeout(function () { card.className = 'bcard'; }, 1600);
+  }
+}
+
+/* From search on the Map tab: a room in a building with a building view flies there; otherwise the floor plan. */
+function focusRoomOnMap(roomId) {
+  var room = APP.by.rooms[roomId];
+  var f = room ? APP.by.floors[room.floorId] : null;
+  if (!f || !canShowInside(f.buildingId)) { openRoom(roomId); return; }
+  switchToView('map');
+  showMapRoom(roomId, true);
+}
+
+function mapDuration(ms) {
+  return (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) ? 0 : ms;
+}
+
+/* ---------------- building view: the real floors, stacked ---------------- */
+
+function enterBuildingView(bid, floorId, roomId, opts) {
+  opts = opts || {};
+  if (!canShowInside(bid)) { return false; }
+  var floors = APP.floorsByBuilding[bid] || [];
+  var fid = floorId && APP.by.floors[floorId] && APP.by.floors[floorId].buildingId === bid ? floorId : floors[0].id;
+  var was = MAPV.view;
+  MAPV.view = { buildingId: bid, floorId: fid, roomId: roomId || null };
+  clearSelectedBuilding();
+  MAPV.map.setFilter('buildings-3d', ['!=', ['coalesce', ['get', 'buildingId'], ''], bid]);
+  MAPV.map.setFilter('building-labels', ['all', ['has', 'name'], ['!=', ['coalesce', ['get', 'buildingId'], ''], bid]]);
+  renderIndoorOnMap();
+  renderBviewBar();
+  if (!(was && was.buildingId === bid && opts.keepCamera)) {
+    var ring = MAPV.footprints[bid];
+    var bb = ring ? MSCNGeo.bbox(ring) : null;
+    if (bb) {
+      MAPV.map.fitBounds([[bb[0], bb[1]], [bb[2], bb[3]]], {
+        padding: { top: 110, bottom: 50, left: 40, right: 70 }, pitch: 58, bearing: MAPV.map.getBearing(), maxZoom: 19.3, duration: mapDuration(900)
+      });
+    }
+  }
+  return true;
+}
+
+function renderIndoorOnMap() {
+  var v = MAPV.view;
+  if (!v || !MAPV.ready) { return; }
+  var src = MAPV.map.getSource('indoor');
+  if (!src) { return; }
+  src.setData(MSCNMapStyle.indoorFeatures({
+    floors: APP.floorsByBuilding[v.buildingId] || [],
+    roomsByFloor: APP.roomsByFloor,
+    footprint: MAPV.footprints[v.buildingId] || null,
+    project: projectorFor(v.buildingId),
+    activeFloorId: v.floorId,
+    selectedRoomId: v.roomId
+  }));
+}
+
+function renderBviewBar() {
+  var bar = $('bview-bar');
+  var v = MAPV.view;
+  if (!v) { bar.hidden = true; bar.innerHTML = ''; return; }
+  var floors = APP.floorsByBuilding[v.buildingId] || [];
+  var html = '<span class="name">' + escapeHtml(buildingName(v.buildingId)) + '</span><div class="floor-picker" role="radiogroup" aria-label="Floor on the map">';
+  for (var i = floors.length - 1; i >= 0; i--) {
+    var on = floors[i].id === v.floorId;
+    html += '<button type="button" role="radio" data-map-floor="' + escapeHtml(floors[i].id) + '" aria-checked="' + (on ? 'true' : 'false') +
+      '" aria-label="' + escapeHtml(floorLabel(floors[i].id)) + '">' + escapeHtml(shortFloorLabel(floors[i])) + '</button>';
+  }
+  html += '</div><button type="button" class="btn btn-secondary" id="bview-open">' + MAP_FLOOR_ICON + 'Open floor plan</button>' +
+    '<button type="button" class="sheet-close" id="bview-exit" aria-label="Leave the building view">' + ICONS.close + '</button>';
+  bar.innerHTML = html;
+  bar.hidden = false;
+  var btns = bar.querySelectorAll('[data-map-floor]');
+  for (var k = 0; k < btns.length; k++) {
+    btns[k].onclick = function (e) {
+      MAPV.view.floorId = e.currentTarget.getAttribute('data-map-floor');
+      MAPV.view.roomId = null;
+      MSCNAnalytics.track('floor_change', MAPV.view.floorId);
+      renderIndoorOnMap();
+      renderBviewBar();
+    };
+  }
+  $('bview-open').onclick = function () {
+    var rv = MAPV.view;
+    if (rv.roomId) { openRoom(rv.roomId); return; }
+    switchToView('indoor');
+    showFloor(rv.floorId);
+  };
+  $('bview-exit').onclick = exitBuildingView;
+}
+
+function exitBuildingView() {
+  MAPV.view = null;
+  if (MAPV.map && MAPV.ready) {
+    MAPV.map.setFilter('buildings-3d', null);
+    MAPV.map.setFilter('building-labels', ['has', 'name']);
+    var src = MAPV.map.getSource('indoor');
+    if (src) { src.setData({ type: 'FeatureCollection', features: [] }); }
+  }
+  renderBviewBar();
+  closeBuildingSheet();
+}
+
+/* ---------------- the route on the map ---------------- */
+
+MAPV.showRoute = function (route, index) {
+  if (!MAPV.ready) { MAPV.pendingRoute = { route: route, index: index }; return; }
+  var lines = [];
+  var points = [];
+  var steps = (route && route.steps) || [];
+  for (var i = 0; i < steps.length; i++) {
+    var s = steps[i];
+    if (s.kind === 'outdoor' && s.coords && s.coords.length >= 2) {
+      lines.push({ type: 'Feature', properties: { active: i === index, step: i }, geometry: { type: 'LineString', coordinates: s.coords } });
+    }
+    if (s.kind === 'door' && s.coords && s.coords.length) {
+      points.push({ type: 'Feature', properties: { kind: 'door', step: i }, geometry: { type: 'Point', coordinates: s.coords[0] } });
+    }
+  }
+  if (route && route.lead) {
+    lines.push({ type: 'Feature', properties: { lead: true }, geometry: { type: 'LineString', coordinates: route.lead } });
+    points.push({ type: 'Feature', properties: { kind: 'start' }, geometry: { type: 'Point', coordinates: route.lead[0] } });
+  } else if (steps.length && steps[0].kind === 'outdoor' && steps[0].coords && steps[0].coords.length) {
+    points.push({ type: 'Feature', properties: { kind: 'start' }, geometry: { type: 'Point', coordinates: steps[0].coords[0] } });
+  }
+  if (route && route.tail) {
+    lines.push({ type: 'Feature', properties: { lead: true }, geometry: { type: 'LineString', coordinates: route.tail } });
+    points.push({ type: 'Feature', properties: { kind: 'dest' }, geometry: { type: 'Point', coordinates: route.tail[1] } });
+  } else if (steps.length) {
+    var last = steps[steps.length - 1];
+    var destPt = null;
+    if (last.kind === 'outdoor' && last.coords && last.coords.length) { destPt = last.coords[last.coords.length - 1]; }
+    else if (route.destRoomId) { destPt = roomLngLat(route.destRoomId); }
+    if (destPt) { points.push({ type: 'Feature', properties: { kind: 'dest' }, geometry: { type: 'Point', coordinates: destPt } }); }
+  }
+  MAPV.map.getSource('route').setData({ type: 'FeatureCollection', features: lines });
+  MAPV.map.getSource('route-points').setData({ type: 'FeatureCollection', features: points });
+  $('map-canvas').setAttribute('data-route-lines', String(lines.length));
+};
+
+/* A room's position on the map, through its building's georeference (null without one). */
+function roomLngLat(roomId) {
+  var room = APP.by.rooms[roomId];
+  var f = room ? APP.by.floors[room.floorId] : null;
+  if (!f || !canShowInside(f.buildingId)) { return null; }
+  var c = roomCenter(room);
+  if (!isFinite(c.x) || !isFinite(c.y)) { return null; }
+  return projectorFor(f.buildingId)(c.x, c.y);
+}
+
+MAPV.focusRouteStep = function (route, index) {
+  if (!MAPV.ready) { return; }
+  var s = route.steps[index];
+  var coords = (s.coords || []).slice(0);
+  if (index === 0 && route.lead) { coords = route.lead.concat(coords); }
+  if (index === route.steps.length - 1 && route.tail) { coords = coords.concat(route.tail); }
+  var bb = MSCNGeo.bbox(coords);
+  if (!bb) { return; }
+  if (MAPV.view && s.kind === 'outdoor') { exitBuildingView(); }
+  MAPV.map.resize(); /* the route panel may just have taken space from the map */
+  var wide = window.innerWidth >= 720;
+  MAPV.map.fitBounds([[bb[0], bb[1]], [bb[2], bb[3]]], {
+    padding: { top: 70, bottom: 50, left: wide ? 420 : 40, right: 70 }, pitch: 45, bearing: MAPV.map.getBearing(), maxZoom: 18.6, duration: mapDuration(900)
+  });
+};
+
+MAPV.clearRoute = function () {
+  if (!MAPV.ready) { MAPV.pendingRoute = null; return; }
+  MAPV.map.getSource('route').setData({ type: 'FeatureCollection', features: [] });
+  MAPV.map.getSource('route-points').setData({ type: 'FeatureCollection', features: [] });
+  $('map-canvas').setAttribute('data-route-lines', '0');
+};
+
+/* ---------------- GPS ---------------- */
+
+MAPV.indoorBuildingAt = function (p) {
+  for (var bid in MAPV.footprints) {
+    if (!MAPV.footprints.hasOwnProperty(bid)) { continue; }
+    var b = APP.by.buildings[bid];
+    if (b && buildingHasIndoor(b) && MSCNGeo.pointInRing(p, MAPV.footprints[bid])) { return bid; }
+  }
+  return null;
+};
+
+MAPV.setGps = function (gps) {
+  var btn = $('map-locate');
+  if (btn) {
+    btn.className = 'mscn-ctrl' + (gps.state === 'on' || gps.state === 'indoors' ? ' is-on' : (gps.state === 'denied' || gps.state === 'unavailable' ? ' is-off' : ''));
+    btn.setAttribute('data-gps-state', gps.state);
+  }
+  renderMapStatus();
+  if (!MAPV.ready) { return; }
+  var fs = [];
+  var fix = gps.fix;
+  if (fix && gps.state !== 'off' && gps.state !== 'denied') {
+    fs.push({ type: 'Feature', properties: { kind: 'accuracy' }, geometry: { type: 'Polygon', coordinates: [MSCNGeo.circle([fix.raw.lng, fix.raw.lat], Math.max(3, fix.accuracy), 40)] } });
+    if (fix.heading !== null && fix.heading !== undefined) {
+      fs.push({ type: 'Feature', properties: { kind: 'heading' }, geometry: { type: 'Polygon', coordinates: [MSCNGeo.cone([fix.lng, fix.lat], fix.heading, 22, 55)] } });
+    }
+    fs.push({ type: 'Feature', properties: { kind: 'dot', snapped: fix.snapped }, geometry: { type: 'Point', coordinates: [fix.lng, fix.lat] } });
+    if (MAPV.follow) {
+      MAPV.follow = false;
+      MAPV.map.easeTo({ center: [fix.lng, fix.lat], zoom: Math.max(MAPV.map.getZoom(), 17.5), duration: mapDuration(800) });
+    }
+  }
+  MAPV.map.getSource('gps').setData({ type: 'FeatureCollection', features: fs });
+  $('map-canvas').setAttribute('data-gps', fix ? 'dot' : 'none');
+};
+
+function renderMapStatus() {
+  var box = $('map-status');
+  var msg = window.GPS ? gpsMessage() : null;
+  if (!msg || MAPV.statusDismissed === GPS.state) { box.hidden = true; box.innerHTML = ''; return; }
+  var extra = '';
+  if (GPS.state === 'offcampus') {
+    var t = NAV.route ? routeCampusTarget(NAV.route) : null;
+    if (!t && MAPV.bounds) { t = { lng: (MAPV.bounds[0] + MAPV.bounds[2]) / 2, lat: (MAPV.bounds[1] + MAPV.bounds[3]) / 2 }; }
+    if (t) { extra = ' <a href="' + escapeHtml(directionsToCampusUrl(t.lat, t.lng)) + '" target="_blank" rel="noopener">Directions to campus</a>'; }
+  }
+  if (GPS.state === 'indoors') { extra = ' <a href="#" id="map-status-scan">Scan a code</a>'; }
+  box.innerHTML = '<div class="msg" data-gps-state="' + escapeHtml(GPS.state) + '">' + escapeHtml(msg) + extra + '</div>' +
+    '<button type="button" class="sheet-close" id="map-status-close" aria-label="Dismiss">' + ICONS.close + '</button>';
+  box.hidden = false;
+  $('map-status-close').onclick = function () { MAPV.statusDismissed = GPS.state; renderMapStatus(); };
+  var scan = $('map-status-scan');
+  if (scan) { scan.onclick = function (e) { e.preventDefault(); switchToView('scan'); }; }
+}
+
+MAPV.onShow = function () {
+  if (MAPV.map) { MAPV.map.resize(); }
+};
+
+/* ---------------- fallback: the building list ---------------- */
+
 function showBuildingList(reason) {
-  if (MAP.mode === 'list') { return; }
-  clearTimeout(MAP.timer);
-  MAP.mode = 'list';
+  if (MAPV.mode === 'list') { return; }
+  MAPV.mode = 'list';
   $('map-canvas').hidden = true;
   $('map-fallback').hidden = false;
   var list = (APP.data && APP.data.buildings) || [];
-  var html = '<div class="notice" id="map-notice" role="note">' + ICONS.info + '<div>' +
-    (reason === 'failed'
-      ? 'The interactive map could not load. '
-      : 'The interactive map is not configured (no Maps key). ') +
-    'Directions below open in Google Maps and need no key.</div></div>';
+  var why = reason === 'nowebgl' ? 'This browser cannot draw the campus map (it needs WebGL 2).'
+    : (reason === 'nodata' ? 'The campus map has not been published yet.' : 'The campus map could not load.');
+  var html = '<div class="notice" id="map-notice" role="note" data-reason="' + escapeHtml(reason) + '">' + ICONS.info + '<div>' + escapeHtml(why) +
+    ' Routes still work, and "Directions to campus" opens your maps app.</div></div>';
   var sorted = list.slice(0).sort(function (a, b) {
     var ai = buildingHasIndoor(a) ? 0 : 1;
     var bi = buildingHasIndoor(b) ? 0 : 1;
@@ -161,40 +717,5 @@ function showBuildingList(reason) {
   var box = $('building-list');
   box.innerHTML = html;
   wireBuildingButtons(box);
-}
-
-function showBuildingSheet(b) {
-  var sheet = $('building-sheet');
-  sheet.innerHTML = '<div class="sheet-grip" aria-hidden="true"></div><div class="sheet-head"><div class="bcard" style="border:0;padding:0;flex:1">' +
-    buildingCardHtml(b, 'building-sheet-title') + '</div>' +
-    '<button type="button" class="sheet-close" id="building-sheet-close" aria-label="Close">' + ICONS.close + '</button></div>';
-  sheet.hidden = false;
-  $('building-sheet-close').onclick = closeBuildingSheet;
-  wireBuildingButtons(sheet);
-}
-
-function closeBuildingSheet() {
-  var s = $('building-sheet');
-  s.hidden = true;
-  s.innerHTML = '';
-}
-
-/* From search: show a building on the Map tab. */
-function focusBuildingOnMap(buildingId) {
-  var b = APP.by.buildings[buildingId];
-  if (!b) { return; }
-  switchToView('map');
-  if (MAP.mode === 'map' && MAP.markers[buildingId]) {
-    MAP.map.panTo(MAP.markers[buildingId].getPosition());
-    MAP.map.setZoom(18);
-    showBuildingSheet(b);
-    return;
-  }
-  var card = $('bcard-' + buildingId);
-  if (card) {
-    card.scrollIntoView({ block: 'center' });
-    card.className = 'bcard is-flash';
-    setTimeout(function () { card.className = 'bcard'; }, 1600);
-  }
 }
 </script>

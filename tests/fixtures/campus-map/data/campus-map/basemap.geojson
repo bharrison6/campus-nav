@@ -1,0 +1,739 @@
+{
+ "type": "FeatureCollection",
+ "fixture": true,
+ "features": [
+  {
+   "type": "Feature",
+   "properties": {
+    "layer": "paths",
+    "kind": "footway",
+    "steps": false,
+    "name": ""
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      -88.32354,
+      36.616017
+     ],
+     [
+      -88.323178,
+      36.615439
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "layer": "paths",
+    "kind": "footway",
+    "steps": false,
+    "name": ""
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      -88.323178,
+      36.615439
+     ],
+     [
+      -88.322991,
+      36.615229
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "layer": "paths",
+    "kind": "footway",
+    "steps": false,
+    "name": ""
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      -88.322991,
+      36.615229
+     ],
+     [
+      -88.321984,
+      36.615266
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "layer": "paths",
+    "kind": "footway",
+    "steps": false,
+    "name": ""
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      -88.321984,
+      36.615266
+     ],
+     [
+      -88.321925,
+      36.615806
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "layer": "paths",
+    "kind": "footway",
+    "steps": false,
+    "name": ""
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      -88.321925,
+      36.615806
+     ],
+     [
+      -88.323315,
+      36.616137
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "layer": "paths",
+    "kind": "footway",
+    "steps": false,
+    "name": ""
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      -88.323315,
+      36.616137
+     ],
+     [
+      -88.32354,
+      36.616017
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "layer": "paths",
+    "kind": "footway",
+    "steps": false,
+    "name": ""
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      -88.3253,
+      36.612226
+     ],
+     [
+      -88.325251,
+      36.611945
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "layer": "paths",
+    "kind": "footway",
+    "steps": false,
+    "name": ""
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      -88.325251,
+      36.611945
+     ],
+     [
+      -88.324748,
+      36.611653
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "layer": "paths",
+    "kind": "footway",
+    "steps": false,
+    "name": ""
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      -88.324748,
+      36.611653
+     ],
+     [
+      -88.324507,
+      36.611662
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "layer": "paths",
+    "kind": "footway",
+    "steps": false,
+    "name": ""
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      -88.324507,
+      36.611662
+     ],
+     [
+      -88.324351,
+      36.611756
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "layer": "paths",
+    "kind": "footway",
+    "steps": false,
+    "name": ""
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      -88.324351,
+      36.611756
+     ],
+     [
+      -88.324274,
+      36.612221
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "layer": "paths",
+    "kind": "footway",
+    "steps": false,
+    "name": ""
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      -88.324274,
+      36.612221
+     ],
+     [
+      -88.32442,
+      36.612397
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "layer": "paths",
+    "kind": "footway",
+    "steps": false,
+    "name": ""
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      -88.32442,
+      36.612397
+     ],
+     [
+      -88.325113,
+      36.612575
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "layer": "paths",
+    "kind": "footway",
+    "steps": false,
+    "name": ""
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      -88.325113,
+      36.612575
+     ],
+     [
+      -88.3253,
+      36.612226
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "layer": "paths",
+    "kind": "footway",
+    "steps": false,
+    "name": "Quad Walk"
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      -88.323121,
+      36.613913
+     ],
+     [
+      -88.323121,
+      36.614543
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "layer": "paths",
+    "kind": "crossing",
+    "steps": false,
+    "name": ""
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      -88.323121,
+      36.614543
+     ],
+     [
+      -88.323121,
+      36.615172
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "layer": "paths",
+    "kind": "footway",
+    "steps": false,
+    "name": ""
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      -88.323121,
+      36.615172
+     ],
+     [
+      -88.322991,
+      36.615229
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "layer": "paths",
+    "kind": "footway",
+    "steps": false,
+    "name": ""
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      -88.323121,
+      36.613913
+     ],
+     [
+      -88.324084,
+      36.612802
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "layer": "paths",
+    "kind": "steps",
+    "steps": true,
+    "name": ""
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      -88.324084,
+      36.612802
+     ],
+     [
+      -88.324286,
+      36.612532
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "layer": "paths",
+    "kind": "footway",
+    "steps": false,
+    "name": ""
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      -88.324286,
+      36.612532
+     ],
+     [
+      -88.32442,
+      36.612397
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "layer": "paths",
+    "kind": "footway",
+    "steps": false,
+    "name": "Ramp Walk"
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      -88.323121,
+      36.613913
+     ],
+     [
+      -88.322337,
+      36.613373
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "layer": "paths",
+    "kind": "footway",
+    "steps": false,
+    "name": ""
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      -88.322337,
+      36.613373
+     ],
+     [
+      -88.32358,
+      36.612217
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "layer": "paths",
+    "kind": "footway",
+    "steps": false,
+    "name": ""
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      -88.32358,
+      36.612217
+     ],
+     [
+      -88.32442,
+      36.612397
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "layer": "paths",
+    "kind": "footway",
+    "steps": false,
+    "name": ""
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      -88.329095,
+      36.609776
+     ],
+     [
+      -88.327639,
+      36.610675
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "layer": "paths",
+    "kind": "footway",
+    "steps": false,
+    "name": ""
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      -88.327639,
+      36.610675
+     ],
+     [
+      -88.325251,
+      36.611945
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "layer": "roads",
+    "kind": "road",
+    "name": "North 16th Street"
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      -88.326743,
+      36.609236
+     ],
+     [
+      -88.325325,
+      36.61796
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "layer": "roads",
+    "kind": "road",
+    "name": "Chestnut Street"
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      -88.32835,
+      36.61778
+     ],
+     [
+      -88.317706,
+      36.61778
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "layer": "roads",
+    "kind": "service",
+    "name": "Service Drive"
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      -88.323382,
+      36.611574
+     ],
+     [
+      -88.320955,
+      36.615712
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "layer": "parking",
+    "kind": "parking",
+    "name": "Lot 12"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -88.32355,
+       36.612271
+      ],
+      [
+       -88.322765,
+       36.612271
+      ],
+      [
+       -88.322765,
+       36.612676
+      ],
+      [
+       -88.32355,
+       36.612676
+      ],
+      [
+       -88.32355,
+       36.612271
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "layer": "landuse",
+    "kind": "grass",
+    "name": "The Quad"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -88.323345,
+       36.613463
+      ],
+      [
+       -88.322001,
+       36.613463
+      ],
+      [
+       -88.322001,
+       36.614902
+      ],
+      [
+       -88.323345,
+       36.614902
+      ],
+      [
+       -88.323345,
+       36.613463
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "layer": "water",
+    "kind": "pond",
+    "name": "Fixture Pond"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -88.320619,
+       36.615047
+      ],
+      [
+       -88.320171,
+       36.615047
+      ],
+      [
+       -88.320171,
+       36.615298
+      ],
+      [
+       -88.320619,
+       36.615298
+      ],
+      [
+       -88.320619,
+       36.615047
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "layer": "labels",
+    "kind": "place",
+    "name": "The Quad"
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -88.322721,
+     36.613913
+    ]
+   }
+  }
+ ]
+}

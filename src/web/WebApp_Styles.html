@@ -18,11 +18,43 @@
     --ok: #146c2e;
     --shadow: 0 8px 28px rgba(0, 20, 50, 0.16);
     --radius: 14px;
-    --plan-bg: #e9edf2;
-    --plan-paper: #fbfbf9;
-    --room-fill: rgba(0, 33, 68, 0.035);
+    --plan-bg: var(--surface);
+    --plan-wall: #2b3442;
+    --plan-room-stroke: #aab5c3;
+    --plan-label: #1d2a3a;
+    --plan-label-halo: rgba(255, 255, 255, 0.9);
     --room-hover: rgba(0, 33, 68, 0.10);
-    --room-stroke: rgba(19, 32, 47, 0.45);
+    /* room fills by type: the floor plan and the map's building view */
+    --room-type-corridor: #f7f8fa;
+    --room-type-restroom: #d9e7f6;
+    --room-type-stair: #f4e3b5;
+    --room-type-elevator: #f4e3b5;
+    --room-type-storage: #e9e4da;
+    --room-type-mechanical: #e1e4e8;
+    --room-type-other: #e7edf5;
+    /* the campus map (read by WebApp_Map into the MapLibre style built by WebApp_MapStyle) */
+    --map-land: #eef1f4;
+    --map-green: #dbe8d3;
+    --map-water: #bfd6ec;
+    --map-parking: #e1e5eb;
+    --map-road: #ffffff;
+    --map-road-casing: #cfd6df;
+    --map-path: #ffffff;
+    --map-path-casing: #aab6c4;
+    --map-steps: #8a6400;
+    --map-building: #d6dce5;
+    --map-building-indoor: #b9c8de;
+    --map-building-selected: #f2c64d;
+    --map-slab: #c9d2de;
+    --map-label: #2a3747;
+    --map-label-muted: #5b6878;
+    --map-label-halo: #ffffff;
+    --map-route: #0b57d0;
+    --map-route-casing: #ffffff;
+    --map-route-dim: #8fb0e6;
+    --map-door: #ecac00;
+    --map-gps: #1a73e8;
+    --map-light: 0.38;
     --room-selected: rgba(236, 172, 0, 0.42);
     --room-start: rgba(20, 108, 46, 0.22);
     --room-dest: rgba(179, 38, 30, 0.20);
@@ -47,9 +79,42 @@
       --link: #8ab4f8;
       --focus: #ecac00;
       --shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
-      --plan-bg: #0f1a28;
-      --plan-paper: #e4e8ee;
       --gold-soft: #3a2f0c;
+      --route: #6ea8ff;
+      --route-dim: rgba(110, 168, 255, 0.35);
+      --plan-wall: #c7d2df;
+      --plan-room-stroke: #3a4d66;
+      --plan-label: #e3e9f1;
+      --plan-label-halo: rgba(11, 20, 32, 0.9);
+      --room-hover: rgba(236, 172, 0, 0.18);
+      --room-type-corridor: #1a2738;
+      --room-type-restroom: #1f3b55;
+      --room-type-stair: #4b3d16;
+      --room-type-elevator: #4b3d16;
+      --room-type-storage: #2b2f37;
+      --room-type-mechanical: #262d37;
+      --room-type-other: #213149;
+      --map-land: #0e1723;
+      --map-green: #13261d;
+      --map-water: #0f2a44;
+      --map-parking: #19232f;
+      --map-road: #26354a;
+      --map-road-casing: #0a121c;
+      --map-path: #50647f;
+      --map-path-casing: #0a121c;
+      --map-steps: #ecac00;
+      --map-building: #2e405a;
+      --map-building-indoor: #3a5683;
+      --map-building-selected: #b98a10;
+      --map-slab: #2b3a50;
+      --map-label: #d3dce8;
+      --map-label-muted: #9aa9bb;
+      --map-label-halo: #0b1420;
+      --map-route: #6ea8ff;
+      --map-route-casing: #0b1420;
+      --map-route-dim: #34507a;
+      --map-gps: #6ea8ff;
+      --map-light: 0.45;
     }
   }
 
@@ -165,6 +230,7 @@
     background: var(--gold); color: #1b1300;
   }
 
+  #stage { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; }
   #views { flex: 1; min-height: 0; position: relative; }
   .view { position: absolute; inset: 0; display: none; flex-direction: column; min-height: 0; }
   .view.is-active { display: flex; }
@@ -319,22 +385,30 @@
   /* floor plan svg */
   .fv-svg { display: block; width: 100%; height: 100%; }
   .fv-svg * { pointer-events: none; }
+  /* floor plan in the app's own colors (v4): no white paper; walls, room fills by type and labels from tokens */
+  .fv-svg [id="background"] { fill: transparent; }
+  .fv-svg [id="walls"] { stroke: var(--plan-wall); }
   .fv-svg [data-room-id] {
     pointer-events: all; cursor: pointer;
-    fill: var(--room-fill); stroke: var(--room-stroke); stroke-width: 1px; vector-effect: non-scaling-stroke;
+    fill: var(--room-type-other); stroke: var(--plan-room-stroke); stroke-width: 1px; vector-effect: non-scaling-stroke;
     transition: fill 0.12s ease;
   }
+  .fv-svg [data-room-type="corridor"] { fill: var(--room-type-corridor); }
+  .fv-svg [data-room-type="restroom"] { fill: var(--room-type-restroom); }
+  .fv-svg [data-room-type="stair"] { fill: var(--room-type-stair); }
+  .fv-svg [data-room-type="elevator"] { fill: var(--room-type-elevator); }
+  .fv-svg [data-room-type="storage"] { fill: var(--room-type-storage); }
+  .fv-svg [data-room-type="mechanical"] { fill: var(--room-type-mechanical); }
   @media (hover: hover) { .fv-svg [data-room-id]:hover { fill: var(--room-hover); } }
   .fv-svg [data-room-id].is-start { fill: var(--room-start); stroke: var(--start); stroke-width: 2px; }
   .fv-svg [data-room-id].is-dest { fill: var(--room-dest); stroke: var(--dest); stroke-width: 2px; }
   .fv-svg [data-room-id].is-selected { fill: var(--room-selected); stroke: #8a6400; stroke-width: 2.5px; }
-  .fv-paper { fill: var(--plan-paper); }
   .fv-label {
-    fill: #1d2a3a; font-family: var(--font); font-weight: 650; text-anchor: middle; dominant-baseline: central;
-    paint-order: stroke; stroke: rgba(255, 255, 255, 0.85); stroke-linejoin: round;
+    fill: var(--plan-label); font-family: var(--font); font-weight: 650; text-anchor: middle; dominant-baseline: central;
+    paint-order: stroke; stroke: var(--plan-label-halo); stroke-linejoin: round;
   }
   .fv-label.is-hidden { display: none; }
-  .fv-route-casing { fill: none; stroke: #fff; stroke-width: 9px; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+  .fv-route-casing { fill: none; stroke: var(--surface); stroke-width: 9px; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
   .fv-route-line { fill: none; stroke: var(--route); stroke-width: 5px; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
   .fv-route-flow {
     fill: none; stroke: rgba(255, 255, 255, 0.9); stroke-width: 2px; stroke-dasharray: 2 12; stroke-linecap: round;
@@ -350,6 +424,8 @@
   .fv-marker--you circle.core { fill: var(--link); }
   .fv-marker--you circle.halo { fill: rgba(11, 87, 208, 0.18); }
   .fv-marker--link circle.core { fill: var(--navy); }
+  .fv-marker--door circle.core { fill: var(--gold); }
+  .fv-marker--door text { fill: #1b1300; }
   .fv-marker--photo { pointer-events: all; cursor: pointer; }
   .fv-marker--photo circle.core { fill: var(--gold); }
   .fv-marker text { fill: #fff; font-family: var(--font); font-size: 11px; font-weight: 800; text-anchor: middle; dominant-baseline: central; }
@@ -357,11 +433,20 @@
   /* route panel */
   .route-panel {
     flex: none; position: relative; z-index: 16; background: var(--surface); border-top: 1px solid var(--border);
-    box-shadow: 0 -6px 20px rgba(0, 20, 50, 0.10); padding: 10px 14px 12px;
+    box-shadow: 0 -6px 20px rgba(0, 20, 50, 0.10); padding: 10px 14px 12px; max-height: 46%; overflow-y: auto;
   }
   @media (min-width: 720px) {
-    .route-panel { position: absolute; left: 16px; bottom: 16px; width: 380px; border: 1px solid var(--border); border-radius: 18px; box-shadow: var(--shadow); }
+    .route-panel { position: absolute; left: 16px; bottom: 16px; width: 380px; max-height: calc(100% - 32px); border: 1px solid var(--border); border-radius: 18px; box-shadow: var(--shadow); }
   }
+  .route-from { display: flex; align-items: center; gap: 8px; margin: 6px 0 2px; font-size: 0.85rem; color: var(--muted); font-weight: 600; }
+  .route-from select {
+    flex: 1; min-width: 0; height: 36px; padding: 0 8px; border-radius: 10px; border: 1px solid var(--border);
+    background: var(--surface-2); color: var(--text); font-weight: 600;
+  }
+  .route-sentence { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+  @media (max-width: 719px) { .route-sentence { display: none; } .route-from { margin-top: 2px; } }
+  .route-links { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 4px; font-size: 0.85rem; }
+  .route-links a { font-weight: 650; min-height: 32px; display: inline-flex; align-items: center; }
   .route-head { display: flex; align-items: center; gap: 8px; }
   .route-head .ends { flex: 1; min-width: 0; font-size: 0.85rem; color: var(--muted); }
   .route-head .ends strong { color: var(--text); font-size: 1rem; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -381,8 +466,36 @@
   .step-dots span { width: 7px; height: 7px; border-radius: 50%; background: var(--border); }
   .step-dots span.on { background: var(--accent); }
 
-  /* ---------- map ---------- */
-  #map-canvas { flex: 1; min-height: 0; }
+  /* ---------- map (MapLibre, styled from the --map-* tokens) ---------- */
+  #map-canvas { flex: 1; min-height: 0; position: relative; background: var(--map-land); }
+  .maplibregl-ctrl-group { background: var(--surface); border-radius: 12px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.16) !important; overflow: hidden; }
+  .maplibregl-ctrl-group button { width: 40px; height: 40px; color: var(--text); }
+  .maplibregl-ctrl-group button + button { border-top: 1px solid var(--border); }
+  .maplibregl-ctrl-group button:not(:disabled):hover { background: var(--surface-2); }
+  @media (prefers-color-scheme: dark) { .maplibregl-ctrl-group button .maplibregl-ctrl-icon { filter: invert(0.88); } }
+  .maplibregl-ctrl-group button.mscn-ctrl svg { width: 22px; height: 22px; fill: currentColor; display: block; margin: auto; }
+  .maplibregl-ctrl-group button.mscn-ctrl.is-on { color: var(--link); }
+  .maplibregl-ctrl-group button.mscn-ctrl.is-off { color: var(--muted); }
+  .maplibregl-ctrl-group button.mscn-ctrl .ctrl-text { font-size: 0.72rem; font-weight: 800; letter-spacing: 0.02em; }
+  .maplibregl-ctrl-attrib { background: color-mix(in srgb, var(--surface) 82%, transparent) !important; color: var(--muted); font-size: 0.7rem; }
+  .maplibregl-ctrl-attrib a { color: var(--muted) !important; }
+  .map-overlay { position: absolute; left: 10px; right: 60px; top: 10px; z-index: 5; display: flex; flex-direction: column; gap: 8px; pointer-events: none; max-width: 560px; }
+  .map-overlay > * { pointer-events: auto; }
+  .map-status {
+    display: flex; align-items: flex-start; gap: 8px; padding: 8px 8px 8px 12px; border-radius: 14px;
+    background: var(--surface); color: var(--text); box-shadow: var(--shadow); font-size: 0.85rem; font-weight: 600;
+  }
+  .map-status .msg { flex: 1; min-width: 0; padding-top: 4px; }
+  .map-status a { color: var(--link); font-weight: 700; }
+  .map-status .sheet-close { width: 32px; height: 32px; margin: 0; }
+  .bview-bar {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 8px; border-radius: 16px; background: var(--surface); color: var(--text); box-shadow: var(--shadow);
+  }
+  .bview-bar .name { flex: 1 1 140px; min-width: 0; font-weight: 750; font-size: 0.92rem; padding-left: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bview-bar .floor-picker button { height: 38px; min-width: 38px; }
+  .bview-bar .btn { min-height: 38px; padding: 0 12px; font-size: 0.88rem; }
+  .bview-bar .sheet-close { width: 38px; height: 38px; margin: 0; }
   .building-list { padding: 12px; display: grid; gap: 12px; max-width: 760px; width: 100%; margin: 0 auto; }
   .bcard {
     background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px;
@@ -395,6 +508,13 @@
   .bcard .row .btn { flex: 1 1 160px; }
   .bcard ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
   .bcard li a { display: inline-flex; align-items: center; min-height: 44px; font-weight: 600; }
+
+  #update-banner {
+    position: fixed; left: 50%; bottom: calc(72px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 58;
+    display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 16px; border-radius: 14px;
+    background: var(--navy); color: #fff; box-shadow: var(--shadow); font-weight: 650; font-size: 0.9rem;
+  }
+  #update-banner .btn { min-height: 36px; padding: 0 14px; background: var(--gold); color: #1b1300; }
 
   /* ---------- schedule ---------- */
   .page { max-width: 760px; width: 100%; margin: 0 auto; padding: 12px; }

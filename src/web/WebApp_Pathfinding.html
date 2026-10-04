@@ -1,11 +1,20 @@
 <script>
 /*
- * MSCNPath: indoor routing over NavNodes / NavEdges (Data contract v2).
+ * MSCNPath: one route engine over the indoor graphs (NavNodes / NavEdges, Data contract v2) and, since v4, the
+ * outdoor footpath graph (data/campus-map/outdoor-graph.json), joined at entrance node ids
+ * (decision mscn-v4-georeferenced-entrances-and-unified-routing).
  * Pure ES5, no DOM access: the same file is loaded by the web app (as an include)
  * and by the Node unit tests (tests/unit), which strip the <script> tags.
  *
- * Costs are meters (NavEdges.distance). Edges are walkable both ways.
- * Cross-floor edges join stair/elevator nodes; "accessible" false marks stairs.
+ * Costs are meters (NavEdges.distance, outdoor edge distance). Edges are walkable both ways.
+ * Cross-floor edges join stair/elevator nodes; "accessible" false marks stairs (indoors) and steps (outdoors).
+ *   buildGraph(data, opts)                 the indoor graph
+ *   addOutdoorGraph(graph, outdoor)        union with the outdoor graph; entrances gain lat/lng and join by id
+ *   findPath(graph, starts, goals, opts)   A*; starts/goals are ids or {id, cost} (cost = meters to reach the node,
+ *                                          e.g. from a GPS point snapped onto an edge)
+ *   segmentRoute(graph, route)             typed segments: outdoor | indoor (per floor), joined by doors and stairs
+ *   buildRouteSteps(graph, segments, names) one step list: outdoor walk, door, indoor legs, arrival
+ * segmentPath / buildSteps are the v3 indoor-only forms, kept for their callers and tests.
  */
 var MSCNPath = (function () {
   'use strict';
@@ -78,6 +87,21 @@ var MSCNPath = (function () {
   }
 
   function isTransitionType(t) { return t === 'stair' || t === 'elevator'; }
+
+  function hasLngLat(n) {
+    return !!n && n.lat !== undefined && n.lat !== null && n.lat !== '' && n.lng !== undefined && n.lng !== null && n.lng !== '' &&
+      isFinite(Number(n.lat)) && isFinite(Number(n.lng));
+  }
+
+  /* Great-circle meters between two {lat, lng} (kept local so this file stays self-contained; MSCNGeo has the same). */
+  function geoMeters(a, b) {
+    var r = Math.PI / 180;
+    var dLat = (Number(b.lat) - Number(a.lat)) * r;
+    var dLng = (Number(b.lng) - Number(a.lng)) * r;
+    var h = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(Number(a.lat) * r) * Math.cos(Number(b.lat) * r) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    return 2 * 6371008.8 * Math.asin(Math.min(1, Math.sqrt(h)));
+  }
 
   function edgeCost(edge, a, b, floors) {
     var d = num(edge.distance, NaN);
@@ -159,27 +183,46 @@ var MSCNPath = (function () {
     return out;
   }
 
+  /* ids | [ids] | [{id, cost}] -> {id: cost} (the smallest cost per id), unknown ids dropped. */
+  function toEndpoints(graph, list) {
+    var arr = Object.prototype.toString.call(list) === '[object Array]' ? list : [list];
+    var out = {};
+    var n = 0;
+    for (var i = 0; i < arr.length; i++) {
+      var it = arr[i];
+      if (!it) { continue; }
+      var id = typeof it === 'object' ? it.id : it;
+      var c = typeof it === 'object' ? num(it.cost, 0) : 0;
+      if (!graph.nodes[id]) { continue; }
+      if (!out.hasOwnProperty(id)) { n++; out[id] = c; } else if (c < out[id]) { out[id] = c; }
+    }
+    return n ? out : null;
+  }
+
+  var GOAL = '\u0000goal';
+
   /*
-   * findPath(graph, startIds, goalIds, opts) -> route | null
-   *   startIds / goalIds: a node id or an array of them (multi-source / multi-goal).
-   *   opts.accessibleOnly: skip edges with accessible === false.
-   *   route = { nodeIds, nodes, distance }
+   * findPath(graph, starts, goals, opts) -> route | null
+   *   starts / goals: a node id, an array of ids, or an array of {id, cost} (multi-source / multi-goal; cost is the
+   *   extra meters before the start node or after the goal node).
+   *   opts.accessibleOnly: skip edges with accessible === false (indoor stairs, outdoor steps).
+   *   route = { nodeIds, nodes, distance (including both end costs), startCost, goalCost }
    */
   function findPath(graph, startIds, goalIds, opts) {
     opts = opts || {};
-    var starts = toIdList(graph, startIds);
-    var goals = toIdList(graph, goalIds);
-    if (!starts.length || !goals.length) { return null; }
+    var starts = toEndpoints(graph, startIds);
+    var goals = toEndpoints(graph, goalIds);
+    if (!starts || !goals) { return null; }
+    var goalList = [];
+    var id;
+    for (id in goals) { if (goals.hasOwnProperty(id)) { goalList.push(id); } }
+    var single = goalList.length === 1 ? graph.nodes[goalList[0]] : null;
 
-    var goalSet = {};
-    var i;
-    for (i = 0; i < goals.length; i++) { goalSet[goals[i]] = true; }
-    var single = goals.length === 1 ? graph.nodes[goals[0]] : null;
-
-    function h(id) {
-      if (!single) { return 0; }
-      var n = graph.nodes[id];
-      if (n.floorId !== single.floorId) { return 0; }
+    /* Planar distance on the goal's own floor, else 0: consistent across floors and the outdoor graph. */
+    function h(nid) {
+      if (!single || single.outdoor) { return 0; }
+      var n = graph.nodes[nid];
+      if (!n || n.outdoor || n.floorId !== single.floorId) { return 0; }
       return planarMeters(graph.floors, n, single);
     }
 
@@ -187,25 +230,32 @@ var MSCNPath = (function () {
     var came = {};
     var closed = {};
     var heap = new MinHeap();
-    for (i = 0; i < starts.length; i++) {
-      g[starts[i]] = 0;
-      heap.push(starts[i], h(starts[i]));
+    for (id in starts) {
+      if (starts.hasOwnProperty(id)) {
+        g[id] = starts[id];
+        heap.push(id, starts[id] + h(id));
+      }
     }
 
     while (heap.size() > 0) {
       var cur = heap.pop().id;
       if (closed[cur]) { continue; }
       closed[cur] = true;
-      if (goalSet[cur]) {
-        var ids = [cur];
-        var k = cur;
+      if (cur === GOAL) {
+        var last = came[GOAL];
+        var ids = [last];
+        var k = last;
         while (came.hasOwnProperty(k)) { k = came[k]; ids.unshift(k); }
         var nodes = [];
-        for (i = 0; i < ids.length; i++) { nodes.push(graph.nodes[ids[i]]); }
-        return { nodeIds: ids, nodes: nodes, distance: g[cur] };
+        for (var j = 0; j < ids.length; j++) { nodes.push(graph.nodes[ids[j]]); }
+        return { nodeIds: ids, nodes: nodes, distance: g[GOAL], startCost: starts[ids[0]], goalCost: goals[last] };
+      }
+      if (goals.hasOwnProperty(cur)) {
+        var gg = g[cur] + goals[cur];
+        if (!g.hasOwnProperty(GOAL) || gg < g[GOAL]) { g[GOAL] = gg; came[GOAL] = cur; heap.push(GOAL, gg); }
       }
       var nbrs = graph.adj[cur] || [];
-      for (i = 0; i < nbrs.length; i++) {
+      for (var i = 0; i < nbrs.length; i++) {
         var nb = nbrs[i];
         if (opts.accessibleOnly && !nb.accessible) { continue; }
         if (closed[nb.to]) { continue; }
@@ -220,13 +270,18 @@ var MSCNPath = (function () {
     return null;
   }
 
-  function stepCost(graph, aId, bId) {
+  function stepEdge(graph, aId, bId) {
     var nbrs = graph.adj[aId] || [];
-    var best = Infinity;
+    var best = null;
     for (var i = 0; i < nbrs.length; i++) {
-      if (nbrs[i].to === bId && nbrs[i].cost < best) { best = nbrs[i].cost; }
+      if (nbrs[i].to === bId && (!best || nbrs[i].cost < best.cost)) { best = nbrs[i]; }
     }
-    return best === Infinity ? 0 : best;
+    return best;
+  }
+
+  function stepCost(graph, aId, bId) {
+    var e = stepEdge(graph, aId, bId);
+    return e ? e.cost : 0;
   }
 
   function floorLevel(graph, floorId) {
@@ -368,8 +423,278 @@ var MSCNPath = (function () {
 
   function buildingOfNode(graph, nodeId) {
     var n = graph.nodes[nodeId];
+    if (n && n.outdoor) { return n.buildingId || null; }
     var f = n ? graph.floors[n.floorId] : null;
     return f ? f.buildingId : null;
+  }
+
+  /* ---------------- v4: the outdoor graph joined at entrances ---------------- */
+
+  /*
+   * addOutdoorGraph(graph, outdoor) -> graph (mutated)
+   *   outdoor = {nodes: [{id, lat, lng, type: 'path'|'entrance'|'crossing', primary?, label?}],
+   *              edges: [{id, from, to, distance (m), accessible, kind?}]}   (data/campus-map/outdoor-graph.json)
+   * An outdoor node whose id is an indoor node (an entrance) is the same node: the indoor node gains lat/lng (a copy;
+   * the campus data is not mutated) and the two graphs join there. Other outdoor nodes are added with outdoor: true.
+   * Adds graph.outdoorEdges ([{id, from, to, a: [lng, lat], b, accessible, kind, distance}], for snapping a position)
+   * and graph.entrances ({buildingId: [joined entrance ids]}).
+   */
+  function addOutdoorGraph(graph, outdoor) {
+    graph.outdoorEdges = [];
+    graph.entrances = {};
+    graph.hasOutdoor = false;
+    var on = (outdoor && outdoor.nodes) || [];
+    var i;
+    for (i = 0; i < on.length; i++) {
+      var o = on[i];
+      if (!o || !o.id || !hasLngLat(o)) { continue; }
+      var ex = graph.nodes[o.id];
+      if (ex && !ex.outdoor) {
+        var copy = {};
+        for (var k in ex) { if (ex.hasOwnProperty(k)) { copy[k] = ex[k]; } }
+        copy.lat = Number(o.lat);
+        copy.lng = Number(o.lng);
+        if ((copy.primary === undefined || copy.primary === '') && o.primary !== undefined) { copy.primary = o.primary; }
+        if (!copy.label && o.label) { copy.label = o.label; }
+        copy.joined = true;
+        graph.nodes[o.id] = copy;
+        var f = graph.floors[copy.floorId];
+        var bid = f ? f.buildingId : null;
+        if (bid) {
+          if (!graph.entrances[bid]) { graph.entrances[bid] = []; }
+          graph.entrances[bid].push(o.id);
+        }
+      } else if (!ex) {
+        graph.nodes[o.id] = {
+          id: o.id, lat: Number(o.lat), lng: Number(o.lng), type: o.type || 'path', outdoor: true,
+          label: o.label || '', buildingId: o.buildingId || null, primary: o.primary
+        };
+        graph.adj[o.id] = [];
+      }
+    }
+    /* Only the common doors are offered (operator, plan mscn-v4): where a building flags any entrance primary, its
+       other entrances are not joined to the paths. A building with no flags keeps all of its joined entrances. */
+    var closedDoor = {};
+    for (var bk in graph.entrances) {
+      if (!graph.entrances.hasOwnProperty(bk)) { continue; }
+      var list = graph.entrances[bk];
+      var anyPrimary = false;
+      var j;
+      for (j = 0; j < list.length; j++) { if (toBool(graph.nodes[list[j]].primary, false)) { anyPrimary = true; } }
+      if (!anyPrimary) { continue; }
+      var keep = [];
+      for (j = 0; j < list.length; j++) {
+        if (toBool(graph.nodes[list[j]].primary, false)) { keep.push(list[j]); } else { closedDoor[list[j]] = true; }
+      }
+      graph.entrances[bk] = keep;
+    }
+    var oe = (outdoor && outdoor.edges) || [];
+    for (i = 0; i < oe.length; i++) {
+      var e = oe[i];
+      if (!e) { continue; }
+      var a = graph.nodes[e.from];
+      var b = graph.nodes[e.to];
+      if (!a || !b || a === b || !hasLngLat(a) || !hasLngLat(b)) { continue; }
+      if (closedDoor[a.id] || closedDoor[b.id]) { continue; }
+      var d = num(e.distance, NaN);
+      var cost = isFinite(d) && d > 0 ? d : Math.max(geoMeters(a, b), 0.01);
+      var kind = e.kind || (toBool(e.steps, false) ? 'steps' : 'footway');
+      var acc = toBool(e.accessible, true) && kind !== 'steps';
+      graph.adj[a.id].push({ to: b.id, cost: cost, accessible: acc, edgeId: e.id, outdoor: true, kind: kind });
+      graph.adj[b.id].push({ to: a.id, cost: cost, accessible: acc, edgeId: e.id, outdoor: true, kind: kind });
+      graph.outdoorEdges.push({ id: e.id, from: a.id, to: b.id, a: [Number(a.lng), Number(a.lat)], b: [Number(b.lng), Number(b.lat)],
+        accessible: acc, kind: kind, distance: cost });
+    }
+    graph.hasOutdoor = graph.outdoorEdges.length > 0;
+    return graph;
+  }
+
+  /* The doors a route may use for a building: its joined entrances flagged primary, else all its joined entrances. */
+  function primaryEntrances(graph, buildingId) {
+    var ids = (graph.entrances && graph.entrances[buildingId]) || [];
+    var flagged = [];
+    for (var i = 0; i < ids.length; i++) { if (toBool(graph.nodes[ids[i]].primary, false)) { flagged.push(ids[i]); } }
+    return flagged.length ? flagged : ids.slice(0);
+  }
+
+  /*
+   * segmentRoute(graph, route) -> [segment]
+   *   segment = { kind: 'outdoor'|'indoor', floorId (indoor), buildingId (indoor), nodes, distance, entry?, exit? }
+   *   transitions: { type: 'door', node, buildingId, floorId }  between outdoor and indoor (the entrance node ends
+   *   the outdoor walk and starts the indoor leg), or the v3 stair/elevator transition between floors (riding
+   *   through several floors collapses into one).
+   */
+  function segmentRoute(graph, route) {
+    if (!route || !route.nodes || !route.nodes.length) { return []; }
+    var nodes = route.nodes;
+    var segs = [];
+    function bOf(n) { return buildingOfNode(graph, n.id); }
+    function fresh(n, entry) {
+      return n.outdoor
+        ? { kind: 'outdoor', floorId: null, buildingId: null, nodes: [n], distance: 0, entry: entry || null }
+        : { kind: 'indoor', floorId: n.floorId, buildingId: bOf(n), nodes: [n], distance: 0, entry: entry || null };
+    }
+    var cur = fresh(nodes[0]);
+    for (var i = 1; i < nodes.length; i++) {
+      var a = nodes[i - 1];
+      var b = nodes[i];
+      var e = stepEdge(graph, a.id, b.id);
+      var cost = e ? e.cost : 0;
+      if (e && e.outdoor) {
+        if (cur.kind === 'indoor') {
+          var out = { type: 'door', node: a, buildingId: cur.buildingId, floorId: a.floorId };
+          cur.exit = out;
+          segs.push(cur);
+          cur = { kind: 'outdoor', floorId: null, buildingId: null, nodes: [a], distance: 0, entry: out };
+        }
+        cur.nodes.push(b);
+        cur.distance += cost;
+        if (!b.outdoor) {
+          var inn = { type: 'door', node: b, buildingId: bOf(b), floorId: b.floorId };
+          cur.exit = inn;
+          segs.push(cur);
+          cur = fresh(b, inn);
+        }
+        continue;
+      }
+      if (a.floorId === b.floorId) {
+        cur.nodes.push(b);
+        cur.distance += cost;
+        continue;
+      }
+      var type = (a.type === 'elevator' || b.type === 'elevator') ? 'elevator' : 'stair';
+      var prev = segs.length ? segs[segs.length - 1] : null;
+      if (prev && prev.exit && cur.nodes.length === 1 && cur.entry && cur.entry.type === type) {
+        prev.exit.toFloorId = b.floorId;
+        prev.exit.toNode = b;
+        prev.exit.floors += 1;
+        prev.exit.direction = floorLevel(graph, b.floorId) >= floorLevel(graph, prev.exit.fromFloorId) ? 'up' : 'down';
+        cur = { kind: 'indoor', floorId: b.floorId, buildingId: bOf(b), nodes: [b], distance: 0, entry: prev.exit };
+        continue;
+      }
+      var t = {
+        type: type, fromFloorId: a.floorId, toFloorId: b.floorId,
+        direction: floorLevel(graph, b.floorId) >= floorLevel(graph, a.floorId) ? 'up' : 'down',
+        fromNode: a, toNode: b, floors: 1
+      };
+      cur.exit = t;
+      segs.push(cur);
+      cur = { kind: 'indoor', floorId: b.floorId, buildingId: bOf(b), nodes: [b], distance: 0, entry: t };
+    }
+    segs.push(cur);
+    /* A path that only touches an entrance node (in by a door and straight out again) stays one outdoor walk. */
+    var merged = [];
+    for (var s = 0; s < segs.length; s++) {
+      var sg = segs[s];
+      var last = merged.length ? merged[merged.length - 1] : null;
+      var next = segs[s + 1];
+      if (sg.kind === 'indoor' && sg.nodes.length === 1 && sg.entry && sg.entry.type === 'door' && sg.exit && sg.exit.type === 'door' &&
+          last && last.kind === 'outdoor' && next && next.kind === 'outdoor') {
+        last.exit = null;
+        for (var q = 1; q < next.nodes.length; q++) { last.nodes.push(next.nodes[q]); }
+        last.distance += next.distance;
+        last.exit = next.exit || null;
+        s++;
+        continue;
+      }
+      merged.push(sg);
+    }
+    return merged;
+  }
+
+  function edgeKindsAlong(graph, nodes) {
+    var kinds = {};
+    for (var i = 1; i < nodes.length; i++) {
+      var e = stepEdge(graph, nodes[i - 1].id, nodes[i].id);
+      if (e && e.kind) { kinds[e.kind] = true; }
+    }
+    return kinds;
+  }
+
+  /*
+   * buildRouteSteps(graph, segments, names) -> [step]   one list for the whole route, door to room
+   *   names.floorLabel(floorId) -> 'Second Floor'; names.destination -> 'IT 241'
+   *   names.transitionName(node, type) -> optional proper name ('Stair 1')
+   *   names.doorName(node, buildingId) -> 'east entrance' (default: the node label, else 'entrance')
+   *   names.buildingName(buildingId) -> 'Collins Industry and Technology Center'
+   *   step = { kind: 'outdoor'|'door'|'walk', view: 'map'|'indoor', title, detail, phrase, distance, nodeIds,
+   *            floorId?, buildingId?, coords? [[lng, lat]] (outdoor, door), points? [[x, y]] (walk, door),
+   *            exitType?, entryType? ('stair'|'elevator'|'door'), steps? (outdoor walk includes steps) }
+   */
+  function buildRouteSteps(graph, segments, names) {
+    names = names || {};
+    var floorLabel = names.floorLabel || function (id) { return id; };
+    var dest = names.destination || 'your destination';
+    var doorName = names.doorName || function (n) { return (n && n.label) || 'entrance'; };
+    var bName = names.buildingName || function (id) { return id || 'the building'; };
+    var steps = [];
+    function idsOf(s) { var out = []; for (var k = 0; k < s.nodes.length; k++) { out.push(s.nodes[k].id); } return out; }
+    function xy(s) { var out = []; for (var k = 0; k < s.nodes.length; k++) { if (!s.nodes[k].outdoor) { out.push([num(s.nodes[k].x, 0), num(s.nodes[k].y, 0)]); } } return out; }
+    function ll(list) { var out = []; for (var k = 0; k < list.length; k++) { if (hasLngLat(list[k])) { out.push([Number(list[k].lng), Number(list[k].lat)]); } } return out; }
+    for (var i = 0; i < segments.length; i++) {
+      var s = segments[i];
+      var walk = formatMeters(s.distance);
+      if (s.kind === 'outdoor') {
+        var kinds = edgeKindsAlong(graph, s.nodes);
+        var door = s.exit && s.exit.type === 'door' ? s.exit : null;
+        var dn = door ? doorName(door.node, door.buildingId) : '';
+        var detail = s.distance > 0.5 ? 'Walk ' + walk + ' along the path' + (kinds.steps ? ', including steps' : '') + ' (about ' +
+          formatMinutes(s.distance) + ').' : 'You are at the path.';
+        steps.push({
+          kind: 'outdoor', view: 'map', floorId: null, buildingId: door ? door.buildingId : null,
+          title: door ? 'Walk to the ' + dn + ' of ' + bName(door.buildingId) : 'Arrive at ' + dest,
+          detail: detail, phrase: door ? 'walk ' + walk + ' along the path' : 'walk ' + walk + ' along the path to ' + dest,
+          distance: s.distance, nodeIds: idsOf(s), coords: ll(s.nodes), steps: !!kinds.steps,
+          exitType: door ? 'door' : null, entryType: s.entry ? s.entry.type : null
+        });
+        if (door) {
+          var dnode = door.node;
+          steps.push({
+            kind: 'door', view: 'indoor', floorId: door.floorId, buildingId: door.buildingId,
+            title: 'Enter by the ' + dn, detail: bName(door.buildingId) + ', ' + floorLabel(door.floorId) + '. The floor plan takes over from here.',
+            phrase: 'enter by the ' + dn, distance: 0, nodeIds: [dnode.id], nodeId: dnode.id,
+            coords: ll([dnode]), points: [[num(dnode.x, 0), num(dnode.y, 0)]]
+          });
+        }
+        continue;
+      }
+      var title;
+      var det;
+      var phrase;
+      if (s.exit && s.exit.type === 'door') {
+        var en = doorName(s.exit.node, s.buildingId);
+        title = 'Leave by the ' + en;
+        det = s.distance > 0.5 ? 'Walk ' + walk + ' on ' + floorLabel(s.floorId) + ' to the ' + en + '.' : 'Start at the ' + en + '.';
+        phrase = 'leave by the ' + en;
+      } else if (s.exit) {
+        var t = s.exit;
+        var proper = names.transitionName ? names.transitionName(t.fromNode, t.type) : '';
+        var thing = proper || (t.type === 'elevator' ? 'the elevator' : 'the stairs');
+        title = 'Take ' + thing + ' ' + t.direction + ' to ' + floorLabel(t.toFloorId);
+        det = s.distance > 0.5 ? 'Walk ' + walk + ' on ' + floorLabel(s.floorId) + ' to ' + thing + '.' : 'Start at ' + thing + ' on ' + floorLabel(s.floorId) + '.';
+        phrase = 'take ' + thing + ' ' + t.direction + ' to ' + floorLabel(t.toFloorId);
+      } else {
+        title = 'Arrive at ' + dest;
+        det = s.distance > 0.5 ? 'Walk ' + walk + ' on ' + floorLabel(s.floorId) + '.' : 'You are there.';
+        phrase = 'arrive at ' + dest;
+      }
+      steps.push({
+        kind: 'walk', view: 'indoor', floorId: s.floorId, buildingId: s.buildingId, title: title, detail: det, phrase: phrase,
+        distance: s.distance, nodeIds: idsOf(s), points: xy(s),
+        exitType: s.exit ? s.exit.type : null, entryType: s.entry ? s.entry.type : null
+      });
+    }
+    for (var j = 0; j < steps.length; j++) { steps[j].index = j; }
+    return steps;
+  }
+
+  /* "Walk 120 m along the path to the east entrance, enter by the east entrance, take the stairs up to Second Floor, arrive at IT 241." */
+  function routeSentence(steps) {
+    var parts = [];
+    for (var i = 0; i < steps.length; i++) { if (steps[i].phrase) { parts.push(steps[i].phrase); } }
+    if (!parts.length) { return ''; }
+    var s = parts.join(', ') + '.';
+    return s.charAt(0).toUpperCase() + s.slice(1);
   }
 
   return {
@@ -377,9 +702,16 @@ var MSCNPath = (function () {
     num: num,
     MinHeap: MinHeap,
     buildGraph: buildGraph,
+    addOutdoorGraph: addOutdoorGraph,
+    primaryEntrances: primaryEntrances,
+    hasLngLat: hasLngLat,
+    geoMeters: geoMeters,
     findPath: findPath,
     segmentPath: segmentPath,
+    segmentRoute: segmentRoute,
     buildSteps: buildSteps,
+    buildRouteSteps: buildRouteSteps,
+    routeSentence: routeSentence,
     nodesForRoom: nodesForRoom,
     nearestNode: nearestNode,
     entranceIds: entranceIds,

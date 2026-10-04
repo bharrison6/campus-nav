@@ -4,8 +4,11 @@ import { expect, test, type Page } from '@playwright/test';
 // (tests/e2e/playwright.config.ts). The data is the exporter's data/campus.json and floors/*.svg (the DWG
 // pipeline's output). Data facts used here (data/floorplans/*.json): IT (bld-it) floors 1-2 public and its
 // mezzanine (room 0301) hidden; EP (bld-ep) floors 1-2 public and its penthouse (3300*) hidden; IT has entrances
-// on both floors; EP 1322 is reachable only through its own exterior door; the build has no Maps key.
-// Failures (a floor plan that will not load, no network) are made with page.route, not with app test hooks.
+// on both floors; EP 1322 is reachable only through its own exterior door. The campus map is the lane K FIXTURE
+// (tests/fixtures/campus-map, MSCN_CAMPUS_MAP_ROOT in playwright.config.ts) until lane J's data lands; map, route
+// handoff, GPS and offline behaviour are in map.e2e.ts. Searches here run from the Indoor tab (a room searched on the
+// Map tab flies the map instead). Failures (a floor plan that will not load, no network) are made with page.route,
+// not with app test hooks.
 
 const BASE_PATH = '/campus-nav/';
 
@@ -18,6 +21,7 @@ async function boot(page: Page, query = '') {
 const failData = (page: Page) => page.route(/\/(config\.json|data\/[^?]*)(\?.*)?$/, (r) => r.abort('internetdisconnected'));
 
 async function searchAndOpen(page: Page, q: string, title: string) {
+  if (await page.locator('#view-map').isVisible()) await page.getByRole('tab', { name: 'Indoor' }).click();
   const input = page.locator('#search-input');
   await input.fill(q);
   await expect(page.locator('#search-results li').first()).toContainText(title);
@@ -46,11 +50,14 @@ test('tabs render and switch', async ({ page }) => {
   await expect(page.locator('#viewer [data-mscn-room]')).not.toHaveCount(0);
 });
 
-test('key-less map fallback lists buildings with walking deep links', async ({ page }) => {
+test('without WebGL 2 the Map tab is a building list with "Directions to campus" to a primary door', async ({ page }) => {
+  await page.addInitScript(() => { delete (window as any).WebGL2RenderingContext; });
   await boot(page);
-  await expect(page.locator('#map-notice')).toContainText('not configured');
+  await expect(page.locator('#map-notice')).toHaveAttribute('data-reason', 'nowebgl');
   const link = page.locator('#bcard-bld-it a[data-directions]');
-  await expect(link).toHaveAttribute('href', 'https://www.google.com/maps/dir/?api=1&destination=36.615712%2C-88.322748&travelmode=walking');
+  await expect(link).toHaveText('Directions to campus');
+  await expect(link).toHaveAttribute('href', /^https:\/\/www\.google\.com\/maps\/dir\/\?api=1&destination=36\.61\d+%2C-88\.32\d+$/);
+  await expect(link).toHaveAttribute('target', '_blank');
   await expect(page.locator('#bcard-bld-wl')).toBeVisible();
   await page.locator('#bcard-bld-ep button[data-inside]').click();
   await expect(page.locator('#building-select')).toHaveValue('bld-ep');
@@ -167,19 +174,22 @@ test('EP 1322 (exterior door only): reachable from outside, and no false "turn o
   await expect(panel).not.toContainText('Turn off');
 });
 
-test('cross-building route adds an outdoor walking leg', async ({ page }) => {
+test('cross-building route: out by a door, along the paths on the map, in by a door, to the room', async ({ page }) => {
   await boot(page);
   await setStart(page, 'IT 145', 'IT 145');
   await searchAndOpen(page, 'EP 1332', 'EP 1332');
   await page.getByRole('button', { name: 'Navigate here' }).click();
   const panel = page.locator('#route-panel');
-  await expect(panel).toContainText('Leave by the nearest exit');
+  await expect(panel.locator('#route-step .title')).toHaveText(/^Leave by the .+ entrance$/);
   await page.locator('#route-next').click();
-  await expect(panel).toContainText('Walk to Engineering and Physics Building');
-  await expect(panel.getByRole('link', { name: 'Open walking directions' })).toHaveAttribute('href', /travelmode=walking/);
+  await expect(panel.locator('#route-step .title')).toHaveText(/^Walk to the .+ of Engineering and Physics Building$/);
+  await expect(page.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true');
+  await page.locator('#route-next').click();
+  await expect(panel.locator('#route-step .title')).toHaveText(/^Enter by the /);
+  await expect(page.getByRole('tab', { name: 'Indoor' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#building-select')).toHaveValue('bld-ep');
   await page.locator('#route-next').click();
   await expect(panel).toContainText('Arrive at EP 1332');
-  await expect(page.locator('#building-select')).toHaveValue('bld-ep');
 });
 
 test('hidden floors stay out of the picker and search', async ({ page }) => {

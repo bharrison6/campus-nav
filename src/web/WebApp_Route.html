@@ -1,0 +1,443 @@
+<script>
+/*
+ * Route: one route, door to room (plan mscn-v4-campus-map-2-5d), over the unified graph: MSCNPath on APP.graph with
+ * the outdoor footpath graph joined at entrance ids (WebApp_Map loads it). The route panel is shared by the Map and
+ * Indoor tabs; every step names its view, and moving between steps switches tabs on its own: the outdoor walk on
+ * the map, the door and the indoor legs on the floor plan, back to the map when a step leaves a building. With the
+ * blue dot on, the walk starts where the visitor is, reaching the door advances to the floor plan, and walking off
+ * the path re-routes. ES5.
+ *   NAV.start  null (automatic: the blue dot when it is on campus, else the destination building's entrances)
+ *              | {kind: 'room', roomId, label} | {kind: 'node', nodeId, label} (a scanned code)
+ *              | {kind: 'gps'} | {kind: 'building', buildingId}
+ *   NAV.dest   {kind: 'room', roomId} | {kind: 'building', buildingId} | {kind: 'point', lng, lat, label}
+ */
+var NAV = { start: null, dest: null, route: null, stepIndex: 0, avoidStairs: false, offPath: null, reroutes: 0 };
+
+var OFF_PATH_METERS = 15;
+var OFF_PATH_DEBOUNCE_MS = 3000;
+var AT_DOOR_METERS = 12;
+
+function initRoute() {
+  NAV.avoidStairs = lsGet(LS_KEYS.avoidStairs) === '1';
+}
+
+/* A map position onto the nearest walkable outdoor edge: the edge's two ends with the meters to each. */
+function snapToPaths(p) {
+  var g = APP.graph;
+  if (!g || !g.hasOutdoor || !p) { return null; }
+  var accept = NAV.avoidStairs ? function (e) { return e.accessible; } : null;
+  var s = MSCNGeo.nearestEdge(g.outdoorEdges, [Number(p.lng), Number(p.lat)], accept);
+  if (!s) { return null; }
+  return { ids: [{ id: s.edge.from, cost: s.dFrom }, { id: s.edge.to, cost: s.dTo }], point: s.point, dist: s.dist, edge: s.edge };
+}
+
+function resolveGoal(dest) {
+  var g = APP.graph;
+  if (dest.kind === 'room') {
+    var room = APP.by.rooms[dest.roomId];
+    var f = room ? APP.by.floors[room.floorId] : null;
+    return { kind: 'room', ids: room ? roomNodeIds(dest.roomId) : [], label: room ? roomTitle(room) : 'the room', buildingId: f ? f.buildingId : null,
+      error: 'This room is not connected to the navigation map yet.' };
+  }
+  if (dest.kind === 'building') {
+    var bid = dest.buildingId;
+    var label = buildingName(bid);
+    var doors = MSCNPath.primaryEntrances(g, bid);
+    if (doors.length) { return { kind: 'building', ids: doors, label: label, buildingId: bid }; }
+    var c = buildingCenter(bid);
+    var sn = c ? snapToPaths(c) : null;
+    if (sn) { return { kind: 'building', ids: sn.ids, label: label, buildingId: bid, tail: [sn.point, [c.lng, c.lat]] }; }
+    return { kind: 'building', ids: [], label: label, buildingId: bid, error: 'There is no walking map near ' + label + ' yet.' };
+  }
+  var sp = snapToPaths(dest);
+  return { kind: 'point', ids: sp ? sp.ids : [], label: dest.label || 'the marked spot', buildingId: null,
+    tail: sp ? [sp.point, [Number(dest.lng), Number(dest.lat)]] : null, error: 'There is no walking path near that spot.' };
+}
+
+function gpsOnCampus() { return !!(window.GPS && GPS.fix && GPS.state === 'on'); }
+
+function resolveStart(goal) {
+  var g = APP.graph;
+  var s = NAV.start;
+  if (s && s.kind === 'room') {
+    var room = APP.by.rooms[s.roomId];
+    var f = room ? APP.by.floors[room.floorId] : null;
+    return { kind: 'room', ids: roomNodeIds(s.roomId), label: s.label, buildingId: f ? f.buildingId : null,
+      error: 'Your starting room is not connected to the navigation map yet.' };
+  }
+  if (s && s.kind === 'node') {
+    var ok = !!g.nodes[s.nodeId];
+    return { kind: 'node', ids: ok ? [s.nodeId] : [], label: s.label, buildingId: ok ? MSCNPath.buildingOfNode(g, s.nodeId) : null,
+      error: 'Your scanned location is not on the public map.' };
+  }
+  if (s && s.kind === 'building') {
+    var doors = MSCNPath.primaryEntrances(g, s.buildingId);
+    if (doors.length) { return { kind: 'building', ids: doors, label: buildingName(s.buildingId), buildingId: s.buildingId }; }
+    var c = buildingCenter(s.buildingId);
+    var sn = c ? snapToPaths(c) : null;
+    return { kind: 'building', ids: sn ? sn.ids : [], label: buildingName(s.buildingId), buildingId: null,
+      lead: sn ? [[c.lng, c.lat], sn.point] : null, error: 'There is no walking map near ' + buildingName(s.buildingId) + ' yet.' };
+  }
+  if ((s && s.kind === 'gps') || (!s && gpsOnCampus() && g.hasOutdoor)) {
+    var fix = window.GPS ? GPS.fix : null;
+    if (!fix || GPS.state !== 'on') {
+      return { kind: 'gps', ids: [], label: 'your location', waiting: !!(window.GPS && GPS.state === 'locating'),
+        error: gpsStartProblem() };
+    }
+    var sp = snapToPaths(fix);
+    if (!sp) { return { kind: 'gps', ids: [], label: 'your location', error: 'There is no walking path near your location.' }; }
+    return { kind: 'gps', ids: sp.ids, label: 'your location', buildingId: null, lead: [[fix.lng, fix.lat], sp.point] };
+  }
+  if (goal.kind === 'room' && goal.buildingId) {
+    return { kind: 'entrance', ids: MSCNPath.entranceIds(g, goal.buildingId), label: 'the building entrance', buildingId: goal.buildingId,
+      error: 'No entrance is mapped for this building yet. Set a starting room with "Set as start" instead.' };
+  }
+  return { kind: 'none', ids: [], label: 'a starting point', error: 'Choose where you are starting from: your location, or a building.' };
+}
+
+function gpsStartProblem() {
+  var st = window.GPS ? GPS.state : 'off';
+  if (st === 'locating' || st === 'off') { return 'Finding your location…'; }
+  if (st === 'denied') { return 'Location is off for this site. Choose a building to start from, or scan a campus QR code.'; }
+  if (st === 'indoors') { return 'You seem to be inside a building. Scan a nearby campus QR code to set where you are.'; }
+  if (st === 'offcampus') { return 'You are not on campus. Use "Directions to campus" first, or choose a building to start from.'; }
+  return 'Your location is not available right now. Choose a building to start from.';
+}
+
+function transitionName(node) {
+  if (!node) { return ''; }
+  if (node.label) { return String(node.label); }
+  var room = node.roomId ? APP.by.rooms[node.roomId] : null;
+  var use = room ? MSCNSearch.useText(room) : '';
+  if (/^\s*(stairs?|stairway|stairwell|elevators?|lift)\s*$/i.test(use)) { return ''; }
+  return /stair|elevator|lift/i.test(use) ? use : '';
+}
+
+function routeNames(destinationLabel) {
+  return { floorLabel: floorLabel, destination: destinationLabel, transitionName: transitionName, doorName: doorName, buildingName: buildingName };
+}
+
+/* The v3 indoor-only step list (kept for the legacy cross-building route below). */
+function walkStepsFor(route, destinationLabel) {
+  var g = APP.graph;
+  var segs = MSCNPath.segmentRoute(g, route);
+  return MSCNPath.buildRouteSteps(g, segs, routeNames(destinationLabel));
+}
+
+/*
+ * Without an outdoor graph (no campus map published yet) a route between two buildings is the v3 one: out of the
+ * first building, an estimated walk with a link to the visitor's maps app, into the second.
+ */
+function legacyCrossBuildingRoute(route, st, goal) {
+  var g = APP.graph;
+  var opts = { accessibleOnly: NAV.avoidStairs };
+  var exits = MSCNPath.entranceIds(g, st.buildingId);
+  var entries = MSCNPath.entranceIds(g, goal.buildingId);
+  var leg1 = exits.length ? MSCNPath.findPath(g, st.ids, exits, opts) : null;
+  var leg2 = entries.length ? MSCNPath.findPath(g, entries, goal.ids, opts) : null;
+  if (!leg2) {
+    route.error = entries.length ? noRouteMessage(entries, goal.ids) : 'No entrance is mapped for ' + buildingName(goal.buildingId) + ' yet.';
+    return;
+  }
+  if (leg1) {
+    var exitNode = leg1.nodeIds[leg1.nodeIds.length - 1];
+    var s1 = walkStepsFor(leg1, 'the exit');
+    s1[s1.length - 1].title = 'Leave by the nearest exit';
+    route.steps = route.steps.concat(s1);
+    route.meters += leg1.distance;
+  }
+  var fromT = buildingTarget(st.buildingId, leg1 ? exitNode : null);
+  var toT = buildingTarget(goal.buildingId, leg2.nodeIds[0]);
+  var outdoorM = fromT && toT ? MSCNGeo.haversine(fromT, toT) * 1.25 : 0;
+  route.steps.push({
+    kind: 'outdoor', view: null, title: 'Walk to ' + buildingName(goal.buildingId),
+    detail: (outdoorM ? 'About ' + MSCNPath.formatMeters(outdoorM) + ' outside' : 'Head outside') + (toT ? ' to the ' + toT.name + '.' : '.'),
+    url: toT ? directionsToCampusUrl(toT.lat, toT.lng) : '', buildingId: goal.buildingId, coords: [], distance: outdoorM
+  });
+  route.meters += outdoorM;
+  route.steps = route.steps.concat(walkStepsFor(leg2, goal.label));
+  route.meters += leg2.distance;
+}
+
+function noRouteMessage(fromIds, toIds) {
+  if (NAV.avoidStairs && MSCNPath.findPath(APP.graph, fromIds, toIds, { accessibleOnly: false })) {
+    return 'No step-free route was found. Turn off "Avoid stairs" to include stairs.';
+  }
+  return 'No route was found between these points.';
+}
+
+function computeRoute(opts) {
+  opts = opts || {};
+  var dest = NAV.dest;
+  if (!dest) { endRoute(); return; }
+  var g = APP.graph;
+  var goal = resolveGoal(dest);
+  var st = resolveStart(goal);
+  var route = {
+    dest: dest, destLabel: goal.label, fromLabel: st.label, startKind: st.kind, steps: [], meters: 0, error: null,
+    lead: null, tail: null, sentence: '', waitingForGps: !!st.waiting, destBuildingId: goal.buildingId,
+    destRoomId: dest.kind === 'room' ? dest.roomId : null
+  };
+  if (!goal.ids.length) {
+    route.error = goal.error;
+  } else if (!st.ids.length) {
+    route.error = st.error;
+  } else if (!g.hasOutdoor && st.buildingId && goal.buildingId && st.buildingId !== goal.buildingId) {
+    legacyCrossBuildingRoute(route, st, goal);
+  } else {
+    var r = MSCNPath.findPath(g, st.ids, goal.ids, { accessibleOnly: NAV.avoidStairs });
+    if (r) {
+      route.steps = MSCNPath.buildRouteSteps(g, MSCNPath.segmentRoute(g, r), routeNames(goal.label));
+      route.meters = r.distance;
+      finishEnds(route, st, goal);
+    } else {
+      route.error = noRouteMessage(st.ids, goal.ids);
+    }
+  }
+  route.sentence = route.error ? '' : MSCNPath.routeSentence(route.steps);
+  NAV.route = route;
+  NAV.stepIndex = 0;
+  NAV.offPath = null;
+  if (opts.reroute) { NAV.reroutes++; }
+  if (IND.selectedRoomId) { closeRoomSheet(true); IND.selectedRoomId = null; }
+  renderRoutePanel();
+  if (route.steps.length) {
+    goToStep(0);
+  } else {
+    if (window.MAPV) { MAPV.showRoute(route, 0); }
+    renderFloorPicker();
+    decorateFloor();
+  }
+}
+
+/* The dotted lead from the blue dot to the path, the tail from the path to a building or point, and building arrivals. */
+function finishEnds(route, st, goal) {
+  var steps = route.steps;
+  /* Starting from a building means starting at its door: no empty "Leave by" step. */
+  if (st.kind === 'building' && steps.length > 1 && steps[0].kind === 'walk' && steps[0].distance < 0.5 && steps[0].exitType === 'door') {
+    steps.shift();
+    for (var k = 0; k < steps.length; k++) { steps[k].index = k; }
+  }
+  if (st.lead && steps.length && steps[0].kind === 'outdoor') {
+    route.lead = st.lead;
+    route.meters += MSCNGeo.haversine(st.lead[0], st.lead[1]);
+  }
+  if (goal.tail && steps.length && steps[steps.length - 1].kind === 'outdoor') {
+    route.tail = goal.tail;
+    route.meters += MSCNGeo.haversine(goal.tail[0], goal.tail[1]);
+  }
+  /* A building destination ends at its door: "Arrive at <building> by the east entrance" instead of an empty indoor step. */
+  var n = steps.length;
+  if (goal.kind === 'building' && n >= 2 && steps[n - 1].kind === 'walk' && steps[n - 1].distance < 0.5 && steps[n - 2].kind === 'door') {
+    var door = steps[n - 2];
+    door.title = 'Arrive at ' + goal.label;
+    door.detail = 'By the ' + doorName(APP.graph.nodes[door.nodeId], door.buildingId) + '.';
+    door.phrase = 'arrive at ' + goal.label;
+    door.view = 'map';
+    steps.pop();
+  }
+}
+
+function navigateToRoom(roomId) {
+  var dest = APP.by.rooms[roomId];
+  var destB = dest ? buildingOfFloor(dest.floorId) : null;
+  MSCNAnalytics.track('route_start', destB ? destB.id : 'room');
+  NAV.dest = { kind: 'room', roomId: roomId };
+  computeRoute();
+}
+
+function navigateToBuilding(buildingId) {
+  if (!APP.by.buildings[buildingId]) { return; }
+  MSCNAnalytics.track('route_start', buildingId);
+  NAV.dest = { kind: 'building', buildingId: buildingId };
+  computeRoute();
+}
+
+function navigateToPoint(lng, lat, label) {
+  MSCNAnalytics.track('route_start', 'point');
+  NAV.dest = { kind: 'point', lng: Number(lng), lat: Number(lat), label: label || 'the marked spot' };
+  computeRoute();
+}
+
+function stepWhere(step) {
+  if (step.kind === 'door') { return 'Door · ' + floorLabel(step.floorId); }
+  if (step.kind === 'walk') { return floorLabel(step.floorId); }
+  return 'Outdoors';
+}
+
+function goToStep(i) {
+  var r = NAV.route;
+  if (!r || !r.steps[i]) { return; }
+  NAV.stepIndex = i;
+  NAV.offPath = null;
+  renderRoutePanel();
+  var step = r.steps[i];
+  if (window.MAPV) { MAPV.showRoute(r, i); }
+  if (step.view === 'map') {
+    if (APP.view !== 'map') { switchToView('map'); }
+    if (window.MAPV) { MAPV.focusRouteStep(r, i); }
+    renderFloorPicker();
+    decorateFloor();
+  } else if (step.view === 'indoor') {
+    if (APP.view !== 'indoor') { switchToView('indoor'); }
+    showFloor(step.floorId, function () {
+      decorateFloor();
+      updateViewerInsets();
+      if (step.kind === 'door' && step.points && step.points.length) {
+        IND.viewer.centerOn(step.points[0][0], step.points[0][1], 2.2);
+      } else {
+        IND.viewer.focusPoints(step.points);
+      }
+    });
+  } else {
+    decorateFloor();
+  }
+}
+
+function endRoute() {
+  NAV.route = null;
+  NAV.dest = null;
+  NAV.stepIndex = 0;
+  NAV.offPath = null;
+  var p = $('route-panel');
+  p.hidden = true;
+  p.innerHTML = '';
+  if (window.MAPV) { MAPV.clearRoute(); }
+  renderFloorPicker();
+  decorateFloor();
+}
+
+function routeFromOptions() {
+  var s = NAV.start;
+  var dest = NAV.dest || {};
+  var opts = [];
+  var cur = !s ? '' : (s.kind === 'gps' ? 'gps' : (s.kind === 'building' ? 'b:' + s.buildingId : 'here'));
+  opts.push(['', dest.kind === 'room' ? (gpsOnCampus() ? 'Automatic (my location)' : 'The building entrance') : (gpsOnCampus() ? 'Automatic (my location)' : 'Choose a start…')]);
+  opts.push(['gps', 'My location']);
+  if (s && (s.kind === 'room' || s.kind === 'node')) { opts.push(['here', s.label]); }
+  var list = ((APP.data && APP.data.buildings) || []).slice(0).sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
+  for (var i = 0; i < list.length; i++) { if (list[i] && list[i].id) { opts.push(['b:' + list[i].id, list[i].name || list[i].id]); } }
+  var html = '';
+  for (var k = 0; k < opts.length; k++) {
+    html += '<option value="' + escapeHtml(opts[k][0]) + '"' + (opts[k][0] === cur ? ' selected' : '') + '>' + escapeHtml(opts[k][1]) + '</option>';
+  }
+  return html;
+}
+
+function onRouteFromChange(v) {
+  if (v === '') { NAV.start = null; }
+  else if (v === 'gps') { NAV.start = { kind: 'gps' }; if (window.GPS) { gpsStart(); } }
+  else if (v.indexOf('b:') === 0) { NAV.start = { kind: 'building', buildingId: v.slice(2) }; }
+  computeRoute();
+  focusSoon('route-from');
+}
+
+/* "Directions to campus": the route's first door, else the destination building's best door. */
+function routeCampusTarget(r) {
+  for (var i = 0; i < r.steps.length; i++) {
+    if (r.steps[i].kind === 'door' && r.steps[i].coords && r.steps[i].coords.length) {
+      return { lng: r.steps[i].coords[0][0], lat: r.steps[i].coords[0][1] };
+    }
+  }
+  var t = r.destBuildingId ? buildingTarget(r.destBuildingId, null) : null;
+  if (t) { return t; }
+  if (r.dest && r.dest.kind === 'point') { return r.dest; }
+  return null;
+}
+
+function renderRoutePanel() {
+  var p = $('route-panel');
+  var r = NAV.route;
+  if (!r) { p.hidden = true; return; }
+  var html = '<div class="route-head"><div class="ends"><span>Route to</span><strong id="route-dest">' + escapeHtml(r.destLabel) + '</strong>' +
+    '<span>From ' + escapeHtml(r.fromLabel) + '</span></div>' +
+    '<button type="button" class="sheet-close" id="route-close" aria-label="End route">' + ICONS.close + '</button></div>' +
+    '<div class="route-from"><label for="route-from">Start</label><select id="route-from">' + routeFromOptions() + '</select></div>';
+  if (r.error) {
+    html += '<div class="route-step is-error" role="alert"><div class="title">' + (r.waitingForGps ? 'Finding your location' : 'No route') + '</div><div class="detail">' + escapeHtml(r.error) + '</div></div>';
+  } else {
+    var step = r.steps[NAV.stepIndex];
+    var n = r.steps.length;
+    html += '<div class="route-summary" id="route-summary">' + escapeHtml(MSCNPath.formatMeters(r.meters)) + ' · about ' +
+      escapeHtml(MSCNPath.formatMinutes(r.meters)) + ' · ' + n + (n === 1 ? ' step' : ' steps') + '</div>';
+    html += '<div class="route-step" id="route-step" aria-live="polite" data-step-kind="' + escapeHtml(step.kind) + '"><div class="count">Step ' + (NAV.stepIndex + 1) + ' of ' + n +
+      ' · ' + escapeHtml(stepWhere(step)) + '</div>' +
+      '<div class="title">' + escapeHtml(step.title) + '</div><div class="detail">' + escapeHtml(step.detail) +
+      (step.url ? ' <a href="' + escapeHtml(step.url) + '" target="_blank" rel="noopener">Open directions</a>' : '') +
+      '</div></div>';
+    var dots = '';
+    for (var i = 0; i < n; i++) { dots += '<span class="' + (i === NAV.stepIndex ? 'on' : '') + '"></span>'; }
+    var lastStep = NAV.stepIndex === n - 1;
+    html += '<div class="route-nav">' +
+      '<button type="button" class="btn btn-secondary" id="route-prev"' + (NAV.stepIndex === 0 ? ' disabled' : '') + '>Previous</button>' +
+      (n > 1 ? '<div class="step-dots" aria-hidden="true">' + dots + '</div>' : '') +
+      '<button type="button" class="btn btn-primary" id="route-next">' + (lastStep ? 'Done' : 'Next') + '</button></div>';
+    if (r.sentence && n > 1) { html += '<div class="route-sentence" id="route-sentence">' + escapeHtml(r.sentence) + '</div>'; }
+  }
+  var target = r.error ? null : routeCampusTarget(r);
+  html += '<div class="route-options"><label class="switch"><input type="checkbox" id="avoid-stairs"' + (NAV.avoidStairs ? ' checked' : '') + '>' +
+    '<span class="track" aria-hidden="true"></span>Avoid stairs</label>' +
+    (target ? '<a class="route-campus" id="route-campus" href="' + escapeHtml(directionsToCampusUrl(target.lat, target.lng)) + '" target="_blank" rel="noopener">Directions to campus</a>' : '') +
+    '</div>';
+  p.innerHTML = html;
+  p.hidden = !(APP.view === 'map' || APP.view === 'indoor');
+  $('route-close').onclick = function () { endRoute(); };
+  $('route-from').onchange = function (e) { onRouteFromChange(e.target.value); };
+  var prev = $('route-prev');
+  var next = $('route-next');
+  if (prev) { prev.onclick = function () { goToStep(NAV.stepIndex - 1); focusSoon('route-prev'); }; }
+  if (next) {
+    next.onclick = function () {
+      if (NAV.stepIndex >= NAV.route.steps.length - 1) { endRoute(); return; }
+      goToStep(NAV.stepIndex + 1);
+      focusSoon('route-next');
+    };
+  }
+  $('avoid-stairs').onchange = function (e) {
+    NAV.avoidStairs = !!e.target.checked;
+    lsSet(LS_KEYS.avoidStairs, NAV.avoidStairs ? '1' : '0');
+    computeRoute();
+    focusSoon('avoid-stairs');
+  };
+}
+
+function focusSoon(id) {
+  setTimeout(function () { var e = $(id); if (e && !e.disabled) { e.focus(); } }, 0);
+}
+
+/* Called by WebApp_Gps on every position: start a route that was waiting, advance at the door, re-route off the path. */
+function routeOnPosition(fix) {
+  var r = NAV.route;
+  if (!NAV.dest || !r) { return; }
+  var wantsGps = (NAV.start && NAV.start.kind === 'gps') || (!NAV.start && r.startKind !== 'room');
+  if (!r.steps.length) {
+    if (wantsGps && GPS.state === 'on') { computeRoute(); }
+    return;
+  }
+  if (r.startKind !== 'gps') { return; }
+  var step = r.steps[NAV.stepIndex];
+  if (!step || step.kind !== 'outdoor' || !step.coords || !step.coords.length) { return; }
+  var here = [fix.lng, fix.lat];
+  /* At the door (GPS may already read "inside" there): the floor plan takes over. */
+  if (step.exitType === 'door' && (GPS.state === 'on' || GPS.state === 'indoors') &&
+      MSCNGeo.haversine([fix.raw.lng, fix.raw.lat], step.coords[step.coords.length - 1]) < AT_DOOR_METERS) {
+    toast('You are at the door. The floor plan takes over.', 'success');
+    goToStep(NAV.stepIndex + 1);
+    return;
+  }
+  if (GPS.state !== 'on') { return; }
+  var line = (NAV.stepIndex === 0 && r.lead ? [r.lead[1]] : []).concat(step.coords);
+  var d = MSCNGeo.distanceToLine(here, line);
+  if (d > Math.max(OFF_PATH_METERS, Number(fix.accuracy || 0) * 0.8)) {
+    var now = Date.now();
+    if (!NAV.offPath) { NAV.offPath = { since: now, n: 0 }; }
+    NAV.offPath.n++;
+    if (NAV.offPath.n >= 2 && now - NAV.offPath.since >= OFF_PATH_DEBOUNCE_MS) {
+      toast('Off the path: new route from where you are.');
+      computeRoute({ reroute: true });
+    }
+  } else {
+    NAV.offPath = null;
+  }
+}
+</script>
