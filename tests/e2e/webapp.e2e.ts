@@ -4,9 +4,8 @@ import { expect, test, type Page } from '@playwright/test';
 // (tests/e2e/playwright.config.ts). The data is the exporter's data/campus.json and floors/*.svg (the DWG
 // pipeline's output). Data facts used here (data/floorplans/*.json): IT (bld-it) floors 1-2 public and its
 // mezzanine (room 0301) hidden; EP (bld-ep) floors 1-2 public and its penthouse (3300*) hidden; IT has entrances
-// on both floors; EP 1322 is reachable only through its own exterior door. The campus map is the lane K FIXTURE
-// (tests/fixtures/campus-map, MSCN_CAMPUS_MAP_ROOT in playwright.config.ts) until lane J's data lands; map, route
-// handoff, GPS and offline behaviour are in map.e2e.ts. Searches here run from the Indoor tab (a room searched on the
+// on both floors; EP 1322 is reachable only through its own exterior door. The campus map is the committed one
+// (data/campus-map); map, route handoff, GPS and offline behaviour are in map.e2e.ts. Searches here run from the Indoor tab (a room searched on the
 // Map tab flies the map instead). Failures (a floor plan that will not load, no network) are made with page.route,
 // not with app test hooks.
 

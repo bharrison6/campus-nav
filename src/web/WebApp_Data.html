@@ -9,7 +9,7 @@
  *   floors/<floorId>.svg        a floor plan
  *   data/schedules/<id>.json    an official event schedule;  data/links.json  {linkId: {title, url}}
  *   data/map-manifest.json      what of the campus map exists (build-site.mjs copyCampusMap): {buildings, basemap[],
- *                               outdoorGraph, aerial, georef{buildingId: doc}, georefModule, fixture}; then those files
+ *                               outdoorGraph, aerial, georef{buildingId: doc}, georefModule}; then those files
  * DOM-free at load time (tests/unit loads it in a bare VM). ES5 syntax.
  */
 var MSCNData = (function () {

@@ -3,16 +3,18 @@
 // layouts the data contract allows, and the stacked-floor GeoJSON of the building view.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { validateStyleMin } from '@maplibre/maplibre-gl-style-spec';
 import { ROOT, loadInclude } from './load-include.mjs';
 
 const S = loadInclude('WebApp_MapStyle.html', 'MSCNMapStyle');
 const plain = (v) => JSON.parse(JSON.stringify(v));
-const FIX = join(ROOT, 'tests', 'fixtures', 'campus-map', 'data', 'campus-map');
-const buildings = JSON.parse(readFileSync(join(FIX, 'buildings.geojson'), 'utf8'));
-const basemap = JSON.parse(readFileSync(join(FIX, 'basemap.geojson'), 'utf8'));
+// The real committed campus map (npm run campus-map): buildings and one file per basemap layer.
+const MAP = join(ROOT, 'data', 'campus-map');
+const buildings = JSON.parse(readFileSync(join(MAP, 'buildings.geojson'), 'utf8'));
+const layers = readdirSync(join(MAP, 'layers')).filter((f) => f.endsWith('.geojson')).sort()
+  .map((f) => ({ fc: JSON.parse(readFileSync(join(MAP, 'layers', f), 'utf8')), hint: f.replace(/\.geojson$/, '') }));
 
 const tokens = (dark) => ({
   land: dark ? '#0e1723' : '#eef1f4', green: '#dbe8d3', water: '#bfd6ec', parking: '#e1e5eb', road: '#ffffff', roadCasing: '#cfd6df',
@@ -24,7 +26,7 @@ const tokens = (dark) => ({
 });
 
 test('the generated style is valid MapLibre style JSON, with and without the aerial layer, in both themes', () => {
-  const base = S.mergeBase([{ fc: basemap, hint: null }]);
+  const base = S.mergeBase(layers);
   for (const dark of [false, true]) {
     for (const aerial of [null, { tiles: 'https://example.org/campus-nav/data/campus-map/aerial/{z}/{x}/{y}.jpg', minzoom: 15, maxzoom: 18 }]) {
       const style = plain(S.build(tokens(dark), { buildings, base, aerial, aerialVisible: !!aerial }));
@@ -42,13 +44,13 @@ test('the generated style is valid MapLibre style JSON, with and without the aer
 });
 
 test('the validator catches a broken style (positive control for the test above)', () => {
-  const style = plain(S.build(tokens(false), { buildings, base: S.mergeBase([{ fc: basemap }]) }));
+  const style = plain(S.build(tokens(false), { buildings, base: S.mergeBase(layers) }));
   style.layers.find((l) => l.id === 'paths').paint['line-width'] = 'wide';
   assert.ok(validateStyleMin(style).length > 0);
 });
 
 test('paint(tokens) covers every token-driven layer of the style (the theme switch reapplies it)', () => {
-  const style = plain(S.build(tokens(false), { buildings, base: S.mergeBase([{ fc: basemap }]) }));
+  const style = plain(S.build(tokens(false), { buildings, base: S.mergeBase(layers) }));
   const ids = new Set(style.layers.map((l) => l.id));
   for (const id of Object.keys(plain(S.paint(tokens(true))))) assert.ok(ids.has(id), id);
   assert.equal(style.layers.find((l) => l.id === 'buildings-3d').type, 'fill-extrusion');
@@ -78,8 +80,12 @@ test('building view GeoJSON: one slab per floor at FLOOR_STEP spacing, rooms of 
     f2: [{ id: 'r2', type: 'restroom', polygon: sq(20) }, { id: 'r3', type: 'other', polygon: sq(40) }],
     f3: [{ id: 'r4', type: 'other', polygon: sq(60) }],
   };
-  const project = (x, y) => [-88.32 + x * 1e-6, 36.61 - y * 1e-6];
+  const seen = [];
+  const project = (x, y, floorId) => { seen.push(floorId); return [-88.32 + x * 1e-6, 36.61 - y * 1e-6]; };
   const fc = plain(S.indoorFeatures({ floors, roomsByFloor, footprint: null, project, activeFloorId: 'f2', selectedRoomId: 'r3' }));
+  // every vertex is projected in its own floor's frame (the georef module applies that floor's offset)
+  assert.deepEqual([...new Set(seen)].sort(), ['f1', 'f2', 'f3']);
+  assert.equal(seen.filter((f) => f === 'f2').length, 8, 'two rooms of four vertices on f2');
   const slabs = fc.features.filter((f) => f.properties.role === 'slab');
   assert.deepEqual(slabs.map((f) => [f.properties.floorId, f.properties.base, f.properties.above]), [['f1', 0, false], ['f2', S.FLOOR_STEP, false], ['f3', 2 * S.FLOOR_STEP, true]]);
   const rooms = fc.features.filter((f) => f.properties.role === 'room');

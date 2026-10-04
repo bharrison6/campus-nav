@@ -1,5 +1,5 @@
-// The v4 campus map data (scripts/campus-map, data/campus-map, data/georef, src/shared/georef*.js) and its join with
-// the published indoor data: georeference residuals, the shared transform (ES module and ES5 build), the outdoor
+// The v4 campus map data (scripts/campus-map, data/campus-map, data/georef, src/shared/georef.mjs) and its join with
+// the published indoor data: georeference residuals, the shared transform module, the outdoor
 // graph's connectivity, the entrance join, door-to-room routes over outdoor + indoor graphs with the web app's own
 // pathfinding module, the admin's primary/levels overrides, the aerial manifest, and that every committed output is
 // what the committed inputs give. Needs no drawings and no network.
@@ -8,13 +8,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import vm from 'node:vm';
 import { ROOT, loadInclude } from './load-include.mjs';
 import { buildExport } from '../../scripts/data/export-campus-data.mjs';
 import { openCampus } from '../../scripts/data/campus-engine.mjs';
 import { buildCampusMap, georeferenceBuilding, withEntrances } from '../../scripts/campus-map/build.mjs';
 import { loadInputs } from '../../scripts/campus-map/inputs.mjs';
-import { emitGeorefEs5 } from '../../scripts/campus-map/georef-es5.mjs';
 import { haversine } from '../../scripts/campus-map/geo.mjs';
 import { nameSimilarity, buildingHeight } from '../../scripts/campus-map/osm.mjs';
 import { tilesFor, AERIAL_BBOX, CAP_BYTES } from '../../scripts/campus-map/aerial.mjs';
@@ -89,25 +87,6 @@ test('georef: svgToLngLat and lngLatToSvg are inverse; floors map through their 
   const a = G.svgToLngLat('bld-it', 0, 0);
   const b = G.svgToLngLat('bld-it', 100, 0);
   assert.ok(Math.abs(haversine(a[1], a[0], b[1], b[0]) - 2.54) < 0.01);
-  G.clearGeoref();
-});
-
-test('georef: the ES5 build is current, ES5 syntax, and gives the same answers as the module', () => {
-  const es5 = fs.readFileSync(path.join(ROOT, 'src/shared/georef.es5.js'), 'utf8');
-  assert.equal(es5, emitGeorefEs5(), 'run npm run campus-map');
-  const code = es5.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '').replace(/'(?:\\.|[^'\\])*'/g, "''");
-  for (const [re, what] of [[/=>/, 'arrow'], [/`/, 'template'], [/\b(let|const|class)\s/, 'let/const/class'], [/\.\.\./, 'spread'], [/\bexport\b|\bimport\b/, 'module syntax']]) {
-    assert.ok(!re.test(code), what);
-  }
-  const ctx = vm.createContext({});
-  vm.runInContext(es5, ctx);
-  const E = vm.runInContext('MSCNGeoref', ctx);
-  E.setGeoref(JSON.parse(JSON.stringify(Object.values(georef))));
-  G.setGeoref(Object.values(georef));
-  for (const n of campus.navNodes.filter((x) => x.type === 'entrance')) {
-    const bid = campus.floors.find((f) => f.id === n.floorId).buildingId;
-    assert.deepEqual(Array.from(E.svgToLngLat(bid, n.x, n.y, n.floorId)), G.svgToLngLat(bid, n.x, n.y, n.floorId));
-  }
   G.clearGeoref();
 });
 
@@ -220,14 +199,9 @@ test('entrance join: graph entrances are published entrance nodes at the same co
 });
 
 test('door to room: routes from the far corner of campus reach rooms through a primary door, step-free too', () => {
+  // The app's own engine: the published indoor graph joined with the outdoor graph by MSCNPath.addOutdoorGraph.
   const P = loadInclude('WebApp_Pathfinding.html', 'MSCNPath');
-  const indoor = new Set(campus.navNodes.map((n) => n.id));
-  const union = {
-    floors: [...campus.floors, { id: 'outdoor', metersPerPixel: 1 }],
-    navNodes: [...campus.navNodes, ...graph.nodes.filter((n) => !indoor.has(n.id)).map((n) => ({ id: n.id, floorId: 'outdoor', x: 0, y: 0, type: n.type }))],
-    navEdges: [...campus.navEdges, ...graph.edges.map((e) => ({ id: 'out-' + e.id, fromNodeId: e.from, toNodeId: e.to, distance: e.distance, accessible: e.accessible }))],
-  };
-  const g = P.buildGraph(union, {});
+  const g = P.addOutdoorGraph(P.buildGraph(campus, {}), graph);
   // The far corner: the graph node farthest from the campus center.
   const c = { lat: 36.6155, lng: -88.322 };
   const far = graph.nodes.reduce((best, n) => (haversine(c.lat, c.lng, n.lat, n.lng) > haversine(c.lat, c.lng, best.lat, best.lng) ? n : best));
@@ -241,14 +215,16 @@ test('door to room: routes from the far corner of campus reach rooms through a p
       assert.ok(route, `${roomId}${accessibleOnly ? ' step-free' : ''}`);
       const entered = route.nodeIds.filter((id) => doors.has(id));
       assert.ok(entered.length >= 1, `${roomId} enters through a door of the outdoor graph`);
+      for (const d of entered) assert.ok(g.nodes[d].primary === true || g.nodes[d].soleDoor === true, `${roomId}: ${d} is a primary or sole door`);
       assert.ok(route.distance > 1000 && route.distance < 6000, `${roomId} ${route.distance}`);
     }
   }
   // EP 1322 is entered only through its own exterior door (the non-primary sole-access entrance).
   const r1322 = P.findPath(g, far.id, P.nodesForRoom(g, 'room-ep-1-1322'));
   assert.ok(r1322.nodeIds.includes('ep-1-n0365'));
+  assert.equal(g.nodes['ep-1-n0365'].soleDoor, true);
   // Negative control: without the outdoor graph's edges the far corner reaches no room.
-  const bare = P.buildGraph({ ...union, navEdges: campus.navEdges }, {});
+  const bare = P.addOutdoorGraph(P.buildGraph(campus, {}), { nodes: graph.nodes, edges: [] });
   assert.equal(P.findPath(bare, far.id, P.nodesForRoom(bare, 'room-it-1-0141')), null);
 });
 

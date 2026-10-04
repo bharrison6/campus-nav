@@ -14,9 +14,9 @@
 //      series; exact to millimeters across a building).
 // (originLat, originLng) is where the fitted floor's SVG (0, 0) lies.
 //
-// The body is written in ES5 (var, function, no arrows or template strings): scripts/campus-map/georef-es5.mjs
-// derives src/shared/georef.es5.js (a browser global, MSCNGeoref) from this file mechanically, and a unit test keeps
-// the two identical in behavior.
+// The web app loads this file as an ES module (the build copies it to vendor/georef.mjs; src/web/modules.mjs imports
+// it beside MapLibre, so only module-capable browsers, the ones that can draw the map at all, ever run it). The page
+// projects with svgToLngLatWith(record, x, y, floorId) using the records in data/map-manifest.json.
 
 var registry = {};
 

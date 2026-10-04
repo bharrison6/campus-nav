@@ -473,18 +473,23 @@ var MSCNPath = (function () {
       }
     }
     /* Only the common doors are offered (operator, plan mscn-v4): where a building flags any entrance primary, its
-       other entrances are not joined to the paths. A building with no flags keeps all of its joined entrances. */
+       other entrances are not joined to the paths, except a sole door: one the primary doors cannot reach indoors
+       (EP 1322 opens only to the outside, by ep-1-n0365), which stays joined (soleDoor) so its rooms stay routable.
+       A building with no flags keeps all of its joined entrances. */
     var closedDoor = {};
     for (var bk in graph.entrances) {
       if (!graph.entrances.hasOwnProperty(bk)) { continue; }
       var list = graph.entrances[bk];
-      var anyPrimary = false;
+      var prim = [];
       var j;
-      for (j = 0; j < list.length; j++) { if (toBool(graph.nodes[list[j]].primary, false)) { anyPrimary = true; } }
-      if (!anyPrimary) { continue; }
+      for (j = 0; j < list.length; j++) { if (toBool(graph.nodes[list[j]].primary, false)) { prim.push(list[j]); } }
+      if (!prim.length) { continue; }
+      var inside = indoorReach(graph, prim);
       var keep = [];
       for (j = 0; j < list.length; j++) {
-        if (toBool(graph.nodes[list[j]].primary, false)) { keep.push(list[j]); } else { closedDoor[list[j]] = true; }
+        if (toBool(graph.nodes[list[j]].primary, false)) { keep.push(list[j]); }
+        else if (!inside[list[j]]) { graph.nodes[list[j]].soleDoor = true; keep.push(list[j]); }
+        else { closedDoor[list[j]] = true; }
       }
       graph.entrances[bk] = keep;
     }
@@ -509,7 +514,24 @@ var MSCNPath = (function () {
     return graph;
   }
 
-  /* The doors a route may use for a building: its joined entrances flagged primary, else all its joined entrances. */
+  /* Node ids reachable from the given nodes over the indoor edges (call before the outdoor edges are added). */
+  function indoorReach(graph, fromIds) {
+    var seen = {};
+    var stack = fromIds.slice(0);
+    for (var i = 0; i < stack.length; i++) { seen[stack[i]] = true; }
+    while (stack.length) {
+      var adj = graph.adj[stack.pop()] || [];
+      for (var k = 0; k < adj.length; k++) {
+        if (adj[k].outdoor || seen[adj[k].to]) { continue; }
+        seen[adj[k].to] = true;
+        stack.push(adj[k].to);
+      }
+    }
+    return seen;
+  }
+
+  /* The doors a route may use for a building: its joined entrances flagged primary, else all its joined entrances
+     (a sole door is joined but not offered here: it is used only when the goal lies behind it). */
   function primaryEntrances(graph, buildingId) {
     var ids = (graph.entrances && graph.entrances[buildingId]) || [];
     var flagged = [];

@@ -3,7 +3,7 @@
 // worker (scripts/build/service-worker.mjs), root-relative URL guard, 404 page, schedules.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import vm from 'node:vm';
@@ -99,20 +99,25 @@ test('MapLibre is vendored from node_modules (no CDN): the four browser files ex
   assert.equal(/unpkg\.com\/maplibre|cdn\.jsdelivr\.net\/npm\/maplibre|maps\.googleapis/.test(page), false);
 });
 
-test('copyCampusMap: the fixture campus map lands under data/ with a manifest of what exists', () => {
+test('copyCampusMap: the committed campus map lands under data/ with a manifest of what exists', () => {
   const out = mkdtempSync(join(tmpdir(), 'mscn-map-'));
-  const m = copyCampusMap(join(ROOT, 'tests', 'fixtures', 'campus-map'), out);
+  const m = copyCampusMap(ROOT, out);
   assert.equal(m.buildings, 'data/campus-map/buildings.geojson');
-  assert.deepEqual(m.basemap, ['data/campus-map/basemap.geojson']);
+  assert.deepEqual(m.basemap, ['labels', 'landuse', 'parking', 'paths', 'roads', 'water'].map((n) => `data/campus-map/layers/${n}.geojson`));
   assert.equal(m.outdoorGraph, 'data/campus-map/outdoor-graph.json');
-  assert.equal(m.aerial, null);
+  if (existsSync(join(ROOT, 'data', 'campus-map', 'aerial.json'))) {
+    assert.equal(m.aerial.tiles, 'data/campus-map/aerial/{z}/{x}/{y}.jpg');
+    assert.ok(m.aerial.attribution, 'the aerial layer carries its credit');
+  } else assert.equal(m.aerial, null);
   assert.deepEqual(Object.keys(m.georef).sort(), ['bld-ep', 'bld-it']);
+  assert.ok(m.georef['bld-it'].floorOffsets, 'the per-floor offsets reach the page');
   assert.equal(m.georefModule, true);
-  assert.equal(m.fixture, true);
   for (const p of [m.buildings, m.outdoorGraph, 'data/georef/bld-it.json', 'vendor/georef.mjs']) assert.ok(readFileSync(join(out, p)).length > 10, p);
+  assert.equal(existsSync(join(out, 'data', 'campus-map', 'source')), false, 'the OSM extract (a build input) is not published');
+  assert.equal(existsSync(join(out, 'data', 'campus-map', 'overrides.geojson')), false, 'nor the hand-drawn overrides');
   // an empty root is valid: nothing is published and the app falls back to its building list
   const empty = copyCampusMap(mkdtempSync(join(tmpdir(), 'mscn-none-')), mkdtempSync(join(tmpdir(), 'mscn-out-')));
-  assert.deepEqual(empty, { buildings: null, basemap: [], outdoorGraph: null, aerial: null, georef: {}, georefModule: false, fixture: false });
+  assert.deepEqual(empty, { buildings: null, basemap: [], outdoorGraph: null, aerial: null, georef: {}, georefModule: false });
 });
 
 test('service worker: precache manifest hashes every published file except sw.js, 404, CNAME, maps and aerial tiles', () => {

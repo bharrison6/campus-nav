@@ -24,7 +24,7 @@
 // Every URL the page uses is relative, so the same dist/ serves at /campus-nav/ and at a domain root.
 import { spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isPublicFloor } from '../data/export-campus-data.mjs';
 import { renderPage } from './render-page.mjs';
@@ -91,7 +91,7 @@ function readJsonChecked(p, what) {
 
 /**
  * The campus map (lane J's data; contract in plan mscn-v4-campus-map-2-5d) copied into the site, and its manifest.
- * mapRoot is the repository root, or a fixture tree with the same layout (MSCN_CAMPUS_MAP_ROOT; tests only).
+ * mapRoot is the repository root (tests pass another tree with the same layout, or an empty one).
  *   <mapRoot>/data/campus-map/{buildings.geojson, basemap.geojson | layers/*.geojson, outdoor-graph.json, aerial.json, aerial/**}
  *   <mapRoot>/data/georef/<buildingId>.json, <mapRoot>/src/shared/georef.mjs
  * Every piece is optional; the app draws what exists (no buildings file: the building-list fallback).
@@ -99,15 +99,16 @@ function readJsonChecked(p, what) {
 export function copyCampusMap(mapRoot, out) {
   const srcMap = join(mapRoot, 'data', 'campus-map');
   const srcRef = join(mapRoot, 'data', 'georef');
-  const manifest = { buildings: null, basemap: [], outdoorGraph: null, aerial: null, georef: {}, georefModule: false, fixture: false };
+  const manifest = { buildings: null, basemap: [], outdoorGraph: null, aerial: null, georef: {}, georefModule: false };
   const dstMap = join(out, 'data', 'campus-map');
-  copyTree(srcMap, dstMap, (p) => !/\.(md|txt)$/i.test(p));
+  // the build inputs of npm run campus-map (the OpenStreetMap extract, the hand-drawn overrides) are not published
+  const input = (p) => { const r = relative(srcMap, p).split(sep).join('/'); return r.startsWith('source/') || r === 'overrides.geojson'; };
+  copyTree(srcMap, dstMap, (p) => !/\.(md|txt)$/i.test(p) && !input(p));
   const has = (p) => existsSync(join(dstMap, p));
   if (has('buildings.geojson')) {
     const fc = readJsonChecked(join(dstMap, 'buildings.geojson'), 'campus-map/buildings.geojson');
     if (fc.type !== 'FeatureCollection' || !Array.isArray(fc.features)) fail('campus-map/buildings.geojson is not a FeatureCollection');
     manifest.buildings = 'data/campus-map/buildings.geojson';
-    manifest.fixture = !!fc.fixture;
   }
   if (has('basemap.geojson')) manifest.basemap.push('data/campus-map/basemap.geojson');
   if (has('layers')) {
@@ -124,7 +125,8 @@ export function copyCampusMap(mapRoot, out) {
   }
   if (has('aerial.json') && has('aerial')) {
     const a = readJsonChecked(join(dstMap, 'aerial.json'), 'campus-map/aerial.json');
-    manifest.aerial = Object.assign({ tiles: 'data/campus-map/aerial/{z}/{x}/{y}.jpg' }, a);
+    // aerial.json's own `tiles` is relative to data/campus-map; the page needs it relative to itself
+    manifest.aerial = Object.assign({}, a, { tiles: 'data/campus-map/aerial/{z}/{x}/{y}.jpg' });
   }
   if (existsSync(srcRef)) {
     mkdirSync(join(out, 'data', 'georef'), { recursive: true });
@@ -296,10 +298,8 @@ export function buildSite({ out = join(ROOT, 'dist'), configPath = join(ROOT, 'b
   const mlLicense = join(mlDir, '..', 'LICENSE.txt');
   if (existsSync(mlLicense)) copyFileSync(mlLicense, join(vendor, 'maplibre-gl-LICENSE.txt'));
   copyFileSync(join(WEB_SRC, 'modules.mjs'), join(vendor, 'modules.mjs'));
-  const mapRoot = env.MSCN_CAMPUS_MAP_ROOT ? resolve(ROOT, env.MSCN_CAMPUS_MAP_ROOT) : ROOT;
-  const map = copyCampusMap(mapRoot, out);
+  const map = copyCampusMap(ROOT, out);
   writeFileSync(join(out, 'data', 'map-manifest.json'), JSON.stringify(map));
-  if (map.fixture) log(`[build] campus map from the FIXTURE ${relative(ROOT, mapRoot)} (MSCN_CAMPUS_MAP_ROOT); not for deployment`);
 
   // 4. the page, its config, 404 and CNAME
   const html = renderPage(WEB_SRC, 'WebApp');
@@ -322,7 +322,7 @@ export function buildSite({ out = join(ROOT, 'dist'), configPath = join(ROOT, 'b
     floors: readdirSync(join(out, 'floors')).length, schedules: schedules.length, indexBytes: Buffer.byteLength(html),
     maplibreBytes: MAPLIBRE_FILES.reduce((n, f) => n + bytes(join(vendor, f)), 0),
     map: { buildings: !!map.buildings, basemap: map.basemap.length, outdoorGraph: !!map.outdoorGraph, aerial: !!map.aerial,
-      georef: Object.keys(map.georef), fixture: map.fixture },
+      georef: Object.keys(map.georef) },
     precache: precache.length,
   };
   log(`[build] ${relative(ROOT, out) || out}: index.html ${summary.indexBytes} B, MapLibre ${summary.maplibreBytes} B, ${summary.floors} floor plans, ` +

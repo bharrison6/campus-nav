@@ -6,12 +6,25 @@ import { expect, test, type Page } from '@playwright/test';
 // (WebGL 2 from SwiftShader in headless Chrome, playwright.config.ts), search flies to a building and to a room, one
 // route runs door to room with the tab handoff, "Avoid stairs" applies outdoors, the GPS blue dot (mocked with
 // context.setGeolocation) starts and re-routes a walk, the building view stacks the real floors, and the app works
-// offline after a first visit. The campus map is lane K's FIXTURE (tests/fixtures/campus-map): its outdoor graph has
-// a steps shortcut between the quad and EP and a longer step-free ramp, and a far-corner node. At integration with
-// lane J's data the fixture-specific facts below (node ids, the steps edge) move to the real graph's equivalents.
+// offline after a first visit. The campus map is the real committed one (data/campus-map, npm run campus-map). The far
+// corner is the outdoor node farthest from IT/EP (about 2 km out); building centers are the footprint vertex means the
+// app itself uses. OpenStreetMap has no steps ways near IT/EP, so the avoid-stairs test adds one steps edge to the
+// served outdoor graph (page.route) where the real walk detours most.
 
-const GRAPH = JSON.parse(readFileSync(join(__dirname, '..', 'fixtures', 'campus-map', 'data', 'campus-map', 'outdoor-graph.json'), 'utf8'));
-const node = (id: string) => GRAPH.nodes.find((n: any) => n.id === id);
+const MAP_DIR = join(__dirname, '..', '..', 'data', 'campus-map');
+const GRAPH = JSON.parse(readFileSync(join(MAP_DIR, 'outdoor-graph.json'), 'utf8'));
+const BUILDINGS = JSON.parse(readFileSync(join(MAP_DIR, 'buildings.geojson'), 'utf8'));
+const CENTER = { lng: -88.322, lat: 36.6155 };
+const FAR = GRAPH.nodes.reduce((b: any, n: any) => (meters(CENTER, n) > meters(CENTER, b) ? n : b));
+function centerOf(bid: string) {
+  const f = BUILDINGS.features.find((x: any) => x.properties.buildingId === bid);
+  const ring = f.geometry.type === 'Polygon' ? f.geometry.coordinates[0] : f.geometry.coordinates[0][0];
+  let sx = 0, sy = 0;
+  const n = ring.length - 1;
+  for (let k = 0; k < n; k++) { sx += ring[k][0]; sy += ring[k][1]; }
+  return { lng: sx / n, lat: sy / n };
+}
+const EP_CENTER = centerOf('bld-ep');
 
 async function boot(page: Page, query = '') {
   await page.goto('./' + query);
@@ -72,7 +85,7 @@ test('search flies the map to a building, and a room opens its floor in the buil
   await expect(page.locator('#building-sheet-title')).toHaveText('Engineering and Physics Building');
   await expect.poll(async () => (await mapState(page)).moving, { timeout: 5000 }).toBe(false);
   const s = await mapState(page);
-  expect(meters(s.center, { lng: -88.324838, lat: 36.612114 })).toBeLessThan(40);
+  expect(meters(s.center, EP_CENTER)).toBeLessThan(40);
   expect(s.zoom).toBeGreaterThan(17.5);
 
   await search(page, 'IT 241', 'IT 241');
@@ -142,25 +155,57 @@ test('one route door to room: map walk, the door hands off to the floor plan, st
   await expect(step(page)).toHaveAttribute('data-step-kind', 'outdoor');
 });
 
-test('"Avoid stairs" applies outdoors: the steps shortcut gives way to the ramp', async ({ page }) => {
-  await boot(page);
-  await mapReady(page);
-  await search(page, 'EP 1332', 'EP 1332');
-  await page.locator('#map-room-nav').click();
+test('"Avoid stairs" applies outdoors: a steps shortcut gives way to the step-free walk', async ({ page }) => {
+  const routeItToEp1332 = async () => {
+    await boot(page);
+    await mapReady(page);
+    await search(page, 'EP 1332', 'EP 1332');
+    await page.locator('#map-room-nav').click();
+    await page.locator('#route-panel #route-from').selectOption('b:bld-it');
+    await expect(page.locator('#route-panel #route-step')).toBeVisible();
+  };
+  // 1. the real walk: find where it detours most between two of its path nodes
+  await routeItToEp1332();
+  const pick = await page.evaluate(() => {
+    const G = (window as any).MSCNGeo;
+    const g = (window as any).APP.graph;
+    const s = (window as any).NAV.route.steps.find((x: any) => x.kind === 'outdoor');
+    const ids = s.nodeIds.filter((id: string) => g.nodes[id] && g.nodes[id].outdoor);
+    const ll = (id: string) => [g.nodes[id].lng, g.nodes[id].lat];
+    const cum = [0];
+    for (let i = 1; i < ids.length; i++) cum.push(cum[i - 1] + G.haversine(ll(ids[i - 1]), ll(ids[i])));
+    let best: any = null;
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 2; j < ids.length; j++) {
+        const crow = G.haversine(ll(ids[i]), ll(ids[j]));
+        if (!best || cum[j] - cum[i] - crow > best.detour) best = { from: ids[i], to: ids[j], distance: crow, detour: cum[j] - cum[i] - crow };
+      }
+    }
+    return best;
+  });
+  expect(pick.detour).toBeGreaterThan(3);
+  // 2. serve the outdoor graph with a steps edge across that detour
+  const graph = JSON.parse(JSON.stringify(GRAPH));
+  graph.edges.push({ id: 'e2e-steps', from: pick.from, to: pick.to, distance: Math.round(pick.distance * 10) / 10, accessible: false, kind: 'steps' });
+  await page.route('**/data/campus-map/outdoor-graph.json', (r) => r.fulfill({ contentType: 'application/json', body: JSON.stringify(graph) }));
+  await routeItToEp1332();
   const panel = page.locator('#route-panel');
-  await panel.locator('#route-from').selectOption('b:bld-it');
-  await expect(step(page).locator('.detail')).toContainText('including steps');
-  const withSteps = await page.evaluate(() => (window as any).NAV.route.meters);
+  const outdoorStep = () => page.evaluate(() => {
+    const s = (window as any).NAV.route.steps.find((x: any) => x.kind === 'outdoor');
+    return { steps: !!s.steps, detail: s.detail, meters: (window as any).NAV.route.meters };
+  });
+  await expect.poll(async () => (await outdoorStep()).steps).toBe(true);
+  const withSteps = await outdoorStep();
+  expect(withSteps.detail).toContain('including steps');
   await panel.locator('label.switch').click();
-  await expect(step(page)).toHaveAttribute('data-step-kind', 'outdoor');
-  await expect(step(page).locator('.detail')).not.toContainText('including steps');
-  const flat = await page.evaluate(() => (window as any).NAV.route.meters);
-  expect(flat).toBeGreaterThan(withSteps);
-  expect(await page.evaluate(() => (window as any).NAV.route.steps[0].steps)).toBe(false);
+  await expect.poll(async () => (await outdoorStep()).steps).toBe(false);
+  const flat = await outdoorStep();
+  expect(flat.detail).not.toContain('including steps');
+  expect(flat.meters).toBeGreaterThan(withSteps.meters);
 });
 
 test.describe('GPS', () => {
-  test.use({ permissions: ['geolocation'], geolocation: { latitude: node('far-corner').lat, longitude: node('far-corner').lng, accuracy: 8 } });
+  test.use({ permissions: ['geolocation'], geolocation: { latitude: FAR.lat, longitude: FAR.lng, accuracy: 8 } });
 
   test('blue dot on the path; a route starts at it, re-routes off the path, and hands off at the door', async ({ page, context }) => {
     await boot(page);
@@ -177,9 +222,23 @@ test.describe('GPS', () => {
     await expect(step(page)).toHaveAttribute('data-step-kind', 'outdoor');
     expect(await page.evaluate(() => !!(window as any).NAV.route.lead)).toBe(true);
 
-    // 60 m off the path, twice, a few seconds apart: a new route from there
-    const far = node('far-corner');
-    const off = { latitude: far.lat + 0.0006, longitude: far.lng - 0.0004, accuracy: 6 };
+    // about 60 m off the route line, twice, a few seconds apart: a new route from there (the spot is chosen in the page,
+    // around the far corner, as the one farthest from the walk's line)
+    const offLL = await page.evaluate(() => {
+      const G = (window as any).MSCNGeo;
+      const r = (window as any).NAV.route;
+      const line = (r.lead ? [r.lead[1]] : []).concat(r.steps[0].coords);
+      const o = G.local(line[0]);
+      let best: any = null;
+      for (let a = 0; a < 360; a += 30) {
+        const p = o.toLngLat(60 * Math.sin((a * Math.PI) / 180), 60 * Math.cos((a * Math.PI) / 180));
+        const d = G.distanceToLine(p, line);
+        if (!best || d > best.d) best = { p, d };
+      }
+      return best;
+    });
+    expect(offLL.d).toBeGreaterThan(30);
+    const off = { latitude: offLL.p[1], longitude: offLL.p[0], accuracy: 6 };
     await context.setGeolocation(off);
     await page.waitForTimeout(3300);
     await context.setGeolocation({ ...off, latitude: off.latitude + 0.00001 });
@@ -193,7 +252,7 @@ test.describe('GPS', () => {
   });
 
   test('indoors the app asks for a QR code instead of trusting GPS', async ({ page, context }) => {
-    await context.setGeolocation({ latitude: 36.612114, longitude: -88.324838, accuracy: 20 }); // EP's footprint
+    await context.setGeolocation({ latitude: EP_CENTER.lat, longitude: EP_CENTER.lng, accuracy: 20 }); // inside EP's footprint
     await boot(page);
     await mapReady(page);
     await page.locator('#map-locate').click();

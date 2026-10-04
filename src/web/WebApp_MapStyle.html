@@ -3,7 +3,7 @@
  * MSCNMapStyle: the MapLibre style for the campus map, generated from the app's design tokens (the --map-* and
  * --room-type-* CSS custom properties in WebApp_Styles, read by WebApp_Map for the current light or dark theme), and
  * the GeoJSON for the indoor "building view". Pure ES5, no DOM (Node unit tests load it).
- *   build(tokens, opts) -> style JSON          opts: {buildings, base (FeatureCollections), aerial?, aerialVisible?, fixture?}
+ *   build(tokens, opts) -> style JSON          opts: {buildings, base (FeatureCollections), aerial?, aerialVisible?}
  *   paint(tokens) -> {layerId: {property: value}}   the token-driven paint, reapplied on a theme change
  *   classifyBase(feature, fileHint) -> 'paths'|'roads'|'parking'|'landuse'|'water'|'labels'
  *   mergeBase([{fc, hint}]) -> one FeatureCollection with properties.layer set
@@ -135,7 +135,7 @@ var MSCNMapStyle = (function () {
   function build(t, opts) {
     opts = opts || {};
     var p = paint(t);
-    var osm = OSM_ATTRIBUTION + (opts.fixture ? ' &middot; fixture data' : '');
+    var osm = OSM_ATTRIBUTION;
     var sources = {
       'campus-base': { type: 'geojson', data: opts.base || emptyFC(), attribution: osm },
       'campus-buildings': { type: 'geojson', data: opts.buildings || emptyFC(), generateId: true, attribution: osm },
@@ -228,7 +228,8 @@ var MSCNMapStyle = (function () {
   /*
    * indoorFeatures(spec) -> FeatureCollection for the building view
    *   spec = { floors: [{id, level}] (sorted bottom up), roomsByFloor: {floorId: [{id, type, polygon}]},
-   *            footprint: [[lng, lat]...] | null, project(x, y) -> [lng, lat], activeFloorId, selectedRoomId }
+   *            footprint: [[lng, lat]...] | null, project(x, y, floorId) -> [lng, lat], activeFloorId, selectedRoomId }
+   * (project gets each room's floor id: floors' SVG frames differ by a per-floor offset, src/shared/georef.mjs)
    * Each floor is a slab (the footprint, or the hull of its rooms) at FLOOR_STEP spacing; rooms of the active floor
    * stand ROOM_ACTIVE tall in their type colors, rooms of lower floors are thin, floors above the active one are
    * faint slabs only so they do not hide it.
@@ -249,7 +250,7 @@ var MSCNMapStyle = (function () {
         var poly = rooms[r].polygon;
         if (!poly || poly.length < 3) { continue; }
         var ring = [];
-        for (var k = 0; k < poly.length; k++) { ring.push(spec.project(Number(poly[k][0]), Number(poly[k][1]))); }
+        for (var k = 0; k < poly.length; k++) { ring.push(spec.project(Number(poly[k][0]), Number(poly[k][1]), f.id)); }
         ring.push(ring[0]);
         rings.push({ room: rooms[r], ring: ring });
       }

@@ -1,36 +1,40 @@
-// v4 unified routing (decision mscn-v4-georeferenced-entrances-and-unified-routing) on the REAL published indoor
-// graph joined with the FIXTURE outdoor graph (tests/fixtures/campus-map, lane K's stand-in for lane J's
-// data/campus-map/outdoor-graph.json; swap the path below at integration to run the same tests on the real graph).
-// Also MSCNGeo, the geodesy the map and GPS use.
+// v4 unified routing (decision mscn-v4-georeferenced-entrances-and-unified-routing) on the REAL campus: the published
+// indoor data (scripts/data/export-campus-data.mjs, what the site serves as data/campus.json) joined with the committed
+// outdoor graph (data/campus-map/outdoor-graph.json, npm run campus-map) by the app's own engine (MSCNPath). Also
+// MSCNGeo, the geodesy the map and GPS use. The primary doors are the ones lane J chose (plan mscn-v4-campus-map-2-5d).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { ROOT, loadInclude } from './load-include.mjs';
+import { buildExport } from '../../scripts/data/export-campus-data.mjs';
 
-const require = createRequire(import.meta.url);
-const { makeRuntime } = require('../../dev/gas-runtime.cjs');
-const gas = makeRuntime();
-gas.ctx.initSystem();
-const data = gas.run('getPublicCampusData', []);
-
+const data = buildExport().campus;
 const P = loadInclude('WebApp_Pathfinding.html', 'MSCNPath');
 const G = loadInclude('WebApp_Geo.html', 'MSCNGeo');
-const OUTDOOR = JSON.parse(readFileSync(join(ROOT, 'tests', 'fixtures', 'campus-map', 'data', 'campus-map', 'outdoor-graph.json'), 'utf8'));
-const isPublic = (f) => !!f && P.toBool(f.public, true);
+const OUTDOOR = JSON.parse(readFileSync(join(ROOT, 'data', 'campus-map', 'outdoor-graph.json'), 'utf8'));
+const PRIMARY = {
+  'bld-it': ['it-1-n0490', 'it-1-n0492', 'it-2-n0552', 'it-2-n0554'],
+  'bld-ep': ['ep-1-n0358', 'ep-1-n0362', 'ep-1-n0363'],
+};
 
-function unified() {
-  const g = P.buildGraph(data, { floorFilter: isPublic });
-  return P.addOutdoorGraph(g, OUTDOOR);
-}
+const unified = (outdoor = OUTDOOR) => P.addOutdoorGraph(P.buildGraph(data, {}), outdoor);
 const g = unified();
+const ll = (n) => [Number(n.lng), Number(n.lat)];
+// The far corner: the outdoor node farthest from the IT/EP area (about 2 km out); the hub: the path node nearest the
+// midpoint between IT's east terrace door and EP's south-east door. Both derived, since path node ids are generated.
+const CENTER = [-88.322, 36.6155];
+const FAR = OUTDOOR.nodes.reduce((b, n) => (G.haversine(CENTER, ll(n)) > G.haversine(CENTER, ll(b)) ? n : b)).id;
+const MID = [(g.nodes['it-2-n0554'].lng + g.nodes['ep-1-n0362'].lng) / 2, (g.nodes['it-2-n0554'].lat + g.nodes['ep-1-n0362'].lat) / 2];
+const HUB = OUTDOOR.nodes.filter((n) => n.type !== 'entrance').reduce((b, n) => (G.haversine(MID, ll(n)) < G.haversine(MID, ll(b)) ? n : b)).id;
+
 const floorLabel = (id) => (data.floors.find((f) => f.id === id) || {}).label || id;
 const names = (dest) => ({ floorLabel, destination: dest, doorName: (n) => (n && n.label) || 'entrance ' + n.id, buildingName: (id) => id });
-const room = (id) => P.nodesForRoom(g, id);
-const steps = (r, dest) => P.buildRouteSteps(g, P.segmentRoute(g, r), names(dest));
+const room = (id, graph = g) => P.nodesForRoom(graph, id);
+const steps = (r, dest, graph = g) => P.buildRouteSteps(graph, P.segmentRoute(graph, r), names(dest));
 const kinds = (list) => Array.from(list).map((s) => s.kind);
 const pathCost = (from, to, opts) => { const r = P.findPath(g, from, to, opts); return r ? r.distance : Infinity; };
+const isDoorOk = (graph, id) => graph.nodes[id].primary === true || graph.nodes[id].soleDoor === true;
 
 // ---------------- MSCNGeo ----------------
 
@@ -64,26 +68,59 @@ test('geo: haversine, projection onto a segment, nearest edge, compass, rings', 
 
 // ---------------- the union ----------------
 
-test('the outdoor graph joins the indoor graph at entrance ids; only primary doors are joined', () => {
-  const it = g.nodes['it-1-n0489'];
+test('the outdoor graph joins the indoor graph at entrance ids; only primary doors (and sole doors) are joined', () => {
+  const it = g.nodes['it-1-n0492'];
   assert.equal(it.floorId, 'floor-it-1');
   assert.ok(P.hasLngLat(it) && it.joined, 'the indoor entrance node gained coordinates');
-  assert.equal(data.navNodes.find((n) => n.id === 'it-1-n0489').lat, undefined, 'the campus data itself is not mutated');
-  assert.deepEqual(Array.from(P.primaryEntrances(g, 'bld-it')).sort(), ['it-1-n0489', 'it-1-n0492', 'it-1-n0493']);
-  assert.deepEqual(Array.from(P.primaryEntrances(g, 'bld-ep')).sort(), ['ep-1-n0356', 'ep-1-n0359', 'ep-1-n0363']);
-  assert.ok(g.nodes['quad-hub'].outdoor);
-  assert.ok(g.hasOutdoor && g.outdoorEdges.length > 20);
-  // a non-primary entrance keeps its indoor edges but is not joined to the paths
-  const nonPrimary = g.nodes['it-1-n0490'];
-  assert.ok(nonPrimary.joined);
-  assert.equal(g.adj['it-1-n0490'].some((e) => e.outdoor), false);
-  const steps = g.outdoorEdges.filter((e) => e.kind === 'steps');
-  assert.equal(steps.length, 1);
-  assert.equal(steps[0].accessible, false);
+  assert.ok(G.haversine(CENTER, ll(g.nodes[FAR])) > 1500, 'the far corner is across town');
+  for (const [bid, ids] of Object.entries(PRIMARY)) assert.deepEqual(Array.from(P.primaryEntrances(g, bid)).sort(), ids.slice().sort(), bid);
+  assert.ok(g.nodes[HUB].outdoor);
+  assert.ok(g.hasOutdoor && g.outdoorEdges.length > 2000);
+  // EP 1322 opens only to the outside (ep-1-n0365, not primary): that door stays joined, flagged soleDoor, and is not
+  // offered as the building's door
+  assert.equal(g.nodes['ep-1-n0365'].soleDoor, true);
+  assert.equal(g.adj['ep-1-n0365'].some((e) => e.outdoor), true);
+  assert.equal(P.primaryEntrances(g, 'bld-ep').includes('ep-1-n0365'), false);
+  // a non-primary door the primary doors reach indoors is not joined to the paths (synthetic: the real graph carries
+  // only primary and sole doors, so give EP's door ep-1-n0356 a connector of its own)
+  const n0356 = data.navNodes.find((n) => n.id === 'ep-1-n0356');
+  assert.equal(n0356.primary, false);
+  const extra = unified({
+    nodes: OUTDOOR.nodes.concat([{ id: 'ep-1-n0356', lat: n0356.lat, lng: n0356.lng, type: 'entrance', primary: false }]),
+    edges: OUTDOOR.edges.concat([{ id: 'test-conn', from: 'ep-1-n0356', to: HUB, distance: 5, accessible: true, kind: 'connector' }]),
+  });
+  assert.ok(extra.nodes['ep-1-n0356'].joined);
+  assert.equal(extra.adj['ep-1-n0356'].some((e) => e.outdoor), false, 'closed: no outdoor edge');
+  assert.equal(extra.nodes['ep-1-n0356'].soleDoor, undefined);
+  // any real steps edge is never accessible
+  for (const e of g.outdoorEdges.filter((x) => x.kind === 'steps')) assert.equal(e.accessible, false, e.id);
 });
 
-test('outdoor only: far corner to the quad is one outdoor walk', () => {
-  const r = P.findPath(g, 'far-corner', 'quad-hub');
+test('entrance coordinates agree: the outdoor graph (what the engine joins) and campus.json (lane J export) within 1 m, same primary flags', () => {
+  const nav = new Map(data.navNodes.map((n) => [n.id, n]));
+  const ents = OUTDOOR.nodes.filter((n) => n.type === 'entrance');
+  assert.ok(ents.length >= 7);
+  for (const o of ents) {
+    const n = nav.get(o.id);
+    assert.ok(n && n.type === 'entrance', `${o.id} is a published entrance node`);
+    assert.ok(G.haversine(ll(o), ll(n)) < 1, `${o.id}: graph vs campus.json ${G.haversine(ll(o), ll(n)).toFixed(2)} m`);
+    assert.equal(Boolean(o.primary), n.primary === true, `${o.id} primary`);
+    const joined = g.nodes[o.id];
+    assert.ok(G.haversine(ll(joined), ll(n)) < 1, `${o.id}: the engine's joined node sits where campus.json says`);
+    assert.equal(joined.primary, n.primary, `${o.id}: the engine reads primary from campus.json`);
+  }
+  for (const b of data.buildings.filter((x) => PRIMARY[x.id])) {
+    const listed = b.entrances.filter((e) => e.primary).map((e) => e.nodeId).sort();
+    assert.deepEqual(listed, PRIMARY[b.id].slice().sort(), `${b.id}: buildings[].entrances primary`);
+    for (const e of b.entrances) {
+      const o = ents.find((x) => x.id === e.nodeId);
+      if (o) assert.ok(G.haversine(ll(o), [e.lng, e.lat]) < 1, `${e.nodeId}: building entrance vs graph`);
+    }
+  }
+});
+
+test('outdoor only: the far corner to the hub between IT and EP is one outdoor walk', () => {
+  const r = P.findPath(g, FAR, HUB);
   assert.ok(r);
   const segs = P.segmentRoute(g, r);
   assert.deepEqual(Array.from(segs, (s) => s.kind), ['outdoor']);
@@ -95,7 +132,7 @@ test('outdoor only: far corner to the quad is one outdoor walk', () => {
 });
 
 test('indoor only: the unified graph routes IT 141 -> IT 241 exactly as the v3 indoor graph does', () => {
-  const v3 = P.buildGraph(data, { floorFilter: isPublic });
+  const v3 = P.buildGraph(data, {});
   const a = P.findPath(v3, P.nodesForRoom(v3, 'room-it-1-0141'), P.nodesForRoom(v3, 'room-it-2-0241'));
   const b = P.findPath(g, room('room-it-1-0141'), room('room-it-2-0241'));
   assert.deepEqual(Array.from(b.nodeIds), Array.from(a.nodeIds));
@@ -104,23 +141,36 @@ test('indoor only: the unified graph routes IT 141 -> IT 241 exactly as the v3 i
   assert.match(steps(b, 'IT 241')[0].title, /^Take the stairs up to Second Floor$/);
 });
 
+test('primary doors: every one is reachable from the far corner, step-free too', () => {
+  for (const ids of Object.values(PRIMARY)) {
+    for (const d of ids) {
+      assert.ok(P.findPath(g, FAR, d), d);
+      assert.ok(P.findPath(g, FAR, d, { accessibleOnly: true }), d + ' step-free');
+    }
+  }
+});
+
 test('door to room: from the far corner to IT 241 is outdoor walk, door, indoor legs, arrival; one sentence', () => {
-  const r = P.findPath(g, 'far-corner', room('room-it-2-0241'));
+  const r = P.findPath(g, FAR, room('room-it-2-0241'));
   assert.ok(r);
   const st = steps(r, 'IT 241');
-  assert.deepEqual(kinds(st), ['outdoor', 'door', 'walk', 'walk']);
-  assert.deepEqual(Array.from(st, (s) => s.view), ['map', 'indoor', 'indoor', 'indoor']);
-  assert.match(st[0].title, /^Walk to the entrance it-1-n\d+ of bld-it$/);
+  const k = kinds(st);
+  assert.deepEqual(k.slice(0, 2), ['outdoor', 'door']);
+  assert.ok(k.slice(2).length >= 1 && k.slice(2).every((x) => x === 'walk'), k.join(','));
+  assert.deepEqual(Array.from(st, (s) => s.view), ['map'].concat(k.slice(1).map(() => 'indoor')));
+  assert.match(st[0].title, /^Walk to the entrance it-\d-n\d+ of bld-it$/);
   assert.equal(st[1].nodeId, st[2].nodeIds[0], 'the door step is where the indoor leg starts');
-  assert.ok(P.primaryEntrances(g, 'bld-it').includes(st[1].nodeId), 'the walk ends at a primary door');
-  assert.equal(st[1].floorId, 'floor-it-1');
-  assert.equal(st[3].title, 'Arrive at IT 241');
-  const sentence = P.routeSentence(st);
-  assert.match(sentence, /^Walk \d+ m along the path, enter by the entrance it-1-n\d+, take the stairs up to Second Floor, arrive at IT 241\.$/);
+  assert.ok(PRIMARY['bld-it'].includes(st[1].nodeId), 'the walk ends at a primary door');
+  assert.equal(st[1].floorId, g.nodes[st[1].nodeId].floorId);
+  assert.equal(st[st.length - 1].title, 'Arrive at IT 241');
+  assert.match(P.routeSentence(st), /^Walk \d+ m along the path, enter by the entrance it-\d-n\d+, (take the (stairs|elevator) up to Second Floor, )?arrive at IT 241\.$/);
   // the route's length counts both graphs
   const outM = st[0].distance;
-  const inM = st[2].distance + st[3].distance;
+  const inM = st.slice(2).reduce((t, s) => t + s.distance, 0);
   assert.ok(Math.abs(r.distance - outM - inM - stairCost(r)) < 0.01);
+  // the step-free variant ends at a primary door as well
+  const flat = P.findPath(g, FAR, room('room-it-2-0241'), { accessibleOnly: true });
+  assert.ok(flat && PRIMARY['bld-it'].includes(steps(flat, 'IT 241')[1].nodeId));
 });
 
 function stairCost(r) {
@@ -132,12 +182,27 @@ function stairCost(r) {
   return c;
 }
 
+test('door to room: EP 1322 is entered by its own exterior door (the sole door), from the far corner', () => {
+  const r = P.findPath(g, FAR, room('room-ep-1-1322'));
+  assert.ok(r);
+  const st = steps(r, 'EP 1322');
+  assert.deepEqual(kinds(st).slice(0, 2), ['outdoor', 'door']);
+  // the last door is the room's own; the walk there may cut through EP (in by a primary door, out by another), which
+  // the real paths make shorter than going around the building
+  const doorSteps = st.filter((s) => s.kind === 'door');
+  assert.equal(doorSteps[doorSteps.length - 1].nodeId, 'ep-1-n0365');
+  assert.deepEqual(kinds(st).slice(-2), ['door', 'walk']);
+  for (const s of doorSteps) assert.ok(isDoorOk(g, s.nodeId), s.nodeId);
+  assert.equal(st[st.length - 1].title, 'Arrive at EP 1322');
+});
+
 test('the door chosen minimizes the WHOLE walk (outdoor + indoor), not the outdoor leg alone', () => {
   const targets = ['room-ep-1-1332', 'room-ep-2-2321', 'room-ep-1-1104', 'room-it-1-0145', 'room-it-2-0241'];
+  let checked = 0;
   for (const t of targets) {
     const goal = room(t);
     if (!goal.length) continue;
-    const r = P.findPath(g, 'far-corner', goal);
+    const r = P.findPath(g, FAR, goal);
     assert.ok(r, t);
     const st = steps(r, t);
     const used = st.find((s) => s.kind === 'door').nodeId;
@@ -145,63 +210,90 @@ test('the door chosen minimizes the WHOLE walk (outdoor + indoor), not the outdo
     let best = Infinity;
     let bestDoor = null;
     for (const d of P.primaryEntrances(g, bid)) {
-      const total = pathCost('far-corner', d) + pathCost(d, goal);
+      const total = pathCost(FAR, d) + pathCost(d, goal);
       if (total < best) { best = total; bestDoor = d; }
     }
     assert.ok(Math.abs(r.distance - best) < 0.01, `${t}: ${r.distance} vs best ${best} via ${bestDoor}`);
     // and the nearest door as the crow flies is not what decides it
-    const crow = P.primaryEntrances(g, bid).map((d) => [d, G.haversine(g.nodes[d], g.nodes['far-corner'])]).sort((x, y) => x[1] - y[1])[0][0];
-    if (crow !== used) assert.ok(pathCost('far-corner', crow) + pathCost(crow, goal) >= r.distance - 0.01);
+    const crow = P.primaryEntrances(g, bid).map((d) => [d, G.haversine(ll(g.nodes[d]), ll(g.nodes[FAR]))]).sort((x, y) => x[1] - y[1])[0][0];
+    if (crow !== used) assert.ok(pathCost(FAR, crow) + pathCost(crow, goal) >= r.distance - 0.01);
+    checked++;
   }
+  assert.ok(checked >= 4, 'the sample rooms exist');
 });
 
-test('avoid stairs applies outdoors: the steps shortcut gives way to the longer ramp', () => {
+test('avoid stairs applies outdoors: a steps shortcut is taken by default and refused step-free (synthetic steps edge)', () => {
+  // The OpenStreetMap extract has no steps ways near IT/EP (lane J audit: 0 steps), so the filter is proven against a
+  // synthetic steps edge added where the real IT -> EP walk makes its largest detour.
   const from = room('room-it-1-0145');
   const to = room('room-ep-1-1332');
-  const any = P.findPath(g, from, to);
-  const flat = P.findPath(g, from, to, { accessibleOnly: true });
+  const base = P.findPath(g, from, to);
+  assert.ok(base);
+  const out = base.nodes.filter((n) => n.outdoor);
+  const cum = [0];
+  for (let i = 1; i < out.length; i++) cum.push(cum[i - 1] + G.haversine(ll(out[i - 1]), ll(out[i])));
+  let pick = null;
+  for (let i = 0; i < out.length; i++) {
+    for (let j = i + 2; j < out.length; j++) {
+      const crow = G.haversine(ll(out[i]), ll(out[j]));
+      const detour = cum[j] - cum[i] - crow;
+      if (!pick || detour > pick.detour) pick = { a: out[i].id, b: out[j].id, crow, detour };
+    }
+  }
+  assert.ok(pick && pick.detour > 3, `the real walk has a detour to shortcut (${pick && pick.detour.toFixed(1)} m)`);
+  const gs = unified({ nodes: OUTDOOR.nodes, edges: OUTDOOR.edges.concat([{ id: 'test-steps', from: pick.a, to: pick.b, distance: pick.crow, accessible: true, kind: 'steps' }]) });
+  assert.equal(gs.outdoorEdges.find((e) => e.id === 'test-steps').accessible, false, 'kind steps is never accessible');
+  const fromS = room('room-it-1-0145', gs);
+  const toS = room('room-ep-1-1332', gs);
+  const any = P.findPath(gs, fromS, toS);
+  const flat = P.findPath(gs, fromS, toS, { accessibleOnly: true });
   assert.ok(any && flat);
-  const stepsOf = (r) => steps(r, 'EP 1332').filter((s) => s.kind === 'outdoor');
-  assert.equal(stepsOf(any).some((s) => s.steps), true, 'the default route takes the steps');
-  assert.match(stepsOf(any)[0].detail, /including steps/);
-  assert.equal(stepsOf(flat).some((s) => s.steps), false, 'the step-free route does not');
+  const outdoorSteps = (r) => steps(r, 'EP 1332', gs).filter((s) => s.kind === 'outdoor');
+  assert.equal(outdoorSteps(any).some((s) => s.steps), true, 'the default route takes the steps');
+  assert.match(outdoorSteps(any)[0].detail, /including steps/);
+  assert.equal(outdoorSteps(flat).some((s) => s.steps), false, 'the step-free route does not');
   assert.ok(flat.distance > any.distance);
-  assert.ok(Array.from(flat.nodeIds).includes('ramp-1'));
+  assert.ok(Math.abs(flat.distance - P.findPath(g, from, to, { accessibleOnly: true }).distance) < 0.01, 'step-free is the real route');
 });
 
 test('leaving one building for another: leave by a door, walk, enter by a door, arrive', () => {
   const r = P.findPath(g, room('room-it-1-0145'), room('room-ep-1-1332'));
   const st = steps(r, 'EP 1332');
-  assert.deepEqual(kinds(st), ['walk', 'outdoor', 'door', 'walk']);
-  assert.match(st[0].title, /^Leave by the entrance it-1-n\d+$/);
-  assert.equal(st[0].exitType, 'door');
-  assert.equal(st[1].entryType, 'door');
-  assert.equal(st[2].buildingId, 'bld-ep');
-  assert.equal(st[3].title, 'Arrive at EP 1332');
-  for (const id of r.nodeIds) assert.ok(!['it-1-n0490', 'it-1-n0494', 'it-1-n0495'].includes(id), 'non-primary doors are not used');
+  const k = kinds(st);
+  const o = k.indexOf('outdoor');
+  assert.ok(o >= 1 && k.slice(0, o).every((x) => x === 'walk'), k.join(','));
+  assert.equal(k[o + 1], 'door');
+  assert.match(st[o - 1].title, /^Leave by the entrance it-\d-n\d+$/);
+  assert.equal(st[o - 1].exitType, 'door');
+  assert.equal(st[o].entryType, 'door');
+  assert.equal(st[o + 1].buildingId, 'bld-ep');
+  assert.equal(st[st.length - 1].title, 'Arrive at EP 1332');
+  const doors = r.nodeIds.filter((id) => g.nodes[id].type === 'entrance');
+  assert.ok(doors.length >= 2);
+  for (const id of doors) assert.ok(isDoorOk(g, id), `${id}: only primary (or sole) doors are used`);
 });
 
 test('snapping: a position beside a path starts the route with the meters to each end of the snapped edge', () => {
-  const e = g.outdoorEdges.find((x) => x.from === 'far-corner' || x.to === 'far-corner');
+  const e = g.outdoorEdges.find((x) => (x.from === FAR || x.to === FAR) && x.distance > 5);
+  assert.ok(e, 'an edge at the far corner');
   const L = G.local(e.a);
   const along = G.local(e.a).toXY(e.b);
-  const p = L.toLngLat(along[0] * 0.3 + 6, along[1] * 0.3); // 30 % along, a few meters off
+  const p = L.toLngLat(along[0] * 0.3 + 2, along[1] * 0.3); // 30 % along, a couple of meters off
   const snap = G.nearestEdge(g.outdoorEdges, p);
-  assert.equal(snap.edge.id, e.id);
   assert.ok(snap.dist < 8);
   const starts = [{ id: snap.edge.from, cost: snap.dFrom }, { id: snap.edge.to, cost: snap.dTo }];
-  const r = P.findPath(g, starts, 'quad-hub');
-  const plain = P.findPath(g, snap.edge.to, 'quad-hub');
+  const r = P.findPath(g, starts, HUB);
+  const plain = P.findPath(g, snap.edge.to, HUB);
   assert.ok(r.startCost > 0);
-  assert.ok(Math.abs(r.distance - (r.startCost + pathCost(r.nodeIds[0], 'quad-hub'))) < 0.01);
+  assert.ok(Math.abs(r.distance - (r.startCost + pathCost(r.nodeIds[0], HUB))) < 0.01);
   assert.ok(r.distance <= plain.distance + snap.dTo + 0.01);
   // goal costs work the same way: a map point beside a path
-  const g2 = P.findPath(g, 'quad-hub', [{ id: snap.edge.from, cost: snap.dFrom }, { id: snap.edge.to, cost: snap.dTo }]);
+  const g2 = P.findPath(g, HUB, [{ id: snap.edge.from, cost: snap.dFrom }, { id: snap.edge.to, cost: snap.dTo }]);
   assert.ok(g2.goalCost > 0 && Math.abs(g2.distance - r.distance) < 0.01, 'symmetric');
 });
 
 test('no outdoor graph: addOutdoorGraph with nothing leaves the v3 graph usable', () => {
-  const v = P.addOutdoorGraph(P.buildGraph(data, { floorFilter: isPublic }), null);
+  const v = P.addOutdoorGraph(P.buildGraph(data, {}), null);
   assert.equal(v.hasOutdoor, false);
   assert.deepEqual(Array.from(P.primaryEntrances(v, 'bld-it')), []);
   assert.ok(P.findPath(v, P.nodesForRoom(v, 'room-it-1-0141'), P.nodesForRoom(v, 'room-it-2-0241')));

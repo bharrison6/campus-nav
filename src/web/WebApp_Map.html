@@ -156,7 +156,7 @@ function styleOptions() {
   if (man.aerial && man.aerial.tiles) {
     aerial = { tiles: absUrl(man.aerial.tiles), minzoom: man.aerial.minzoom, maxzoom: man.aerial.maxzoom, attribution: man.aerial.attribution, bounds: man.aerial.bounds };
   }
-  return { buildings: MAPV.buildings, base: MAPV.base, photos: outdoorPhotos(), aerial: aerial, aerialVisible: MAPV.aerialOn, fixture: !!man.fixture };
+  return { buildings: MAPV.buildings, base: MAPV.base, photos: outdoorPhotos(), aerial: aerial, aerialVisible: MAPV.aerialOn };
 }
 
 /* Outdoor photos (campus data `photos`, type outdoor, with lat/lng) as map points; a tap opens the photo viewer. */
@@ -338,18 +338,20 @@ function selectBuildingOnMap(bid) {
 function canShowInside(bid) {
   var man = MAPV.manifest;
   var mods = window.MSCNModules;
-  return !!(MAPV.ready && man && man.georef && man.georef[bid] && mods && mods.georef && typeof mods.georef.svgToLngLat === 'function' &&
+  return !!(MAPV.ready && man && man.georef && man.georef[bid] && mods && mods.georef && typeof mods.georef.svgToLngLatWith === 'function' &&
     (APP.floorsByBuilding[bid] || []).length);
 }
 
-/* The georef module's svgToLngLat for one building (the module is lane J's src/shared/georef.mjs). */
+/*
+ * One building's floor-plan -> map projection: project(x, y, floorId) -> [lng, lat], through the shared georef module
+ * (src/shared/georef.mjs, served as vendor/georef.mjs) and the building's record from the map manifest. The floor id
+ * matters: every floor's SVG origin is its own extents, so each floor carries an offset into the fitted floor's frame
+ * (record.floorOffsets); omitted, the point is read in the fitted floor's frame.
+ */
 function projectorFor(bid) {
   var doc = MAPV.manifest.georef[bid];
-  var fn = window.MSCNModules.georef.svgToLngLat;
-  return function (x, y) {
-    var r = fn(doc, x, y);
-    return (r && r.length === 2) ? [Number(r[0]), Number(r[1])] : [Number(r.lng), Number(r.lat)];
-  };
+  var fn = window.MSCNModules.georef.svgToLngLatWith;
+  return function (x, y, floorId) { return fn(doc, x, y, floorId || null); };
 }
 
 function buildingCardHtml(b, headingId) {
@@ -605,7 +607,7 @@ function roomLngLat(roomId) {
   if (!f || !canShowInside(f.buildingId)) { return null; }
   var c = roomCenter(room);
   if (!isFinite(c.x) || !isFinite(c.y)) { return null; }
-  return projectorFor(f.buildingId)(c.x, c.y);
+  return projectorFor(f.buildingId)(c.x, c.y, room.floorId);
 }
 
 MAPV.focusRouteStep = function (route, index) {

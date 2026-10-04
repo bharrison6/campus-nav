@@ -1,8 +1,7 @@
 // E2E against the BUILT static site served at a sub-path, the way GitHub Pages serves it:
-// the web server builds build/e2e-site (scripts/build/build-site.mjs, analytics off, the campus map from the lane K
-// FIXTURE tests/fixtures/campus-map until lane J's data/campus-map lands: delete MSCN_CAMPUS_MAP_ROOT below then) and serves it
-// at http://localhost:<port>/campus-nav/ with dev/serve.mjs --dist. Nothing answers outside /campus-nav/, so a
-// root-relative URL in the app fails visibly.
+// the web server builds build/e2e-site (scripts/build/build-site.mjs, analytics off, the real committed campus map in
+// data/campus-map and data/georef) and serves it at http://localhost:<port>/campus-nav/ with dev/serve.mjs --dist.
+// Nothing answers outside /campus-nav/, so a root-relative URL in the app fails visibly.
 //   npm run test:e2e        (PW_CHANNEL=chrome to use the installed Chrome instead of a downloaded browser)
 // The live smoke test against the deployed site is tests/smoke (npm run test:smoke).
 import { defineConfig, devices } from '@playwright/test';
@@ -38,7 +37,7 @@ export default defineConfig({
     cwd: '../..',
     url: `http://localhost:${PORT}${BASE_PATH}`,
     // MSYS_NO_PATHCONV keeps Git Bash from rewriting --base /campus-nav/ into a Windows path.
-    env: { MSCN_CAMPUS_MAP_ROOT: 'tests/fixtures/campus-map', MSYS_NO_PATHCONV: '1' },
+    env: { MSYS_NO_PATHCONV: '1' },
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },

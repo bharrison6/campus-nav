@@ -29,7 +29,8 @@ test('the deployed site serves the campus map: manifest, buildings, basemap, Map
   expect(res.status(), 'data/map-manifest.json').toBe(200);
   const man = await res.json();
   expect(man.buildings, 'the manifest names a buildings file').toBeTruthy();
-  expect(man.fixture, 'the deployed map is not the lane K test fixture').toBeFalsy();
+  expect(man.outdoorGraph, 'the manifest names the outdoor graph').toBeTruthy();
+  expect(Object.keys(man.georef || {}).sort(), 'IT and EP are georeferenced').toEqual(['bld-ep', 'bld-it']);
   for (const p of [man.buildings, ...(man.basemap || []), ...(man.outdoorGraph ? [man.outdoorGraph] : [])]) {
     const r = await request.get('./' + p);
     expect(r.status(), p).toBe(200);

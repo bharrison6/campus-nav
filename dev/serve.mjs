@@ -6,8 +6,7 @@
 //       Files are served under --base, a directory URL serves its index.html, /campus-nav redirects to
 //       /campus-nav/, and any miss under --base answers 404 with the site's 404.html. Requests outside --base
 //       get a plain 404 (so a root-relative URL in the app shows up as a failure), except "/" which redirects
-//       to --base. --build runs scripts/build/build-site.mjs into --dist first (MSCN_CAMPUS_MAP_ROOT in the
-//       environment points the build at a fixture campus map; tests only).
+//       to --base. --build runs scripts/build/build-site.mjs into --dist first.
 //   npm run serve    = serve the last build (dist/) at http://localhost:8787/campus-nav/
 //   npm run preview  = build dist/ first, then serve it
 // The admin page is not served here: npm run admin (tools/admin/server.mjs).
