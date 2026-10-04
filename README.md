@@ -64,6 +64,10 @@ The outdoor map covers 89 campus buildings.
 | `scripts/data/` | the build-time export (`export-campus-data.mjs`) and the overrides merge it shares with the admin |
 | `scripts/floorplan-pipeline/` | the DWG to SVG / JSON / nav-graph / seed pipeline (Node); reads the drawings from outside the repo |
 | `data/floorplans/` | generated per-floor JSON and SVG, `cross-floor-edges.json`, `pipeline-report.json` (committed) |
+| `scripts/campus-map/` | the campus map build (`npm run campus-map`): OpenStreetMap extract to map layers, georeference, primary entrances, outdoor walking graph, optional aerial tiles |
+| `data/campus-map/` | the campus map data (OpenStreetMap-derived, ODbL): `buildings.geojson`, `layers/*.geojson`, `outdoor-graph.json`, `manifest.json`, `aerial/` + `aerial.json`; inputs `source/osm-extract.json` and `overrides.geojson` (committed) |
+| `data/georef/` | one georeference per indoor building: its floor plans' frame fitted to its map footprint (committed) |
+| `src/shared/` | `georef.mjs`, the floor-plan to map transform shared by the data build and the app, and its generated ES5 copy `georef.es5.js` |
 | `data/overrides/` | the operator's edits on top of the generated data, one JSON file per collection (committed) |
 | `data/schedules/`, `data/links.json` | official event schedules by id and the documents they link to |
 | `tools/admin/` | the local admin: `Admin.html`, `server.mjs` (`npm run admin`); `gs/` holds the backend `.gs` files and the floor-plan assets |
@@ -94,7 +98,10 @@ The outdoor map covers 89 campus buildings.
 The export runs the backend `.gs` code in the Node stand-in, seeds it the way the v2 `initSystem()` seeded a
 new sheet, merges the overrides, and writes exactly what `getPublicCampusData` returns: the data without hidden
 floors and everything on them (rooms, nodes, the edges into them, indoor photos, QR locations). The Maps key is
-never in it (the site's `config.json` carries the key). It adds the plans of the published floors. The local
+never in it (the site's `config.json` carries the key). It adds the map fields (`scripts/data/campus-geo.mjs`):
+entrance nodes gain `lat`, `lng` (through `data/georef` and `src/shared/georef.mjs`) and a boolean `primary`; the
+indoor buildings' `entrances` become `[{nodeId, lat, lng, label, primary}]` ("West entrance", "East entrance, level
+2"); buildings carry `levels` (and `height` when set). It adds the plans of the published floors. The local
 admin reads `getAllCampusData`, so it still shows and edits hidden floors. `version` is a content hash, so
 the same inputs give byte-identical files; `version.json` adds `builtAt` and `gitSha`. `npm run export:data`
 writes it to `build/data` for a look.
@@ -127,6 +134,10 @@ types (stair, elevator, restroom, corridor, storage, mechanical) come only from 
 rest are `other`. The run is deterministic: a rerun on the same drawings reproduces the committed outputs
 byte for byte, and `npm run test:pipeline` (with the drawings present) fails if they drift.
 
+The floor JSON also carries the floor's `gross` outline (what the campus map fits to the building's footprint) and,
+for public floors, an `entrances` block written by `npm run campus-map` (each exterior door's primary-entrance score;
+the pipeline keeps it when it regenerates the floor, and `npm run campus-map` re-scores).
+
 ### New or revised drawings
 
 1. Put the DWG files in the drawings folder (`../drawings/dwg/`, or wherever `MSCN_DWG_DIR` points). A new
@@ -139,7 +150,60 @@ byte for byte, and `npm run test:pipeline` (with the drawings present) fails if 
 4. Check the overrides still fit: the export (and `npm run admin`) prints an `ORPHAN` line for every edit
    whose room, node or edge the new drawings no longer produce. Orphans are skipped, never applied, and stay in
    the file until you fix or remove them.
-5. Commit the regenerated files and push; the site rebuilds.
+5. Run `npm run campus-map` (the georeference and the entrances depend on the floor outlines and doors) and check its
+   residuals and primary entrances.
+6. Commit the regenerated files and push; the site rebuilds.
+
+## The campus map data
+
+`npm run campus-map` regenerates the map side of the app from committed inputs, with no network:
+
+- inputs: `data/campus-map/source/osm-extract.json` (an OpenStreetMap extract of the campus box: buildings, highways,
+  parking, landuse, with only the tags the layers read), `data/campus-map/overrides.geojson` (hand-made corrections),
+  the floor JSON in `data/floorplans` and the operator's overrides (`data/overrides`: entrance `primary`, building
+  `levels`/`height`);
+- `data/campus-map/buildings.geojson`: every building footprint with `{osmId, buildingId, name, height, levels, source}`;
+  `buildingId` is the seeded building it matches (the seed point inside the footprint, or the names agreeing within
+  150 m); `height` is the operator's height, else the operator's levels x 3.5 m, else OpenStreetMap `height` or
+  `building:levels` x 3.5 m, else a default by type (academic 3 levels, residence 4, other 2);
+- `data/campus-map/layers/`: `paths` (footway, path, pedestrian, steps, crossing; `steps` true for stairs), `roads`,
+  `parking`, `landuse` (grass, parks, pitches...), `water`, `labels` (named buildings and areas);
+- `data/georef/<buildingId>.json`: for each indoor building, the similarity transform (scale fixed by the drawing units;
+  rotation and translation solved, a mirrored drawing tried too) that fits the union of its public floors' outlines to
+  its footprint, the per-floor SVG offsets, and the fit's residual (`residualMeters`, RMS of the boundary distances;
+  the tests require under 3 m). `src/shared/georef.mjs` (`svgToLngLat(buildingId, x, y, floorId)`, `lngLatToSvg`)
+  applies it; the export and the app use that one module (`src/shared/georef.es5.js` is its generated ES5 copy);
+- primary entrances: every exterior door on a public floor is scored (the space it opens into, its width, the distance
+  to the nearest walking path, whether it faces that path) and the best 2 to 4 per building, on different faces, are
+  primary. The scores go to the floor JSON's `entrances` block, the choice to `tools/admin/gs/SeedCampusMap.gs`;
+- `data/campus-map/outdoor-graph.json`: the walking network (`{nodes: [{id, lat, lng, type}], edges: [{id, from, to,
+  distance, accessible, kind}]}`, meters): footways, crossings, the roads a walker uses where no sidewalk is mapped,
+  the override walks, and the entrances visitors may use (the primary ones, plus a door that is the only way into a
+  room, as EP 1322's) joined to the nearest path by a short connector. Entrance nodes keep their indoor ids, so the
+  outdoor and indoor graphs join by id; `steps` edges are not accessible;
+- `data/campus-map/manifest.json`: sources, attribution, counts, residuals.
+
+`npm run campus-map -- --check` writes nothing and fails when a committed output is out of date (a unit test does the
+same). Re-run the build after changing a primary entrance or a building's levels or height in the admin, after
+`npm run pipeline`, or after editing `overrides.geojson`.
+
+**Refreshing the OpenStreetMap data.** `npm run campus-map -- --refresh` downloads the campus box again (the main
+OpenStreetMap API `map` call, split into tiles if refused, Overpass mirrors as the fallback), rewrites the extract and
+rebuilds. Review the diff: footprints, paths and the residuals can move. Corrections OpenStreetMap lacks go into
+`data/campus-map/overrides.geojson` (features with `layer: "buildings"`, optionally `replaces: "way/<id>"`, or
+`layer: "paths"`); each is also a candidate to contribute to OpenStreetMap itself. Today it splits the one OSM polygon
+that draws Engineering and Physics together with the building north of it, and adds five walks visible in the NAIP
+imagery (the North 16th Street west sidewalk, EP's north and south walks, IT's east terrace walks).
+
+**Aerial imagery (optional).** `npm run campus-map -- --aerial` cuts USDA NAIP orthoimagery (public domain) into
+256 px JPEG tiles for zooms 15 to 18 over the campus, `data/campus-map/aerial/{z}/{x}/{y}.jpg` with `aerial.json`
+(bounds, zooms, attribution, acquisition date); `--aerial-refresh` rebuilds. It tries the USDA APFO service, then the
+USGS National Map NAIP service, uses no other imagery provider, and publishes nothing when neither answers or the
+tiles pass 25 MB. Downloads are cached in `scripts/campus-map/.cache` and resume after an error.
+
+**Attribution (required).** The buildings, layers and outdoor graph are derived from OpenStreetMap and published under
+the Open Database License: the map must show "© OpenStreetMap contributors" with a link to
+https://www.openstreetmap.org/copyright. The aerial tiles are public domain; credit "USDA NAIP" as `aerial.json` says.
 
 ## Editing the data (local admin)
 
@@ -165,7 +229,9 @@ data, in that order:
 
 A partial record changes only the fields it names; `"_delete": true` removes the record; `"_new": true` marks a
 record the operator added. Hand edits are fine (use **Settings > Reload from disk** in a running admin to pick
-them up). `config` may not set `mapsApiKey` or `dataVersion`. The admin's Settings tab shows how many records
+them up). `config` may not set `mapsApiKey` or `dataVersion`. Map fields: `navNodes` `primary` (true/false on entrance
+nodes: the doors visitors are routed to; the Nav Graph panel's "Primary entrance" box) and `buildings` `levels` /
+`height` (meters; the Buildings tab), both applied to the map by `npm run campus-map`. The admin's Settings tab shows how many records
 each file holds and lists orphans. Whole floors are not imported by hand any more: new drawings go through the
 pipeline. QR codes link to `MSCN_SITE_URL`, else `siteUrl` in `build.config.json`; `MSCN_MAPS_API_KEY`
 optionally enables the Buildings map in the admin (a key that allows localhost; kept in memory only).
@@ -189,6 +255,7 @@ npm run preview           # build, then serve dist/ at http://localhost:8787/cam
 npm run serve             # serve the last build without rebuilding
 npm run admin             # the local admin at http://localhost:8790/
 npm run pipeline          # drawings -> data/floorplans and the generated .gs files
+npm run campus-map        # map layers, georeference, primary entrances, outdoor graph (--refresh, --aerial, --check)
 npm run test:e2e          # Playwright against a fresh build (build/e2e-site) served at /campus-nav/
 npm run test:smoke        # Playwright against the deployed site (APP_URL, default the address in build.config.json)
 ```
@@ -221,5 +288,7 @@ deployment's script id) stays gitignored.
 - IT elevators are inferred from the drawings (shafts at rooms 0129/0245 and 0101C/0200D); not yet confirmed.
 - EP room 1322 has only an exterior door, so routes reach it from outside but not from inside the building.
 - The IT mezzanine (0301) has no stair or elevator link in the drawings; it is hidden from visitors anyway.
-- Building entrances on the outdoor map are the building's center point until entrance coordinates are added
-  in the admin Buildings tab.
+- Primary entrances are a heuristic (the drawings carry no door names or uses); review them in the admin Nav Graph
+  tab. IT's level-2 east doors are taken to open onto the terrace at grade, as the floor data suggests; not surveyed.
+- The IT footprint fit leaves 2.4 m RMS (mean 1.0 m): OpenStreetMap includes a one-storey structure at the
+  southeast corner that no floor drawing has.
