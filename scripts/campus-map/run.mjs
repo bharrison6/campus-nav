@@ -6,7 +6,8 @@
 //   data/campus-map/overrides.geojson        hand-drawn corrections (input)
 //   data/floorplans/*.json, data/overrides   floor data and the operator's edits (inputs)
 // and writes data/campus-map/{buildings.geojson, layers/*.geojson, outdoor-graph.json, manifest.json},
-// data/georef/<buildingId>.json, the `entrances` block of each public floor JSON, tools/admin/gs/SeedCampusMap.gs.
+// data/georef/<buildingId>.json, the `entrances` block of each public floor JSON, tools/admin/gs/SeedCampusMap.gs,
+// and src/shared/georef.es5.js (the ES5 build of src/shared/georef.mjs for the served app).
 // --aerial downloads the optional NAIP aerial tiles when data/campus-map/aerial is absent (--aerial-refresh: always).
 // --check writes nothing and exits 1 when a committed output differs from what the inputs give.
 import fs from 'node:fs';
@@ -16,6 +17,7 @@ import { fetchOsm } from './fetch-osm.mjs';
 import { formatExtract, toExtract } from './extract.mjs';
 import { buildCampusMap, withEntrances } from './build.mjs';
 import { loadInputs } from './inputs.mjs';
+import { emitGeorefEs5, GEOREF_ES5 } from './georef-es5.mjs';
 
 const argv = process.argv.slice(2);
 const has = (f) => argv.includes(f);
@@ -38,7 +40,7 @@ async function main() {
   const t0 = Date.now();
   const inputs = loadInputs();
   const out = buildCampusMap(inputs);
-  const files = { ...out.files };
+  const files = { ...out.files, [GEOREF_ES5]: emitGeorefEs5() };
   for (const f of inputs.floors) {
     if (!out.entranceBlocks[f.floorId]) continue;
     files[path.relative(REPO, path.join(FLOORPLANS_DIR, `${f.floorId}.json`)).replace(/\\/g, '/')] = JSON.stringify(withEntrances(f.json, out.entranceBlocks[f.floorId]), null, 1) + '\n';

@@ -1,0 +1,19 @@
+{
+ "bounds": [
+  -88.333,
+  36.606,
+  -88.31,
+  36.625
+ ],
+ "minzoom": 15,
+ "maxzoom": 18,
+ "tileSize": 256,
+ "format": "jpg",
+ "tiles": "aerial/{z}/{x}/{y}.jpg",
+ "attribution": "USDA NAIP via USGS The National Map, public domain",
+ "acquired": "2022-07-22",
+ "resolutionMeters": 0.6,
+ "source": "USGS The National Map NAIP (USGSNAIPImagery): https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer",
+ "tileCount": 466,
+ "bytes": 5830566
+}

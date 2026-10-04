@@ -14,7 +14,7 @@
 //      series; exact to millimeters across a building).
 // (originLat, originLng) is where the fitted floor's SVG (0, 0) lies.
 //
-// The body is written in ES5 (var, function, no arrows or template strings): scripts/campus-map/emit-georef-es5.mjs
+// The body is written in ES5 (var, function, no arrows or template strings): scripts/campus-map/georef-es5.mjs
 // derives src/shared/georef.es5.js (a browser global, MSCNGeoref) from this file mechanically, and a unit test keeps
 // the two identical in behavior.
 

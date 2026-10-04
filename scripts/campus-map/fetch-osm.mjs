@@ -25,13 +25,13 @@ export async function withRetry(fn, { tries = 4, baseMs = 2000, log = () => {}, 
       const r = await fn();
       if (r.status === 429 || r.status >= 500) {
         last = new Error(`${what}: HTTP ${r.status}`);
-        log(`  ${what}: HTTP ${r.status}, retry ${i + 1}/${tries - 1}`);
+        log(`  ${what}: HTTP ${r.status}${i + 1 < tries ? `, retry ${i + 1} of ${tries - 1}` : ', giving up'}`);
       } else {
         return r;
       }
     } catch (e) {
       last = e;
-      log(`  ${what}: ${e.message}, retry ${i + 1}/${tries - 1}`);
+      log(`  ${what}: ${e.message}${i + 1 < tries ? `, retry ${i + 1} of ${tries - 1}` : ', giving up'}`);
     }
     if (i + 1 < tries) await sleep(baseMs * 2 ** i);
   }
