@@ -91,6 +91,17 @@ byte for byte, and `npm run test:pipeline` fails if they drift.
    replace a single floor instead, use the admin **Import** tab with `data/floorplans/floor-<id>.json`; its
    stair and elevator links are kept when their node ids are unchanged.
 
+## The web app (static site)
+
+The public app lives in `src/web/` (`WebApp.html` and its `WebApp_*.html` modules) and is published as a
+static site: `npm run build` resolves the includes into `dist/index.html` and writes `config.json`, the
+campus data (`data/campus.json`, `data/version.json`), the floor plans (`floors/<floorId>.svg`), official
+schedules (`data/schedules/<id>.json`) and `data/links.json`. `.github/workflows/pages.yml` deploys it to
+GitHub Pages on push to `main`. Deep links: `?room=<roomId>[&nav=1]`, `?loc=<nodeId>`, `?qr=<admin QR
+payload>`, `?sched=<scheduleId>`. Operator steps (Pages, Maps key secret, analytics, custom domain):
+[`docs/go-live.md`](docs/go-live.md). Local: `npm run preview` (build + serve at
+`http://localhost:8787/campus-nav/`), `npm run test:e2e` (Playwright against the built site at a sub-path).
+
 ## Deployment
 
 See [`scripts/apps-script/DEPLOYMENT.md`](scripts/apps-script/DEPLOYMENT.md): the current deployment, how to
