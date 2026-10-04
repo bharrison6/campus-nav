@@ -68,7 +68,7 @@ test('geo: haversine, projection onto a segment, nearest edge, compass, rings', 
 
 // ---------------- the union ----------------
 
-test('the outdoor graph joins the indoor graph at entrance ids; only primary doors (and sole doors) are joined', () => {
+test('the outdoor graph joins the indoor graph at entrance ids; primary (main) doors are offered, sole doors kept', () => {
   const it = g.nodes['it-1-n0492'];
   assert.equal(it.floorId, 'floor-it-1');
   assert.ok(P.hasLngLat(it) && it.joined, 'the indoor entrance node gained coordinates');
@@ -81,8 +81,8 @@ test('the outdoor graph joins the indoor graph at entrance ids; only primary doo
   assert.equal(g.nodes['ep-1-n0365'].soleDoor, true);
   assert.equal(g.adj['ep-1-n0365'].some((e) => e.outdoor), true);
   assert.equal(P.primaryEntrances(g, 'bld-ep').includes('ep-1-n0365'), false);
-  // a non-primary door the primary doors reach indoors is not joined to the paths (synthetic: the real graph carries
-  // only primary and sole doors, so give EP's door ep-1-n0356 a connector of its own)
+  // v5: a non-primary door the primary doors reach indoors is joined as an alt (side) door, priced at the alt factor
+  // (synthetic: the real graph carries only primary and sole doors, so give EP's door ep-1-n0356 a connector of its own)
   const n0356 = data.navNodes.find((n) => n.id === 'ep-1-n0356');
   assert.equal(n0356.primary, false);
   const extra = unified({
@@ -90,8 +90,11 @@ test('the outdoor graph joins the indoor graph at entrance ids; only primary doo
     edges: OUTDOOR.edges.concat([{ id: 'test-conn', from: 'ep-1-n0356', to: HUB, distance: 5, accessible: true, kind: 'connector' }]),
   });
   assert.ok(extra.nodes['ep-1-n0356'].joined);
-  assert.equal(extra.adj['ep-1-n0356'].some((e) => e.outdoor), false, 'closed: no outdoor edge');
+  assert.equal(extra.adj['ep-1-n0356'].some((e) => e.outdoor), true, 'joined at the alt cost');
+  assert.equal(P.accessOf(extra.nodes['ep-1-n0356']), 'alt', 'old data: primary false reads alt');
   assert.equal(extra.nodes['ep-1-n0356'].soleDoor, undefined);
+  assert.equal(P.primaryEntrances(extra, 'bld-ep').includes('ep-1-n0356'), false, 'not offered as the building door');
+  assert.equal(P.primaryEntrances(extra, 'bld-ep', true).includes('ep-1-n0356'), true, 'offered with side doors on');
   // any real steps edge is never accessible
   for (const e of g.outdoorEdges.filter((x) => x.kind === 'steps')) assert.equal(e.accessible, false, e.id);
 });

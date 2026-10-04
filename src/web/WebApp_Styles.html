@@ -54,6 +54,17 @@
     --map-route-dim: #8fb0e6;
     --map-door: #ecac00;
     --map-gps: #1a73e8;
+    /* access classes (v5): main, alt (side) and emergency doors, paths and hallways */
+    --map-path-alt: #f4f6f9;
+    --map-path-alt-casing: #d3dae3;
+    --map-door-main: #002144;
+    --map-door-alt: #8a96a6;
+    --map-exit: #c5221f;
+    --door-main: #002144;
+    --door-alt: #7c8898;
+    --exit: #c5221f;
+    --exit-text: #ffffff;
+    --room-emergency: rgba(197, 34, 31, 0.13);
     --map-light: 0.38;
     --room-selected: rgba(236, 172, 0, 0.42);
     --room-start: rgba(20, 108, 46, 0.22);
@@ -115,6 +126,15 @@
       --map-route-dim: #34507a;
       --map-gps: #6ea8ff;
       --map-light: 0.45;
+      --map-path-alt: #34445a;
+      --map-path-alt-casing: #0e1824;
+      --map-door-main: #ecac00;
+      --map-door-alt: #7f8fa5;
+      --map-exit: #ef5350;
+      --door-main: #ecac00;
+      --door-alt: #8494a9;
+      --exit: #e5483f;
+      --room-emergency: rgba(229, 72, 63, 0.20);
     }
   }
 
@@ -402,6 +422,7 @@
   @media (hover: hover) { .fv-svg [data-room-id]:hover { fill: var(--room-hover); } }
   .fv-svg [data-room-id].is-start { fill: var(--room-start); stroke: var(--start); stroke-width: 2px; }
   .fv-svg [data-room-id].is-dest { fill: var(--room-dest); stroke: var(--dest); stroke-width: 2px; }
+  .fv-svg [data-room-id].is-emergency { fill: var(--room-emergency); stroke: var(--exit); stroke-width: 1.5px; stroke-dasharray: 5 4; }
   .fv-svg [data-room-id].is-selected { fill: var(--room-selected); stroke: #8a6400; stroke-width: 2.5px; }
   .fv-label {
     fill: var(--plan-label); font-family: var(--font); font-weight: 650; text-anchor: middle; dominant-baseline: central;
@@ -428,6 +449,13 @@
   .fv-marker--door text { fill: #1b1300; }
   .fv-marker--photo { pointer-events: all; cursor: pointer; }
   .fv-marker--photo circle.core { fill: var(--gold); }
+  .fv-marker--exit, .fv-marker--door-main, .fv-marker--door-alt { pointer-events: none; }
+  .fv-marker--exit rect.ring { fill: #fff; }
+  .fv-marker--exit rect.core { fill: var(--exit); }
+  .fv-marker--exit text { font-size: 9px; letter-spacing: 0.04em; fill: var(--exit-text); }
+  .fv-marker--door-main circle.core { fill: var(--door-main); }
+  .fv-marker--door-alt circle.ring { fill: var(--door-alt); }
+  .fv-marker--door-alt circle.core { fill: var(--surface); }
   .fv-marker text { fill: #fff; font-family: var(--font); font-size: 11px; font-weight: 800; text-anchor: middle; dominant-baseline: central; }
 
   /* route panel */
@@ -484,7 +512,20 @@
   .route-step.is-error .title { color: var(--danger); }
   .route-nav { display: flex; gap: 8px; align-items: center; }
   .route-nav .btn { flex: 1; }
-  .route-options { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; }
+  .route-options { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0 12px; margin-top: 4px; }
+  .route-options .switch { font-size: 0.9rem; }
+  .route-options-links { margin-top: 0; font-size: 0.85rem; align-items: flex-start; }
+  .route-legend { flex: 1 1 auto; min-width: 0; }
+  .route-legend summary { cursor: pointer; min-height: 32px; display: flex; align-items: center; color: var(--link); font-weight: 650; }
+  .route-legend ul { list-style: none; margin: 0 0 6px; padding: 0; display: grid; gap: 6px; color: var(--muted); }
+  .route-legend li { display: flex; gap: 8px; align-items: flex-start; }
+  .route-legend strong { color: var(--text); }
+  .route-options-links .route-campus { min-height: 32px; display: inline-flex; align-items: center; font-weight: 650; }
+  .legend-mark { flex: none; width: 14px; height: 14px; margin-top: 2px; border-radius: 50%; }
+  .legend-main { background: var(--door-main); box-shadow: 0 0 0 2px var(--surface) inset, 0 0 0 1px var(--door-main); }
+  .legend-alt { background: var(--surface); border: 3px solid var(--door-alt); }
+  .legend-emergency { width: 26px; border-radius: 3px; background: var(--exit); position: relative; }
+  .legend-emergency::after { content: 'EXIT'; position: absolute; inset: 0; color: var(--exit-text); font-size: 7px; font-weight: 800; display: flex; align-items: center; justify-content: center; }
   .step-dots { display: flex; gap: 5px; justify-content: center; }
   .step-dots span { width: 7px; height: 7px; border-radius: 50%; background: var(--border); }
   .step-dots span.on { background: var(--accent); }

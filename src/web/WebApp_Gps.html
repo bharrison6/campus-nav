@@ -79,7 +79,7 @@ function gpsOnPosition(pos) {
     state = 'indoors';
     fix.insideBuildingId = inside;
   } else if (APP.graph && APP.graph.hasOutdoor) {
-    var s = MSCNGeo.nearestEdge(APP.graph.outdoorEdges, p);
+    var s = MSCNGeo.nearestEdge(APP.graph.outdoorEdges, p, function (e) { return e.access !== 'emergency'; });
     if (s && s.dist <= Math.min(SNAP_METERS, Math.max(8, fix.accuracy))) {
       fix.lng = s.point[0];
       fix.lat = s.point[1];

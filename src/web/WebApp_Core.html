@@ -26,6 +26,7 @@ var LS_KEYS = {
   svgPrefix: 'mscnFloorSvg:',
   schedule: 'campusNavSchedule',
   avoidStairs: 'mscnAvoidStairs',
+  useSideDoors: 'mscnUseSideDoors',
   lastBuilding: 'mscnLastBuilding'
 };
 
@@ -243,9 +244,11 @@ function buildingTarget(buildingId, nodeId) {
     if (nodeId && ents[i].nodeId === nodeId && ents[i].lat && ents[i].lng) { return { lat: ents[i].lat, lng: ents[i].lng, name: entranceLabel(ents[i]) || 'entrance' }; }
   }
   for (i = 0; i < ents.length; i++) {
-    if (ents[i].lat && ents[i].lng && MSCNPath.toBool(ents[i].primary, false)) { return { lat: ents[i].lat, lng: ents[i].lng, name: entranceLabel(ents[i]) || 'entrance' }; }
+    if (ents[i].lat && ents[i].lng && MSCNPath.accessOf(ents[i]) === 'main') { return { lat: ents[i].lat, lng: ents[i].lng, name: entranceLabel(ents[i]) || 'entrance' }; }
   }
-  if (ents.length && ents[0].lat && ents[0].lng) { return { lat: ents[0].lat, lng: ents[0].lng, name: entranceLabel(ents[0]) || 'entrance' }; }
+  for (i = 0; i < ents.length; i++) {
+    if (ents[i].lat && ents[i].lng && MSCNPath.accessOf(ents[i]) !== 'emergency') { return { lat: ents[i].lat, lng: ents[i].lng, name: entranceLabel(ents[i]) || 'entrance' }; }
+  }
   if (b.lat && b.lng) { return { lat: b.lat, lng: b.lng, name: b.name }; }
   return null;
 }

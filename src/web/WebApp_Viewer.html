@@ -441,7 +441,8 @@ var FloorViewer = (function () {
     }
   };
 
-  /* markers: [{ id, x, y, kind: 'start'|'dest'|'you'|'link'|'photo', text }] */
+  /* markers: [{ id, x, y, kind: 'start'|'dest'|'you'|'link'|'photo'|'door'|'door-main'|'door-alt'|'exit', text, title }]
+     'exit' (an emergency exit) is a red EXIT plate, the door classes small dots; neither takes taps. */
   FloorViewer.prototype.setMarkers = function (markers) {
     if (!this.layers.markers) { return; }
     var g = this.layers.markers;
@@ -455,8 +456,16 @@ var FloorViewer = (function () {
       if (!isFinite(x) || !isFinite(y)) { continue; }
       var grp = el('g', { 'class': 'fv-marker fv-marker--' + m.kind, 'data-marker-id': m.id || '' });
       if (m.kind === 'you') { grp.appendChild(el('circle', { 'class': 'halo', r: 22 })); }
-      grp.appendChild(el('circle', { 'class': 'ring', r: m.kind === 'link' || m.kind === 'photo' ? 12 : 11 }));
-      grp.appendChild(el('circle', { 'class': 'core', r: m.kind === 'link' || m.kind === 'photo' ? 10 : 7 }));
+      if (m.kind === 'exit') {
+        grp.appendChild(el('rect', { 'class': 'ring', x: -17, y: -9, width: 34, height: 18, rx: 4 }));
+        grp.appendChild(el('rect', { 'class': 'core', x: -15, y: -7, width: 30, height: 14, rx: 3 }));
+      } else if (m.kind === 'door-main' || m.kind === 'door-alt') {
+        grp.appendChild(el('circle', { 'class': 'ring', r: m.kind === 'door-main' ? 7 : 6 }));
+        grp.appendChild(el('circle', { 'class': 'core', r: m.kind === 'door-main' ? 5 : 3.5 }));
+      } else {
+        grp.appendChild(el('circle', { 'class': 'ring', r: m.kind === 'link' || m.kind === 'photo' ? 12 : 11 }));
+        grp.appendChild(el('circle', { 'class': 'core', r: m.kind === 'link' || m.kind === 'photo' ? 10 : 7 }));
+      }
       if (m.text) {
         var t = el('text', { x: 0, y: 0 });
         t.appendChild(document.createTextNode(m.text));

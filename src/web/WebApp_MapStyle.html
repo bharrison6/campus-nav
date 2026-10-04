@@ -3,7 +3,9 @@
  * MSCNMapStyle: the MapLibre style for the campus map, generated from the app's design tokens (the --map-* and
  * --room-type-* CSS custom properties in WebApp_Styles, read by WebApp_Map for the current light or dark theme), and
  * the GeoJSON for the indoor "building view". Pure ES5, no DOM (Node unit tests load it).
- *   build(tokens, opts) -> style JSON          opts: {buildings, base (FeatureCollections), aerial?, aerialVisible?}
+ *   build(tokens, opts) -> style JSON          opts: {buildings, base (FeatureCollections), entrances?, aerial?, aerialVisible?}
+ * Access classes (v5): a path feature with properties.access 'alt' is drawn lighter than a main one; entrances
+ * (Point features {access: 'main'|'alt'|'emergency'}) are dots by class, emergency exits also labelled EXIT up close.
  *   paint(tokens) -> {layerId: {property: value}}   the token-driven paint, reapplied on a theme change
  *   classifyBase(feature, fileHint) -> 'paths'|'roads'|'parking'|'landuse'|'water'|'labels'
  *   mergeBase([{fc, hint}]) -> one FeatureCollection with properties.layer set
@@ -79,6 +81,8 @@ var MSCNMapStyle = (function () {
   }
 
   /* Every token-driven paint property, by layer id. build() uses it and the map reapplies it on a theme change. */
+  var isAlt = ['==', ['get', 'access'], 'alt'];
+
   function paint(t) {
     return {
       'background': { 'background-color': t.land },
@@ -87,8 +91,8 @@ var MSCNMapStyle = (function () {
       'parking': { 'fill-color': t.parking, 'fill-outline-color': t.roadCasing },
       'roads-casing': { 'line-color': t.roadCasing },
       'roads': { 'line-color': t.road },
-      'paths-casing': { 'line-color': t.pathCasing },
-      'paths': { 'line-color': t.path },
+      'paths-casing': { 'line-color': ['case', isAlt, t.pathAltCasing || t.pathCasing, t.pathCasing] },
+      'paths': { 'line-color': ['case', isAlt, t.pathAlt || t.path, t.path] },
       'steps': { 'line-color': t.steps },
       'buildings-3d': {
         'fill-extrusion-color': ['case',
@@ -113,6 +117,11 @@ var MSCNMapStyle = (function () {
       'gps-heading': { 'fill-color': t.gps },
       'gps-dot': { 'circle-color': t.gps, 'circle-stroke-color': t.labelHalo },
       'photos': { 'circle-color': t.door, 'circle-stroke-color': t.labelHalo },
+      'entrances': {
+        'circle-color': ['match', ['get', 'access'], 'emergency', t.exit || t.dest, 'alt', t.labelHalo, t.doorMain || t.label],
+        'circle-stroke-color': ['match', ['get', 'access'], 'alt', t.doorAlt || t.labelMuted, t.labelHalo]
+      },
+      'entrance-exits': { 'text-color': t.exit || t.dest, 'text-halo-color': t.labelHalo },
       'building-labels': { 'text-color': t.label, 'text-halo-color': t.labelHalo },
       'path-labels': { 'text-color': t.labelMuted || t.label, 'text-halo-color': t.labelHalo },
       'place-labels': { 'text-color': t.labelMuted || t.label, 'text-halo-color': t.labelHalo }
@@ -143,7 +152,8 @@ var MSCNMapStyle = (function () {
       'route': { type: 'geojson', data: emptyFC() },
       'route-points': { type: 'geojson', data: emptyFC() },
       'gps': { type: 'geojson', data: emptyFC() },
-      'photos': { type: 'geojson', data: opts.photos || emptyFC() }
+      'photos': { type: 'geojson', data: opts.photos || emptyFC() },
+      'entrances': { type: 'geojson', data: opts.entrances || emptyFC() }
     };
     var layers = [{ id: 'background', type: 'background', paint: {} }];
     if (opts.aerial && opts.aerial.tiles) {
@@ -198,6 +208,12 @@ var MSCNMapStyle = (function () {
       { id: 'gps-heading', type: 'fill', source: 'gps', filter: ['==', ['get', 'kind'], 'heading'], paint: { 'fill-opacity': 0.35 } },
       { id: 'route-points', type: 'circle', source: 'route-points',
         paint: { 'circle-radius': ['match', ['get', 'kind'], 'door', 7, 8], 'circle-stroke-width': 3, 'circle-pitch-alignment': 'viewport' } },
+      { id: 'entrances', type: 'circle', source: 'entrances', minzoom: 16.5,
+        paint: { 'circle-radius': ['match', ['get', 'access'], 'alt', 3.5, 4.5], 'circle-stroke-width': ['match', ['get', 'access'], 'alt', 2, 1.5],
+          'circle-pitch-alignment': 'viewport' } },
+      { id: 'entrance-exits', type: 'symbol', source: 'entrances', minzoom: 18, filter: ['==', ['get', 'access'], 'emergency'],
+        layout: { 'text-field': 'EXIT', 'text-font': FONT, 'text-size': 10, 'text-offset': [0, 1.1], 'text-anchor': 'top' },
+        paint: { 'text-halo-width': 1.5 } },
       { id: 'photos', type: 'circle', source: 'photos', minzoom: 15.5,
         paint: { 'circle-radius': 6, 'circle-stroke-width': 2, 'circle-pitch-alignment': 'viewport' } },
       { id: 'gps-dot', type: 'circle', source: 'gps', filter: ['==', ['get', 'kind'], 'dot'],
