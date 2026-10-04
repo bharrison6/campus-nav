@@ -10,7 +10,7 @@
 // Runs on the engine's output (getPublicCampusData: seed + pipeline + data/overrides merged, so the effective room
 // types and classes are already in it) before the map fields are added and the export is hashed. Pure, in place.
 
-import { ACCESS_CLASSES } from './overrides.mjs';
+import { ACCESS_CLASSES, normalizeAccess } from './overrides.mjs';
 
 export { ACCESS_CLASSES };
 const RANK = { main: 0, alt: 1, emergency: 2 };
@@ -19,7 +19,7 @@ const CLASSED_NODES = new Set(['door', 'entrance', 'waypoint']);
 const EDGE_TOLERANCE = 12;
 
 const toBool = (v) => v === true || /^(true|1|yes)$/i.test(String(v));
-const norm = (v) => (ACCESS_CLASSES.includes(v) ? v : 'main');
+const norm = normalizeAccess;
 
 function inRing(x, y, ring) {
   let inside = false;
@@ -124,9 +124,15 @@ function publishRoutingNumber(campus, name, dflt, ok) {
   return row.value;
 }
 
-/** routing.altFactor in the config rows: a positive number, default 3 (a missing or malformed row is set to 3). */
+/**
+ * routing.altFactor in the config rows: a number, default 3 (a missing or malformed row is set to 3); one rule with the
+ * app (WebApp_Route configAltFactor, MSCNPath.findPath): a value below 1 reads as 1.
+ */
 export function publishAltFactor(campus, dflt = 3) {
-  return publishRoutingNumber(campus, 'altFactor', dflt, (v) => v > 0);
+  publishRoutingNumber(campus, 'altFactor', dflt, () => true);
+  const row = campus.config.find((c) => c.key === 'routing.altFactor');
+  if (row.value < 1) row.value = 1;
+  return row.value;
 }
 
 /**

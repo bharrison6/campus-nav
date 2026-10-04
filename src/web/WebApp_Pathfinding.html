@@ -237,8 +237,8 @@ var MSCNPath = (function () {
    *   opts.altDoorCost: meters added once for each alt door or entrance node the route enters (default 300, at least 0),
    *   on top of the factor, so a route takes a side door only when it saves that much or nothing main gets there.
    *   opts.allowEmergency: walk emergency nodes and edges too (only to tell "no route without an emergency exit").
-   *   Without allowEmergency an emergency node is entered only as a goal, or on the way out from an emergency start
-   *   (a code scanned at an emergency door: the route leaves it by the shortest way).
+   *   Without allowEmergency no emergency node or edge is ever on a route, not even as its start or goal (a code
+   *   scanned at an emergency door starts from nearestOpenNode instead).
    *   route = { nodeIds, nodes, distance (meters, including both end costs), cost (the weighted search cost),
    *             startCost, goalCost }
    */
@@ -274,13 +274,11 @@ var MSCNPath = (function () {
     var g = {};
     var came = {};
     var cameEdge = {};
-    var escape = {};
     var closed = {};
     var heap = new MinHeap();
     for (id in starts) {
-      if (starts.hasOwnProperty(id)) {
+      if (starts.hasOwnProperty(id) && (opts.allowEmergency || cls(id) !== 'emergency')) {
         g[id] = starts[id];
-        escape[id] = cls(id) === 'emergency';
         heap.push(id, starts[id] + h(id));
       }
     }
@@ -302,7 +300,7 @@ var MSCNPath = (function () {
         }
         return { nodeIds: ids, nodes: nodes, distance: meters, cost: g[GOAL], startCost: starts[ids[0]], goalCost: goals[last] };
       }
-      if (goals.hasOwnProperty(cur)) {
+      if (goals.hasOwnProperty(cur) && (opts.allowEmergency || cls(cur) !== 'emergency')) {
         var gg = g[cur] + goals[cur];
         if (!g.hasOwnProperty(GOAL) || gg < g[GOAL]) { g[GOAL] = gg; came[GOAL] = cur; heap.push(GOAL, gg); }
       }
@@ -313,17 +311,54 @@ var MSCNPath = (function () {
         if (opts.indoorOnly && nb.outdoor) { continue; }
         if (closed[nb.to]) { continue; }
         var to = cls(nb.to);
-        var em = to === 'emergency' || nb.access === 'emergency';
-        if (em && !opts.allowEmergency && !escape[cur] && !goals.hasOwnProperty(nb.to)) { continue; }
+        if (!opts.allowEmergency && (to === 'emergency' || nb.access === 'emergency')) { continue; }
         var alt = nb.access === 'alt' || to === 'alt' || cls(cur) === 'alt';
         var ng = g[cur] + (alt ? nb.cost * factor : nb.cost) + (doorCost && altDoor(nb.to) ? doorCost : 0);
         if (!g.hasOwnProperty(nb.to) || ng < g[nb.to]) {
           g[nb.to] = ng;
           came[nb.to] = cur;
           cameEdge[nb.to] = nb;
-          escape[nb.to] = !!escape[cur] && to === 'emergency';
           heap.push(nb.to, ng + h(nb.to));
         }
+      }
+    }
+    return null;
+  }
+
+  /*
+   * nearestOpenNode(graph, nodeId, opts) -> {id, distance} | null
+   *   The node a route may start from in place of an emergency one (a code scanned at an emergency exit): the nearest
+   *   node, by walking distance over any edge, that is not emergency and has a non-emergency edge (so a route can leave
+   *   it). opts.accessibleOnly skips stairs. A node that is not emergency is its own answer, at 0 m.
+   */
+  function nearestOpenNode(graph, nodeId, opts) {
+    opts = opts || {};
+    if (!graph.nodes[nodeId]) { return null; }
+    function open(nid) {
+      if (accessOf(graph.nodes[nid]) === 'emergency') { return false; }
+      var a = graph.adj[nid] || [];
+      for (var k = 0; k < a.length; k++) {
+        if (a[k].access !== 'emergency' && accessOf(graph.nodes[a[k].to]) !== 'emergency') { return true; }
+      }
+      return false;
+    }
+    if (accessOf(graph.nodes[nodeId]) !== 'emergency') { return { id: nodeId, distance: 0 }; }
+    var dist = {};
+    var done = {};
+    var heap = new MinHeap();
+    dist[nodeId] = 0;
+    heap.push(nodeId, 0);
+    while (heap.size() > 0) {
+      var cur = heap.pop().id;
+      if (done[cur]) { continue; }
+      done[cur] = true;
+      if (open(cur)) { return { id: cur, distance: dist[cur] }; }
+      var nbrs = graph.adj[cur] || [];
+      for (var i = 0; i < nbrs.length; i++) {
+        var nb = nbrs[i];
+        if (opts.accessibleOnly && !nb.accessible) { continue; }
+        var nd = dist[cur] + nb.cost;
+        if (!done[nb.to] && (!dist.hasOwnProperty(nb.to) || nd < dist[nb.to])) { dist[nb.to] = nd; heap.push(nb.to, nd); }
       }
     }
     return null;
@@ -582,7 +617,8 @@ var MSCNPath = (function () {
     return graph;
   }
 
-  /* Node ids reachable from the given nodes over the indoor edges (call before the outdoor edges are added). */
+  /* Node ids reachable from the given nodes over the indoor edges a route may walk (main and alt; never emergency, as
+     in findPath). Call before the outdoor edges are added. */
   function indoorReach(graph, fromIds) {
     var seen = {};
     var stack = fromIds.slice(0);
@@ -591,6 +627,7 @@ var MSCNPath = (function () {
       var adj = graph.adj[stack.pop()] || [];
       for (var k = 0; k < adj.length; k++) {
         if (adj[k].outdoor || seen[adj[k].to]) { continue; }
+        if (adj[k].access === 'emergency' || accessOf(graph.nodes[adj[k].to]) === 'emergency') { continue; }
         seen[adj[k].to] = true;
         stack.push(adj[k].to);
       }
@@ -862,6 +899,7 @@ var MSCNPath = (function () {
     hasLngLat: hasLngLat,
     geoMeters: geoMeters,
     findPath: findPath,
+    nearestOpenNode: nearestOpenNode,
     segmentPath: segmentPath,
     snapEnds: snapEnds,
     segmentRoute: segmentRoute,

@@ -38,6 +38,15 @@ const FLAGS = ['_delete', '_new'];
 
 /** The access classes of the v5 contract. */
 export const ACCESS_CLASSES = ['main', 'alt', 'emergency'];
+
+/**
+ * The one reading of an access value everywhere (export, connectivity check, map build; the app's MSCNPath.accessOf is
+ * the same rule in ES5): "main" | "alt" | "emergency", any case, else main.
+ */
+export function normalizeAccess(v) {
+  const a = String(v == null ? '' : v).toLowerCase();
+  return ACCESS_CLASSES.includes(a) ? a : 'main';
+}
 const truthy = (v) => v === true || /^(true|1|yes)$/i.test(String(v));
 
 /**

@@ -9,6 +9,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import vm from 'node:vm';
 import { SRC, loadInclude, scriptBodies } from './load-include.mjs';
+import { emergencyEdgeCampus } from './fixtures/emergency-campus.mjs';
 
 const P = loadInclude('WebApp_Pathfinding.html', 'MSCNPath');
 
@@ -84,19 +85,47 @@ test('emergency: never on a route, even as the shortest way; alone it means no r
   assert.equal(P.findPath(only, 'r1', 'r2'), null);
   assert.equal(P.findPath(only, 'r1', 'r2', { altFactor: 1 }), null, 'the toggle does not open emergency');
   assert.equal(via(P.findPath(only, 'r1', 'r2', { allowEmergency: true })), 'e1', 'only to tell the visitor why');
-  // as the route's own start or goal (a code scanned at an emergency door) it is allowed, and left by the shortest way
-  assert.deepEqual(Array.from(P.findPath(only, 'e1', 'r2').nodeIds), ['e1', 'r2']);
-  assert.deepEqual(Array.from(P.findPath(only, 'r1', 'e1').nodeIds), ['r1', 'e1']);
+  // never as the route's own start or goal either: an emergency node is not an endpoint, with any option but the diagnostic
+  for (const altFactor of [1, 3]) {
+    assert.equal(P.findPath(only, 'e1', 'r2', { altFactor }), null);
+    assert.equal(P.findPath(only, 'r1', 'e1', { altFactor }), null);
+    assert.equal(P.findPath(hallways(), 'e1', 'r2', { altFactor }), null, 'not even with main ways around it');
+    assert.equal(P.findPath(hallways(), 'r1', 'e1', { altFactor }), null);
+  }
+  assert.deepEqual(Array.from(P.findPath(only, 'e1', 'r2', { allowEmergency: true }).nodeIds), ['e1', 'r2']);
+  // a start list holding an emergency node starts from its other nodes only
+  assert.equal(via(P.findPath(hallways(), ['e1', 'r1'], 'r2')), 'm1,m2');
 });
 
-test('emergency: a start inside an emergency hallway walks out of it, then never back in', () => {
+test('emergency: an emergency edge between two ordinary rooms is never walked, even into the goal (review v5, finding 1)', () => {
+  const g = P.buildGraph({
+    floors: [FLOOR],
+    navNodes: [node('a', 'room', { roomId: 'A' }), node('b', 'room', { roomId: 'B1' })],
+    navEdges: [edge('a', 'b', 4, { access: 'emergency' })],
+  });
+  assert.equal(P.findPath(g, 'a', 'b'), null);
+  assert.equal(P.findPath(g, 'b', 'a'), null);
+  assert.equal(P.findPath(g, 'a', 'b', { altFactor: 1, altDoorCost: 0 }), null);
+  assert.deepEqual(Array.from(P.findPath(g, 'a', 'b', { allowEmergency: true }).nodeIds), ['a', 'b']);
+  // the shared fixture the connectivity check is tested on: room a, an emergency edge, waypoint m, room b
+  assert.equal(P.findPath(P.buildGraph(emergencyEdgeCampus()), 'a', 'b'), null);
+  assert.equal(P.findPath(P.buildGraph(emergencyEdgeCampus({ emergencyEdge: false })), 'a', 'b').nodeIds.length, 3);
+});
+
+test('emergency: a start scanned at an emergency door moves to the nearest node a route may leave from', () => {
   const g = P.buildGraph({
     floors: [FLOOR],
     navNodes: [node('x', 'door', { access: 'emergency' }), node('y', 'waypoint', { access: 'emergency' }), node('h', 'waypoint'),
-      node('z', 'waypoint', { access: 'emergency' }), node('goal', 'room', { roomId: 'G' }), node('w', 'waypoint')],
-    navEdges: [edge('x', 'y', 3), edge('y', 'h', 3), edge('h', 'z', 1), edge('z', 'goal', 1), edge('h', 'w', 5), edge('w', 'goal', 5)],
+      node('z', 'waypoint', { access: 'emergency' }), node('goal', 'room', { roomId: 'G' }), node('w', 'waypoint'), node('far', 'waypoint')],
+    navEdges: [edge('x', 'y', 3), edge('y', 'h', 3), edge('h', 'z', 1), edge('z', 'goal', 1), edge('h', 'w', 5), edge('w', 'goal', 5),
+      edge('x', 'far', 20), edge('far', 'w', 1)],
   });
-  assert.deepEqual(Array.from(P.findPath(g, 'x', 'goal').nodeIds), ['x', 'y', 'h', 'w', 'goal']);
+  assert.equal(P.findPath(g, 'x', 'goal'), null, 'never from the emergency door itself');
+  assert.deepEqual({ ...P.nearestOpenNode(g, 'x') }, { id: 'h', distance: 6 }, 'the walk out of the emergency hallway');
+  assert.deepEqual({ ...P.nearestOpenNode(g, 'goal') }, { id: 'goal', distance: 0 }, 'an open node is its own answer');
+  assert.deepEqual(Array.from(P.findPath(g, 'h', 'goal').nodeIds), ['h', 'w', 'goal'], 'then never back through z');
+  const sealed = P.buildGraph({ floors: [FLOOR], navNodes: [node('x', 'door', { access: 'emergency' })], navEdges: [] });
+  assert.equal(P.nearestOpenNode(sealed, 'x'), null);
 });
 
 test('nodesForRoom and entranceIds leave emergency doors out when the room or building has another', () => {
@@ -198,6 +227,24 @@ test('a sole door is an alt door the main doors cannot reach indoors', () => {
     navEdges: [edge('dm', 'r2', 5), edge('da', 'r3', 5)],
   }), { nodes: [{ id: 'dm', lat: 36.6, lng: -88.3 }, { id: 'da', lat: 36.6, lng: -88.3001 }], edges: [{ id: 'x', from: 'dm', to: 'da', distance: 9 }] });
   assert.equal(cut.nodes.da.soleDoor, true);
+  // a connection from the main door to the alt door that crosses an emergency hallway (or an emergency edge) does not
+  // count: the main door cannot reach r3 indoors, so da is still a sole door (review v5, finding 7)
+  for (const [mid, ed] of [[{ access: 'emergency' }, {}], [{}, { access: 'emergency' }]]) {
+    const g2 = P.addOutdoorGraph(P.buildGraph({
+      floors: [FLOOR],
+      navNodes: [node('dm', 'entrance', { access: 'main' }), node('ew', 'waypoint', mid), node('da', 'entrance', { access: 'alt' }), node('r3', 'room', { roomId: 'R3' })],
+      navEdges: [edge('dm', 'ew', 3, ed), edge('ew', 'da', 3), edge('da', 'r3', 5)],
+    }), { nodes: [{ id: 'dm', lat: 36.6, lng: -88.3 }, { id: 'da', lat: 36.6, lng: -88.3001 }], edges: [{ id: 'x', from: 'dm', to: 'da', distance: 9 }] });
+    assert.equal(g2.nodes.da.soleDoor, true, JSON.stringify([mid, ed]));
+    assert.equal(P.findPath(g2, 'dm', 'r3', { indoorOnly: true }), null, 'as findPath says');
+  }
+  // an alt hallway between them is a way in: not a sole door
+  const altWay = P.addOutdoorGraph(P.buildGraph({
+    floors: [FLOOR],
+    navNodes: [node('dm', 'entrance', { access: 'main' }), node('aw', 'waypoint', { access: 'alt' }), node('da', 'entrance', { access: 'alt' }), node('r3', 'room', { roomId: 'R3' })],
+    navEdges: [edge('dm', 'aw', 3), edge('aw', 'da', 3), edge('da', 'r3', 5)],
+  }), { nodes: [{ id: 'dm', lat: 36.6, lng: -88.3 }, { id: 'da', lat: 36.6, lng: -88.3001 }], edges: [] });
+  assert.equal(altWay.nodes.da.soleDoor, undefined);
 });
 
 // ---------------- the route panel (WebApp_Route) ----------------
@@ -249,7 +296,8 @@ test('route panel: routing.altFactor from the campus config, either config row s
   assert.equal(routeVia(planFrom(panelApp({ config: [{ key: 'routing.altFactor', value: '2' }] }), false)), 'a1', '10 m x 2 < 25 m');
   assert.equal(panelApp({ config: [{ key: 'routing', value: '{"altFactor": 4}' }] }).configAltFactor(), 4);
   assert.equal(panelApp({ config: [{ key: 'routing.altFactor', value: 'nonsense' }] }).configAltFactor(), 3);
-  assert.equal(panelApp({ config: [{ key: 'routing.altFactor', value: 0.5 }] }).configAltFactor(), 3, 'below 1 is ignored');
+  assert.equal(panelApp({ config: [{ key: 'routing.altFactor', value: 0.5 }] }).configAltFactor(), 1, 'below 1 reads as 1, as the export and findPath read it');
+  assert.equal(panelApp({ config: [{ key: 'routing.altFactor', value: -2 }] }).configAltFactor(), 1);
 });
 
 test('route panel: routing.altDoorCost from the campus config, either config row shape', () => {
@@ -264,4 +312,27 @@ test('route panel: no route without an emergency exit says so plainly', () => {
   const r = planFrom(panelApp({ emergencyOnly: true }), true);
   assert.equal(r.steps.length, 0);
   assert.match(r.error, /^No route without an emergency exit\./);
+});
+
+test('route panel: a code scanned at an emergency exit starts at the nearest hallway, and the first step says so', () => {
+  const ctx = panelApp();
+  const NAV = vm.runInContext('NAV', ctx);
+  NAV.start = { kind: 'node', nodeId: 'e1', label: 'Scanned location' };
+  NAV.useSideDoors = false;
+  NAV.avoidStairs = false;
+  NAV.dest = { kind: 'room', roomId: 'R2' };
+  const r = ctx.planRoute(NAV.dest);
+  assert.equal(r.error, null);
+  const ids = r.steps.flatMap((s) => Array.from(s.nodeIds));
+  assert.ok(!ids.includes('e1'), ids.join(','));
+  assert.equal(ids[0], 'r1', 'the nearest open node to e1 (1 m away)');
+  assert.match(r.steps[0].detail, /^You scanned an emergency exit\. Directions never use emergency exits, so they start 1 m from it/);
+  // with nothing but emergency around it, it says so instead of routing through
+  const sealed = panelApp({ emergencyOnly: true });
+  const N2 = vm.runInContext('NAV', sealed);
+  N2.start = { kind: 'node', nodeId: 'e1', label: 'Scanned location' };
+  N2.dest = { kind: 'room', roomId: 'R2' };
+  const r2 = sealed.planRoute(N2.dest);
+  assert.equal(r2.steps.length, 0);
+  assert.ok(r2.error, 'no route');
 });

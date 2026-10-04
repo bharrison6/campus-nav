@@ -10,6 +10,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildExport } from '../../scripts/data/export-campus-data.mjs';
 import { checkConnectivity, describeConnectivity } from '../../scripts/data/connectivity.mjs';
+import { emergencyEdgeCampus } from './fixtures/emergency-campus.mjs';
+import { loadInclude } from './load-include.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const OUTDOOR = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'campus-map', 'outdoor-graph.json'), 'utf8'));
@@ -97,7 +99,7 @@ test('potency through the overrides: an emergency hallway closes its waypoints i
   assert.equal(checkConnectivity(buildExport({ overridesDir: dir }).campus, OUTDOOR).ok, true);
 });
 
-test('synthetic: floors change through stairs and elevators; emergency nodes are removed; no outdoor graph is fine', () => {
+test('synthetic: floors change through stairs and elevators; emergency nodes and edges are removed; no outdoor graph is fine', () => {
   const c = {
     rooms: [
       { id: 'a', searchable: true },
@@ -127,8 +129,30 @@ test('synthetic: floors change through stairs and elevators; emergency nodes are
   const r = checkConnectivity(e);
   assert.equal(r.ok, false);
   assert.deepEqual(r.unreachableRooms, ['b'], 'the larger part is the reference; the room behind the emergency door is out');
+  // an emergency edge (its nodes main and alt) closes the way as well: the door into b marked emergency
+  const x = clone(c);
+  x.navEdges.find((ed) => ed.fromNodeId === 'd2').access = 'emergency';
+  assert.deepEqual(checkConnectivity(x).unreachableRooms, ['b']);
   // a searchable room with no node at all is unreachable too
   const m = clone(c);
   m.rooms.push({ id: 'ghost', searchable: true });
   assert.deepEqual(checkConnectivity(m).unreachableRooms, ['ghost']);
 });
+
+test('emergency indoor edges are closed too, and the check agrees with the route engine on the same data', () => {
+  const P = loadInclude('WebApp_Pathfinding.html', 'MSCNPath');
+  for (const [opts, ok] of [[{ emergencyEdge: false }, true], [{ emergencyEdge: true }, false], [{ emergencyEdge: false, emergencyNode: true }, false]]) {
+    const c = emergencyEdgeCampus(opts);
+    const r = checkConnectivity(c);
+    const route = P.findPath(P.buildGraph(c), 'a', 'b');
+    assert.equal(r.ok, ok, JSON.stringify(opts));
+    assert.equal(!!route, ok, `findPath agrees: ${JSON.stringify(opts)}`);
+    if (!ok) assert.equal(r.unreachableRooms.length, 1);
+  }
+  // the edge's class reads as the app reads it: any case
+  const upper = emergencyEdgeCampus();
+  upper.navEdges[0].access = 'Emergency';
+  assert.equal(checkConnectivity(upper).ok, false);
+  assert.equal(P.findPath(P.buildGraph(upper), 'a', 'b'), null);
+});
+

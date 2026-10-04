@@ -39,7 +39,8 @@ function configRoutingNumber(key, min, dflt) {
   return v !== null && v !== undefined && v !== '' && isFinite(n) && n >= min ? n : dflt;
 }
 
-function configAltFactor() { return configRoutingNumber('altFactor', 1, MSCNPath.DEFAULT_ALT_FACTOR); }
+/* One rule with the export (scripts/data/access.mjs publishAltFactor) and findPath: a factor below 1 reads as 1. */
+function configAltFactor() { return Math.max(1, configRoutingNumber('altFactor', -Infinity, MSCNPath.DEFAULT_ALT_FACTOR)); }
 
 function configAltDoorCost() { return configRoutingNumber('altDoorCost', 0, MSCNPath.DEFAULT_ALT_DOOR_COST); }
 
@@ -98,8 +99,14 @@ function resolveStart(goal) {
   }
   if (s && s.kind === 'node') {
     var ok = !!g.nodes[s.nodeId];
-    return { kind: 'node', ids: ok ? [s.nodeId] : [], label: s.label, buildingId: ok ? MSCNPath.buildingOfNode(g, s.nodeId) : null,
-      error: 'Your scanned location is not on the public map.' };
+    /* Emergency exits are never on a route, not even as its start: a code scanned at one starts from the nearest
+       hallway or door a route may use, and the first step says so. */
+    var open = ok ? MSCNPath.nearestOpenNode(g, s.nodeId, { accessibleOnly: NAV.avoidStairs }) : null;
+    var moved = open && open.id !== s.nodeId ? { fromId: s.nodeId, distance: open.distance } : null;
+    return { kind: 'node', ids: open ? [open.id] : [], label: s.label, buildingId: ok ? MSCNPath.buildingOfNode(g, s.nodeId) : null,
+      moved: moved,
+      error: ok ? 'Your scanned location is an emergency exit, and no hallway is mapped from it. Search for a room or building to start from.'
+        : 'Your scanned location is not on the public map.' };
   }
   if (s && s.kind === 'building') {
     var doors = MSCNPath.mainEntrances(g, s.buildingId, NAV.useSideDoors);
@@ -278,6 +285,10 @@ function computeRoute(opts) {
    entrance's connector begins with the walk to that door, so the lead always meets an outdoor first step. */
 function finishEnds(route, st, goal) {
   var steps = route.steps;
+  if (st.moved && steps.length) {
+    steps[0].detail = 'You scanned an emergency exit. Directions never use emergency exits, so they start ' +
+      MSCNPath.formatMeters(st.moved.distance) + ' from it, at the nearest hallway. ' + (steps[0].detail || '');
+  }
   /* Starting from a building means starting at its door: no empty "Leave by" step. */
   if (st.kind === 'building' && steps.length > 1 && steps[0].kind === 'walk' && steps[0].distance < 0.5 && steps[0].exitType === 'door') {
     steps.shift();

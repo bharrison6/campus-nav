@@ -1,5 +1,6 @@
 // The connectivity invariant (v5, plan mscn-v5-access-classes-and-editors, contract item 6): over the published
-// campus data and the outdoor graph, with every emergency node removed and alt doors, hallways and paths allowed,
+// campus data and the outdoor graph, with every emergency node and edge (indoor and outdoor) removed and alt doors,
+// hallways and paths allowed (the app's findPath walks exactly these),
 //   every searchable room reaches every other searchable room, and
 //   every building with mapped entrances is reachable from every other.
 // Floors change through the stair and elevator links (navEdges with floorChange). The indoor and outdoor graphs join
@@ -12,8 +13,10 @@
 // One check for every consumer: npm test runs it on the real data (tests/unit/connectivity.unit.mjs) and the local
 // admin runs it on the effective data before it writes a save. Pure: reads its arguments, changes nothing.
 
+import { normalizeAccess } from './overrides.mjs';
+
 const toBool = (v) => v === true || /^(true|1|yes)$/i.test(String(v));
-const isEmergency = (n) => n && n.access === 'emergency';
+const isEmergency = (n) => !!n && normalizeAccess(n.access) === 'emergency';
 
 /**
  * @param {Object} campus        published campus data ({rooms, navNodes, navEdges, buildings}; hidden floors absent)
@@ -55,8 +58,8 @@ export function checkConnectivity(campus, outdoorGraph = null) {
   }
   // An entrance the indoor data marks emergency stays closed even if an older outdoor graph still joins it.
   for (const n of campus.navNodes || []) if (isEmergency(n)) parent.delete(n.id);
-  for (const e of campus.navEdges || []) union(e.fromNodeId, e.toNodeId);
-  if (outdoorGraph) for (const e of outdoorGraph.edges || []) if (e.access !== 'emergency') union(e.from, e.to);
+  for (const e of campus.navEdges || []) if (!isEmergency(e)) union(e.fromNodeId, e.toNodeId);
+  if (outdoorGraph) for (const e of outdoorGraph.edges || []) if (!isEmergency(e)) union(e.from, e.to);
 
   // Where each searchable room is: the node that stands for it (its hub; stairs and elevators are their own hubs).
   const roomNode = new Map();
@@ -86,7 +89,7 @@ export function checkConnectivity(campus, outdoorGraph = null) {
   const buildingComps = new Map();
   for (const b of buildings) {
     const set = new Set();
-    for (const e of b.entrances) if (e.nodeId && parent.has(e.nodeId) && e.access !== 'emergency') set.add(find(e.nodeId));
+    for (const e of b.entrances) if (e.nodeId && parent.has(e.nodeId) && !isEmergency(e)) set.add(find(e.nodeId));
     buildingComps.set(b.id, set);
     for (const c of set) comps.get(c).buildings++;
   }

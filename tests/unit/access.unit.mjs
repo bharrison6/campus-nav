@@ -133,6 +133,10 @@ test('applyAccess: a waypoint takes its hallway\'s class, the strictest on a sha
   assert.deepEqual(campus.config[1], { key: 'routing.altFactor', value: 3 });
   campus.config[1].value = '1.5';
   assert.equal(publishAltFactor(campus), 1.5);
+  campus.config[1].value = '0.5';
+  assert.equal(publishAltFactor(campus), 1, 'below 1 reads as 1 (one rule with the app)');
+  campus.config[1].value = -2;
+  assert.equal(publishAltFactor(campus), 1);
   campus.config[1].value = 'nonsense';
   assert.equal(publishAltFactor(campus), 3);
   assert.equal(publishAltDoorCost(campus), 300);
