@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Regenerate floor-plan SVGs, floor JSON, the GAS floor-plan assets and SeedFloorData.gs from the DWGs.
-//   node scripts/floorplan-pipeline/run.mjs [--in <dwg dir>] [--out data/floorplans] [--gas scripts/apps-script/src]
+//   node scripts/floorplan-pipeline/run.mjs [--in <dwg dir>] [--out data/floorplans] [--gas tools/admin/gs]
 //        [--cache scripts/floorplan-pipeline/.cache] [--force-parse]
 // The drawings are not in the repository: --in, else $MSCN_DWG_DIR, else <repo>/../drawings/dwg (config.mjs).
 import path from 'node:path';
@@ -27,7 +27,7 @@ const started = Date.now();
 const { report } = runPipeline({
   inDir,
   outDir: path.resolve(repo, opt('--out', 'data/floorplans')),
-  gasDir: path.resolve(repo, opt('--gas', 'scripts/apps-script/src')),
+  gasDir: path.resolve(repo, opt('--gas', 'tools/admin/gs')),
   cacheDir: path.resolve(repo, opt('--cache', 'scripts/floorplan-pipeline/.cache')),
   forceParse: argv.includes('--force-parse'),
 });

@@ -23,7 +23,7 @@ const test = (name, fn) => nodeTest(name, present ? {} : { skip: SKIP }, fn);
 const result = present ? runPipeline({
   inDir: dwgDir,
   outDir: path.join(repo, 'data/floorplans'),
-  gasDir: path.join(repo, 'scripts/apps-script/src'),
+  gasDir: path.join(repo, 'tools/admin/gs'),
   cacheDir: path.join(repo, 'scripts/floorplan-pipeline/.cache'),
   log: () => {},
   write: false,
@@ -185,10 +185,10 @@ test('SeedFloorData.gs evaluates, rows follow the contract headers, under 2 MB',
 });
 
 test('committed generated files are up to date with the DWGs and the pipeline', () => {
-  const committed = fs.readFileSync(path.join(repo, 'scripts/apps-script/src/SeedFloorData.gs'), 'utf8');
+  const committed = fs.readFileSync(path.join(repo, 'tools/admin/gs/SeedFloorData.gs'), 'utf8');
   assert.equal(committed, buildSeedGs(floors, crossEdges, { unitName: 'inches' }), 'run `npm run pipeline` and commit');
   for (const f of floors) {
-    assert.equal(fs.readFileSync(path.join(repo, 'scripts/apps-script/src', `${f.planAsset}.html`), 'utf8'), f.svg, f.floorId);
+    assert.equal(fs.readFileSync(path.join(repo, 'tools/admin/gs', `${f.planAsset}.html`), 'utf8'), f.svg, f.floorId);
     assert.equal(fs.readFileSync(path.join(repo, 'data/floorplans', `${f.floorId}.svg`), 'utf8'), f.svg, f.floorId);
   }
 });

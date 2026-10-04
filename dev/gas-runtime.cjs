@@ -1,15 +1,22 @@
-// Apps Script runtime stand-in for running scripts/apps-script/src/*.gs in Node.
+// Apps Script runtime stand-in for running the backend .gs files (tools/admin/gs) in Node.
 //
-//   const { makeRuntime } = require('./gas-runtime.cjs');
-//   const gas = makeRuntime(srcDir);          // every .gs file evaluated in one VM context, as GAS does
+//   const { makeRuntime, GS_DIR } = require('./gas-runtime.cjs');
+//   const gas = makeRuntime();                 // every .gs file in GS_DIR evaluated in one VM context, as GAS does
 //   gas.ctx.initSystem();                      // creates the in-memory spreadsheet and seeds it
 //   gas.run('getAllCampusData', []);           // what google.script.run would return (JSON-shaped)
+//
+//   makeRuntime(srcDir = GS_DIR, extraCode, { htmlDirs })
+//     srcDir    folder of .gs files (and the FP_*.html floor-plan assets HtmlService reads)
+//     extraCode code evaluated after the .gs files (tests override generated seeds this way)
+//     htmlDirs  further folders HtmlService looks in, after srcDir, for project HTML files
 //
 // Models what the backend relies on: SpreadsheetApp (tabs, ranges, getValues/setValues with the
 // Sheets coercion of numeric and boolean strings unless the column is plain text '@', the
 // 50,000-character cell limit, row bounds), PropertiesService, CacheService, LockService, Utilities
 // (digest, uuid, blob bytes), HtmlService (project HTML files; templates record title and meta tags)
-// and ContentService. Started as lane B's mock (2026-10-03); used by dev/serve.mjs and tests/unit.
+// and ContentService. Started as lane B's mock (2026-10-03). Since v3 (static site) the .gs files are no
+// longer deployed anywhere: this runtime is their only engine, used by the build-time export
+// (scripts/data/export-campus-data.mjs), the local admin (tools/admin/server.mjs) and tests/unit.
 'use strict';
 const fs = require('fs');
 const path = require('path');
@@ -17,8 +24,12 @@ const vm = require('vm');
 const crypto = require('crypto');
 
 const CELL_LIMIT = 50000;
+/** The backend's home since v3 (moved from scripts/apps-script/src). */
+const GS_DIR = path.resolve(__dirname, '..', 'tools', 'admin', 'gs');
 
-function makeRuntime(srcDir, extraCode) {
+function makeRuntime(srcDir, extraCode, opts) {
+  srcDir = srcDir || GS_DIR;
+  const htmlDirs = [srcDir].concat((opts && opts.htmlDirs) || []);
   const props = {};
   const cache = {};
 
@@ -115,9 +126,11 @@ function makeRuntime(srcDir, extraCode) {
   }
 
   function readHtml(name) {
-    const p = path.join(srcDir, name + '.html');
-    if (!fs.existsSync(p)) throw new Error('No HTML file named ' + name + ' was found.');
-    return fs.readFileSync(p, 'utf8');
+    for (const dir of htmlDirs) {
+      const p = path.join(dir, name + '.html');
+      if (fs.existsSync(p)) return fs.readFileSync(p, 'utf8');
+    }
+    throw new Error('No HTML file named ' + name + ' was found.');
   }
 
   function htmlOutput(file) {
@@ -171,6 +184,9 @@ function makeRuntime(srcDir, extraCode) {
   };
   vm.createContext(ctx);
   const files = fs.readdirSync(srcDir).filter((f) => f.endsWith('.gs')).sort();
+  if (!files.length) {
+    throw new Error('gas-runtime: no .gs files in ' + srcDir + '. The backend lives in ' + GS_DIR + ' (GS_DIR) since v3.');
+  }
   for (const f of files) vm.runInContext(fs.readFileSync(path.join(srcDir, f), 'utf8'), ctx, { filename: f });
   if (extraCode) vm.runInContext(extraCode, ctx, { filename: 'extra.js' });
 
@@ -186,4 +202,4 @@ function makeRuntime(srcDir, extraCode) {
   return { ctx, props, cache, ss: () => theSS, files, run };
 }
 
-module.exports = { makeRuntime, CELL_LIMIT };
+module.exports = { makeRuntime, CELL_LIMIT, GS_DIR };

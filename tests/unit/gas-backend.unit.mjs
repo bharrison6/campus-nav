@@ -12,10 +12,11 @@ import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(here, '..', '..');
-const SRC = join(ROOT, 'scripts', 'apps-script', 'src');
 const FLOORPLANS = join(ROOT, 'data', 'floorplans');
+const ADMIN_DIR = join(ROOT, 'tools', 'admin');
+const WEB_DIR = join(ROOT, 'scripts', 'apps-script', 'src');
 const require = createRequire(import.meta.url);
-const { makeRuntime, CELL_LIMIT } = require('../../dev/gas-runtime.cjs');
+const { makeRuntime, CELL_LIMIT, GS_DIR: SRC } = require('../../dev/gas-runtime.cjs');
 
 const GEN = `
 function getGeneratedFloorsSeed() { return [
@@ -47,7 +48,7 @@ const doGetJson = (R, parameter) => JSON.parse(R.ctx.doGet({ parameter }).text);
 // Part 1: synthetic seed
 // ---------------------------------------------------------------------------------------------
 
-const R = makeRuntime(SRC, GEN);
+const R = makeRuntime(SRC, GEN, { htmlDirs: [WEB_DIR, ADMIN_DIR] });
 const g = new Proxy(R.ctx, {
   get: (o, k) => (typeof o[k] === 'function' ? (...a) => js(o[k](...a)) : o[k]),
 });
@@ -132,7 +133,7 @@ test('settings: status booleans, key reaches config, never the status; Config sh
 });
 
 test('getSettingsStatus field names are the ones the admin Settings tab reads first', () => {
-  const admin = readFileSync(join(SRC, 'Admin.html'), 'utf8');
+  const admin = readFileSync(join(ADMIN_DIR, 'Admin.html'), 'utf8');
   const st = g.getSettingsStatus();
   for (const name of ['mapsApiKeyConfigured', 'adminPinConfigured']) {
     assert.equal(typeof st[name], 'boolean', name);
@@ -273,7 +274,7 @@ test('private helpers stay private; no Drive access; the manifest asks for Sheet
   assert.ok(!pub.some((n) => /^_/.test(n)), 'leading-underscore helper still public');
   assert.throws(() => R.run('ensureAdminPin_', []), /Script function not found/);
   assert.ok(!/DriveApp|UrlFetchApp/.test(src), 'Drive or UrlFetch use needs its OAuth scope back in appsscript.json');
-  const manifest = JSON.parse(readFileSync(join(SRC, 'appsscript.json'), 'utf8'));
+  const manifest = JSON.parse(readFileSync(join(ROOT, 'archive', 'apps-script-v2', 'appsscript.json'), 'utf8'));
   assert.deepEqual(manifest.oauthScopes, ['https://www.googleapis.com/auth/spreadsheets']);
 });
 
@@ -321,12 +322,10 @@ test('real seed: the public payload drops only the mezzanine and the penthouse',
   assert.deepEqual(all.floors.filter((f) => f.public === false).map((f) => f.id).sort(), ['floor-ep-3', 'floor-it-3']);
   assert.deepEqual(pub.floors.map((f) => f.id).sort(), ['floor-ep-1', 'floor-ep-2', 'floor-it-1', 'floor-it-2']);
   const stats = REAL.run('getCampusDataStats', []);
-  // Measured 2026-10-03: 620,517 vs 612,283 bytes (1.3 %). Not material, so the web app keeps
-  // MSCN_DATA_FN = 'getAllCampusData' and filters hidden floors itself.
+  // Measured 2026-10-03: 620,517 vs 612,283 bytes (1.3 %). Not material, so the exported campus.json is the full
+  // getAllCampusData payload and the web app filters hidden floors itself.
   assert.ok(stats.public.jsonBytes < stats.full.jsonBytes);
   assert.ok(stats.public.jsonBytes > stats.full.jsonBytes * 0.95);
-  const core = readFileSync(join(SRC, 'WebApp_Core.html'), 'utf8');
-  assert.match(core, /var MSCN_DATA_FN = 'getAllCampusData';/);
 });
 
 function floorSnapshot(data, floorId) {
@@ -371,7 +370,7 @@ test('real import: the payload the admin Import tab builds from that file (floor
 });
 
 test('admin Import tab reads the pipeline file\'s nav.nodes / nav.edges', () => {
-  const admin = readFileSync(join(SRC, 'Admin.html'), 'utf8');
+  const admin = readFileSync(join(ADMIN_DIR, 'Admin.html'), 'utf8');
   assert.match(admin, /var graph = parsed\.graph \|\| parsed\.nav \|\| \{\};/);
   assert.match(admin, /runServer\('reseedCampusData', \[\{ pin: adminPin \}\]/);
 });
