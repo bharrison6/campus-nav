@@ -1,0 +1,13 @@
+{
+ "buildingId": "bld-it",
+ "floorFrame": "svg",
+ "transform": {
+  "originLat": 36.616131,
+  "originLng": -88.323483,
+  "rotationDeg": 0,
+  "metersPerUnit": 0.0254
+ },
+ "method": "fixture: frame center on the seeded building point (lane K stand-in)",
+ "residualMeters": 0,
+ "fittedTo": "fixture"
+}
