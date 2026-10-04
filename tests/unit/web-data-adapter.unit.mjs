@@ -20,11 +20,22 @@ test('planLoad: current cache is used, a newer version or no cache fetches, a fa
   assert.equal(D.planLoad({ data: {}, version: 7 }, '7', false), 'cache'); // versions compare as text
 });
 
-test('versionOf: the published version wins, then the payload version, then Config.dataVersion', () => {
-  assert.equal(D.versionOf('v9', { version: 'x' }), 'v9');
+test('versionOf: a payload is cached under its own version (campus.version, then Config.dataVersion), never the advertised one', () => {
+  assert.equal(D.versionOf('v9', { version: 'x' }), 'x', 'an old payload is never relabelled with a new version');
   assert.equal(D.versionOf(null, { version: 3 }), '3');
   assert.equal(D.versionOf('', { config: [{ key: 'dataVersion', value: 12 }] }), '12');
+  assert.equal(D.versionOf('v9', { config: [{ key: 'dataVersion', value: 12 }] }), '12');
+  assert.equal(D.versionOf('v9', {}), 'v9', 'a payload that names no version takes the advertised one');
   assert.equal(D.versionOf(null, {}), '0');
+});
+
+test('isVersion: a payload is accepted only as the version that was advertised', () => {
+  assert.equal(D.isVersion('new', { version: 'new' }), true);
+  assert.equal(D.isVersion('new', { version: 'old' }), false);
+  assert.equal(D.isVersion('7', { version: 7 }), true, 'versions compare as text');
+  assert.equal(D.isVersion('new', { config: [{ key: 'dataVersion', value: 'old' }] }), false);
+  assert.equal(D.isVersion(null, { version: 'old' }), true, 'nothing advertised: nothing to disagree with');
+  assert.equal(D.isVersion('new', {}), true, 'a payload with no version cannot disagree');
 });
 
 test('every data URL is relative to the page (no leading slash) and versioned where cached', () => {

@@ -2,7 +2,10 @@
 //
 // Inputs: the OpenStreetMap extract (data/campus-map/source/osm-extract.json), the hand-drawn overrides
 // (data/campus-map/overrides.geojson), the seeded buildings, the operator's overrides (data/overrides: Buildings
-// levels/height, NavNodes primary), and the pipeline's floor JSON (gross outlines, doors, rooms).
+// levels/height, NavNodes primary), the pipeline's floor JSON (gross outlines, doors, rooms), and the effective
+// entrance set (campusEntrances in scripts/data/campus-geo.mjs: the exporter's entrance nodes, the operator's moves,
+// floor changes, additions and deletions applied), which replaces the floor JSON's exterior doors before scoring,
+// projecting and joining, so the outdoor graph's doors are where the export puts them.
 // Outputs: data/campus-map/{buildings.geojson, layers/*.geojson, outdoor-graph.json, manifest.json},
 // data/georef/<buildingId>.json, the `entrances` block of each public floor's JSON, tools/admin/gs/SeedCampusMap.gs.
 import { ATTRIBUTION } from './config.mjs';
@@ -60,6 +63,34 @@ export function georeferenceBuilding(buildingId, floors, footprint) {
 }
 
 /**
+ * A floor's door list with its exterior doors replaced by the effective entrances on that floor: a door the operator
+ * moved takes the node's position, a deleted one (or one moved to another floor) is gone, and an added entrance (or
+ * one moved here) is a door of no known width opening into no known room. Interior doors are unchanged; the original
+ * order is kept and newcomers follow, so unedited data scores exactly as before.
+ * @param {Object} json        the pipeline floor JSON
+ * @param {string} floorId
+ * @param {Object[]} entrances  campusEntrances(...) for the whole campus
+ * @param {Map} doorsById       nodeId -> {door, floorId} over every floor's exterior doors
+ */
+export function effectiveDoors(json, floorId, entrances, doorsById) {
+  const here = new Map(entrances.filter((e) => e.floorId === floorId).map((e) => [e.nodeId, e]));
+  const out = [];
+  for (const d of json.doors) {
+    if (!d.exterior) out.push(d);
+    else if (here.has(d.nodeId)) {
+      const e = here.get(d.nodeId);
+      out.push({ ...d, x: e.x, y: e.y });
+      here.delete(d.nodeId);
+    }
+  }
+  for (const e of here.values()) {
+    const was = doorsById.get(e.nodeId);
+    out.push({ ...(was ? was.door : { widthUnits: 0 }), nodeId: e.nodeId, x: e.x, y: e.y, exterior: true, rooms: [] });
+  }
+  return out;
+}
+
+/**
  * @param {Object} i
  * @param {Object} i.extract            the OSM extract object
  * @param {Object} i.overridesGeo       data/campus-map/overrides.geojson (FeatureCollection)
@@ -68,8 +99,9 @@ export function georeferenceBuilding(buildingId, floors, footprint) {
  * @param {Object[]} i.navNodeOverrides  data/overrides/navNodes.json records
  * @param {Object[]} i.floors           [{floorId, json}] every pipeline floor JSON
  * @param {Object} i.pipelineReport     data/floorplans/pipeline-report.json
+ * @param {Object[]} [i.entrances]      campusEntrances of the exported campus (loadInputs); omitted, the floor JSON doors
  */
-export function buildCampusMap({ extract, overridesGeo, seeded, buildingOverrides = [], navNodeOverrides = [], floors, pipelineReport }) {
+export function buildCampusMap({ extract, overridesGeo, seeded, buildingOverrides = [], navNodeOverrides = [], floors, pipelineReport, entrances }) {
   const osm = indexOsm(fromExtract(extract));
   const ovFeatures = (overridesGeo && overridesGeo.features) || [];
   const report = { buildings: {}, georef: {}, entrances: {}, graph: {}, overrides: {} };
@@ -137,11 +169,14 @@ export function buildCampusMap({ extract, overridesGeo, seeded, buildingOverride
   report.overrides.pathSnaps = g.report.overrideSnaps;
 
   // ---- indoor buildings: georef, entrance scores, primaries ----
+  const doorsById = new Map();
+  for (const f of floors) for (const d of f.json.doors || []) if (d.exterior && d.nodeId) doorsById.set(d.nodeId, { door: d, floorId: f.floorId });
   const byBuilding = new Map();
   for (const f of floors) {
     if (!f.json.public) continue;
     if (!byBuilding.has(f.json.buildingId)) byBuilding.set(f.json.buildingId, []);
-    byBuilding.get(f.json.buildingId).push({ floorId: f.floorId, level: f.json.level, json: f.json });
+    const json = entrances ? { ...f.json, doors: effectiveDoors(f.json, f.floorId, entrances, doorsById) } : f.json;
+    byBuilding.get(f.json.buildingId).push({ floorId: f.floorId, level: f.json.level, json });
   }
   const navOver = new Map(navNodeOverrides.filter((r) => 'primary' in r).map((r) => [r.id, truthy(r.primary)]));
   const georef = {};

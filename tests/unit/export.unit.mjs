@@ -142,7 +142,7 @@ test('overrides apply at export, change the version, and orphans and refusals ar
     ],
     qrLocations: [{ id: 'qrloc-test', _new: true, buildingId: 'bld-it', floorId: 'floor-it-1', nodeId: 'it-1-n1', description: 'Lobby', permanent: true }],
     buildings: [{ id: 'bld-it', photoUrl: 'https://example.org/it.jpg' }],
-    config: [{ key: 'mapsApiKey', _new: true, value: 'AIzaSyFAKEFAKEFAKEFAKEFAKEFAKE' }],
+    config: [{ key: 'mapsApiKey', _new: true, value: 'test-only-maps-key' }],
   });
   const x = buildExport({ overridesDir: ov });
   const base = buildExport({ overridesDir: EMPTY });
@@ -154,13 +154,13 @@ test('overrides apply at export, change the version, and orphans and refusals ar
   assert.deepEqual(x.report.orphans, [{ collection: 'rooms', id: 'room-it-1-9999', op: 'edit' }]);
   assert.deepEqual(x.report.refused.map((r) => r.id), ['mapsApiKey']);
   assert.notEqual(x.version, base.version);
-  assert.ok(!JSON.stringify(x.campus).includes('AIza'), 'no Maps key in the export');
+  assert.ok(!JSON.stringify(x.campus).includes('test-only-maps-key'), 'no Maps key in the export');
   assert.ok(!x.campus.config.some((c) => c.key === 'mapsApiKey'));
 });
 
 test('a Maps key present in the runtime (as the local admin may set one) never reaches the export', () => {
-  const x = buildExport({ overridesDir: EMPTY, props: { mapsApiKey: 'AIzaSyLOCALLOCALLOCALLOCALLOCAL' } });
-  assert.ok(!JSON.stringify(x.campus).includes('AIza'));
+  const x = buildExport({ overridesDir: EMPTY, props: { mapsApiKey: 'test-only-maps-key' } });
+  assert.ok(!JSON.stringify(x.campus).includes('test-only-maps-key'));
   assert.deepEqual(x.campus.config.map((c) => c.key), ['dataVersion']);
 });
 

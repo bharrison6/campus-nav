@@ -158,8 +158,11 @@ function registerServiceWorker() {
       });
     });
   }, function () { /* no offline copy; the app still works online */ });
+  /* A new worker took over: this page is the old build, so reload into the new one (every open tab, not only the
+     one whose "Reload" was pressed; the worker never claims a page it did not serve). */
+  var hadController = !!navigator.serviceWorker.controller;
   navigator.serviceWorker.addEventListener('controllerchange', function () {
-    if (SW.reloading) { window.location.reload(); }
+    if (SW.reloading || hadController) { SW.reloading = false; hadController = false; window.location.reload(); }
   });
 }
 

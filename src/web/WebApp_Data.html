@@ -46,13 +46,30 @@ var MSCNData = (function () {
     return 'fetch';
   }
 
-  /* The version a freshly downloaded campus.json is cached under: the published version first. */
-  function versionOf(remoteVersion, data) {
-    if (remoteVersion !== null && remoteVersion !== undefined && remoteVersion !== '') { return String(remoteVersion); }
-    if (data && data.version !== undefined && data.version !== null && data.version !== '') { return String(data.version); }
+  function given(v) { return v !== null && v !== undefined && v !== ''; }
+
+  /* The version a campus.json payload says it is (campus.version, then Config.dataVersion); null if it says none. */
+  function payloadVersion(data) {
+    if (data && given(data.version)) { return String(data.version); }
     var cfg = (data && data.config) || [];
-    for (var i = 0; i < cfg.length; i++) { if (cfg[i] && cfg[i].key === 'dataVersion') { return String(cfg[i].value); } }
-    return '0';
+    for (var i = 0; i < cfg.length; i++) { if (cfg[i] && cfg[i].key === 'dataVersion' && given(cfg[i].value)) { return String(cfg[i].value); } }
+    return null;
+  }
+
+  /*
+   * The version a freshly downloaded campus.json is cached under: its own version first, so a payload is never
+   * stored under a version it is not; the published version only for a payload that names none.
+   */
+  function versionOf(remoteVersion, data) {
+    var own = payloadVersion(data);
+    if (own !== null) { return own; }
+    return given(remoteVersion) ? String(remoteVersion) : '0';
+  }
+
+  /* Whether a payload is the advertised version (a payload or an advertisement with no version cannot disagree). */
+  function isVersion(remoteVersion, data) {
+    var own = payloadVersion(data);
+    return own === null || !given(remoteVersion) || own === String(remoteVersion);
   }
 
   function looksLikeCampus(data) { return !!(data && typeof data === 'object' && (data.buildings || data.config)); }
@@ -108,6 +125,7 @@ var MSCNData = (function () {
     isId: isId,
     planLoad: planLoad,
     versionOf: versionOf,
+    isVersion: isVersion,
     looksLikeCampus: looksLikeCampus,
     looksLikeSvg: looksLikeSvg,
     normalizeConfig: normalizeConfig,

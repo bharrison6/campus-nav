@@ -147,39 +147,58 @@ test('service worker: precache manifest hashes every published file except sw.js
   assert.equal(AERIAL_MAX_TILES > 0, true);
 });
 
-test('service worker: install precaches, fetch serves cache-first offline, version.json goes to the network first', async () => {
-  const entries = [{ url: 'index.html', hash: 'a', bytes: 1 }, { url: 'data/campus.json', hash: 'b', bytes: 1 }];
-  const src = serviceWorkerSource({ version: 'v1', entries });
+test('service worker: one generation per worker; a different data version never comes from the old precache', async () => {
+  const files = ['index.html', 'data/version.json', 'data/campus.json', 'floors/floor-a.svg', 'data/map-manifest.json',
+    'data/campus-map/outdoor-graph.json', 'data/georef/bld-it.json'];
+  const src = serviceWorkerSource({ version: 'v1', entries: files.map((url, i) => ({ url, hash: String(i), bytes: 1 })) });
   const store = new Map();
   const cache = {
-    addAll: async (reqs) => { for (const r of reqs) store.set(r.url, 'cached:' + r.url); },
+    addAll: async (reqs) => { for (const r of reqs) store.set(r.url, 'OLD ' + new URL(r.url).pathname); },
     match: async (req, o) => { const u = new URL(req.url); if (o && o.ignoreSearch) u.search = ''; return store.get(u.href) || null; },
     put: async () => {}, keys: async () => [],
   };
   const listeners = {};
   let online = false;
+  let claimed = false;
   const ctx = {
     URL, Request: class { constructor(url, o) { this.url = String(url); this.mode = (o && o.mode) || 'cors'; this.method = 'GET'; } },
     Promise, caches: { open: async () => cache, keys: async () => [], delete: async () => true },
-    fetch: async (r) => { if (!online) throw new Error('offline'); return 'net:' + r.url; },
-    self: { registration: { scope: 'https://example.org/campus-nav/' }, addEventListener: (t, f) => { listeners[t] = f; }, clients: { claim: async () => {} }, skipWaiting() {} },
+    // the server already has the next deploy: anything that reaches the network is NEW
+    fetch: async (r) => { if (!online) throw new Error('offline'); return 'NEW ' + new URL(r.url).pathname + new URL(r.url).search; },
+    self: { registration: { scope: 'https://example.org/campus-nav/' }, addEventListener: (t, f) => { listeners[t] = f; }, clients: { claim: async () => { claimed = true; } }, skipWaiting() {} },
   };
   vm.runInNewContext(src, ctx);
   let done;
   listeners.install({ waitUntil: (p) => { done = p; } });
   await done;
-  assert.deepEqual([...store.keys()], ['https://example.org/campus-nav/index.html', 'https://example.org/campus-nav/data/campus.json']);
-  const fetchOf = async (url, mode) => {
+  assert.equal(store.size, files.length);
+  const fetchOf = async (path, mode) => {
     let res;
-    listeners.fetch({ request: new ctx.Request(url, { mode }), respondWith: (p) => { res = p; } });
+    listeners.fetch({ request: new ctx.Request('https://example.org/campus-nav/' + path, { mode }), respondWith: (p) => { res = p; } });
     return res;
   };
-  assert.equal(await fetchOf('https://example.org/campus-nav/?room=x', 'navigate'), 'cached:https://example.org/campus-nav/index.html');
-  assert.equal(await fetchOf('https://example.org/campus-nav/data/campus.json?v=v1'), 'cached:https://example.org/campus-nav/data/campus.json');
+  // online, with a newer deploy published: the running page still gets this worker's build for every piece
   online = true;
-  assert.equal(await fetchOf('https://example.org/campus-nav/data/campus.json?v=v2'), 'net:https://example.org/campus-nav/data/campus.json?v=v2');
-  assert.equal(await fetchOf('https://example.org/campus-nav/data/version.json'), 'net:https://example.org/campus-nav/data/version.json');
-  assert.equal(await fetchOf('https://other.example/x.js'), undefined, 'foreign requests are not handled');
+  const P = '/campus-nav/';
+  assert.equal(await fetchOf('?room=x', 'navigate'), 'OLD ' + P + 'index.html');
+  assert.equal(await fetchOf('data/version.json'), 'OLD ' + P + 'data/version.json', "the page asks for this worker's data version");
+  assert.equal(await fetchOf('data/campus.json?v=v1'), 'OLD ' + P + 'data/campus.json');
+  assert.equal(await fetchOf('floors/floor-a.svg?v=v1'), 'OLD ' + P + 'floors/floor-a.svg');
+  assert.equal(await fetchOf('data/map-manifest.json'), 'OLD ' + P + 'data/map-manifest.json');
+  assert.equal(await fetchOf('data/campus-map/outdoor-graph.json'), 'OLD ' + P + 'data/campus-map/outdoor-graph.json');
+  assert.equal(await fetchOf('data/georef/bld-it.json'), 'OLD ' + P + 'data/georef/bld-it.json');
+  // an explicitly different version is the network's to answer...
+  assert.equal(await fetchOf('data/campus.json?v=v2'), 'NEW ' + P + 'data/campus.json?v=v2');
+  assert.equal(await fetchOf('floors/floor-a.svg?v=v2'), 'NEW ' + P + 'floors/floor-a.svg?v=v2');
+  // ...and with the connection lost it fails rather than answering with the old payload
+  online = false;
+  await assert.rejects(fetchOf('data/campus.json?v=v2'), /offline/);
+  await assert.rejects(fetchOf('floors/floor-a.svg?v=v2'), /offline/);
+  assert.equal(await fetchOf('data/campus.json?v=v1'), 'OLD ' + P + 'data/campus.json', 'its own version still works offline');
+  let activated;
+  listeners.activate({ waitUntil: (p) => { activated = p; } });
+  await activated;
+  assert.equal(claimed, false, 'the worker does not take over a page another build served');
 });
 
 test('404.html sends any deep path back to the base with the query kept', () => {
