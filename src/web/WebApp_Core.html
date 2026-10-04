@@ -1,7 +1,8 @@
 <script>
 /*
- * Core: shared state, server calls, campus-data load and cache, floor-SVG cache, lookups, toast.
- * Data contract v2 (plan mscn-v2-build). ES5 only.
+ * Core: shared state, site config, campus-data load and cache, floor-SVG cache, lookups, toast.
+ * Data contract v2 (plan mscn-v2-build); reads go through MSCNData (WebApp_Data), the static files the
+ * build publishes next to the page. ES5 syntax.
  */
 var APP = {
   data: null,
@@ -9,6 +10,7 @@ var APP = {
   stale: false,
   view: 'map',
   appUrl: '',
+  site: null,
   graph: null,
   searchIndex: null,
   by: { buildings: {}, floors: {}, rooms: {}, nodes: {} },
@@ -16,12 +18,11 @@ var APP = {
   roomsByFloor: {}
 };
 
-/* The public data call. Lane B may add getPublicCampusData; switch here when it exists. */
-var MSCN_DATA_FN = 'getAllCampusData';
-
 var LS_KEYS = {
   data: 'campusData',
   version: 'campusDataVersion',
+  siteConfig: 'mscnSiteConfig',
+  officialPrefix: 'mscnOfficialSchedule:',
   svgPrefix: 'mscnFloorSvg:',
   schedule: 'campusNavSchedule',
   avoidStairs: 'mscnAvoidStairs',
@@ -77,16 +78,28 @@ function toast(msg, kind, ms) {
 }
 function showError(msg) { toast(msg, 'error', 5000); }
 
-/* ---------- server ---------- */
-function callServer(fnName, args, onOk, onErr) {
-  if (typeof google === 'undefined' || !google.script || !google.script.run) {
-    setTimeout(function () { onErr(new Error('The Apps Script runtime is not available.')); }, 0);
-    return;
-  }
-  var runner = google.script.run
-    .withSuccessHandler(function (v) { onOk(v); })
-    .withFailureHandler(function (err) { onErr(err || new Error('Request failed')); });
-  runner[fnName].apply(runner, args || []);
+/* ---------- site config (config.json; cached so an offline start keeps its settings) ---------- */
+var siteWaiters = [];
+
+function loadSiteConfig() {
+  MSCNData.getConfig(function (err, raw) {
+    var cfg;
+    if (!err && raw && typeof raw === 'object') {
+      cfg = MSCNData.normalizeConfig(raw);
+      lsSet(LS_KEYS.siteConfig, JSON.stringify(cfg));
+    } else {
+      cfg = MSCNData.normalizeConfig(parseJsonField(lsGet(LS_KEYS.siteConfig), {}));
+    }
+    APP.site = cfg;
+    MSCNAnalytics.init(cfg.analytics);
+    var w = siteWaiters;
+    siteWaiters = [];
+    for (var i = 0; i < w.length; i++) { w[i](cfg); }
+  });
+}
+
+function whenSiteConfig(fn) {
+  if (APP.site) { fn(APP.site); } else { siteWaiters.push(fn); }
 }
 
 function errText(err) {
@@ -101,14 +114,6 @@ function getConfigValue(key) {
   var cfg = (APP.data && APP.data.config) || [];
   for (var i = 0; i < cfg.length; i++) { if (cfg[i] && cfg[i].key === key) { return cfg[i].value; } }
   return null;
-}
-
-function configVersion(data) {
-  var cfg = (data && data.config) || [];
-  for (var i = 0; i < cfg.length; i++) {
-    if (cfg[i] && cfg[i].key === 'dataVersion') { return cfg[i].value; }
-  }
-  return 0;
 }
 
 function indexData(data) {
@@ -281,37 +286,27 @@ function showFatal(msg) {
 function loadCampusData(onReady) {
   APP.onReady = onReady;
   var cached = readCachedData();
-  if (cached) {
-    setLoadingStatus('Checking for updates…');
-    callServer('getDataVersion', [], function (serverVersion) {
-      if (String(serverVersion) === String(cached.version)) {
-        onReady(cached.data, cached.version, false);
-      } else {
-        fetchFreshData(cached, onReady);
-      }
-    }, function () {
-      onReady(cached.data, cached.version, true);
-    });
-  } else {
-    fetchFreshData(null, onReady);
-  }
+  setLoadingStatus(cached ? 'Checking for updates…' : 'Downloading campus data…');
+  MSCNData.getVersion(function (err, info) {
+    var remote = (!err && info && info.version !== undefined) ? info.version : null;
+    var plan = MSCNData.planLoad(cached, remote, !!err);
+    if (plan === 'cache') { onReady(cached.data, cached.version, false); }
+    else if (plan === 'stale') { onReady(cached.data, cached.version, true); }
+    else { fetchFreshData(cached, remote, onReady); }
+  });
 }
 
-function fetchFreshData(fallback, onReady) {
+function fetchFreshData(fallback, remoteVersion, onReady) {
   setLoadingStatus('Downloading campus data…');
-  callServer(MSCN_DATA_FN, [], function (result) {
-    if (result && (result.buildings || result.config)) {
-      var version = (result.version !== undefined && result.version !== null && result.version !== '') ? result.version : configVersion(result);
+  MSCNData.getCampus(remoteVersion, function (err, result) {
+    if (!err && MSCNData.looksLikeCampus(result)) {
+      var version = MSCNData.versionOf(remoteVersion, result);
       writeCachedData(result, version);
       onReady(result, version, false);
     } else if (fallback) {
       onReady(fallback.data, fallback.version, true);
-    } else {
+    } else if (!err) {
       showFatal('The campus data came back empty. Please try again in a moment.');
-    }
-  }, function (err) {
-    if (fallback) {
-      onReady(fallback.data, fallback.version, true);
     } else {
       showFatal('Could not load campus data (' + errText(err) + '). Check your connection and try again.');
     }
@@ -331,9 +326,10 @@ function getFloorSvg(floorId, cb) {
     cb(null, cached.svg, { source: 'cache' });
     return;
   }
-  callServer('getFloorPlanSvg', [floorId], function (svg) {
-    if (typeof svg !== 'string' || svg.indexOf('<svg') === -1) {
-      fallbackOrFail(new Error('The server returned no floor plan for this floor.'));
+  MSCNData.getFloorSvg(floorId, APP.version, function (err, svg) {
+    if (err) { fallbackOrFail(err); return; }
+    if (!MSCNData.looksLikeSvg(svg)) {
+      fallbackOrFail(new Error('No floor plan was published for this floor.'));
       return;
     }
     var entry = { v: ver, svg: svg };
@@ -344,7 +340,7 @@ function getFloorSvg(floorId, cb) {
       lsSet(key, json);
     }
     cb(null, svg, { source: 'server' });
-  }, fallbackOrFail);
+  });
 
   function fallbackOrFail(err) {
     if (cached && cached.svg) {

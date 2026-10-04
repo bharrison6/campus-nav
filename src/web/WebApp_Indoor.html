@@ -121,6 +121,7 @@ function renderFloorPicker() {
 
 function onFloorButton(e) {
   var id = e.currentTarget.getAttribute('data-floor-id');
+  if (id !== IND.floorId) { MSCNAnalytics.track('floor_change', id); }
   showFloor(id);
 }
 
@@ -133,6 +134,7 @@ function onFloorKey(e) {
   for (var i = 0; i < buttons.length; i++) { if (buttons[i] === e.currentTarget) { idx = i; } }
   idx += (key === 'ArrowRight' || key === 'ArrowDown') ? 1 : -1;
   idx = (idx + buttons.length) % buttons.length;
+  MSCNAnalytics.track('floor_change', buttons[idx].getAttribute('data-floor-id'));
   showFloor(buttons[idx].getAttribute('data-floor-id'));
   var again = $('floor-picker').getElementsByTagName('button');
   if (again[idx]) { again[idx].focus(); }
@@ -492,6 +494,9 @@ function walkStepsFor(route, destinationLabel) {
 }
 
 function navigateToRoom(roomId) {
+  var dest = APP.by.rooms[roomId];
+  var destB = dest ? buildingOfFloor(dest.floorId) : null;
+  MSCNAnalytics.track('route_start', destB ? destB.id : 'room');
   IND.routeDestId = roomId;
   computeRoute();
 }

@@ -1,0 +1,128 @@
+<script>
+/*
+ * Data adapter for the static site: every server read the Apps Script version made is now a fetch
+ * of a file the build wrote next to index.html. All URLs are relative
+ * to the page (no leading slash), so one build serves at /campus-nav/ and at a domain root.
+ *   config.json                 {mapsApiKey, analytics: {provider, site}, basePath, domain}
+ *   data/version.json           {version, builtAt, gitSha}   (the cache key for campus data and floor plans)
+ *   data/campus.json            what getAllCampusData returned (no mapsApiKey row)
+ *   floors/<floorId>.svg        a floor plan
+ *   data/schedules/<id>.json    an official event schedule;  data/links.json  {linkId: {title, url}}
+ * DOM-free at load time (tests/unit loads it in a bare VM). ES5 syntax.
+ */
+var MSCNData = (function () {
+  var ID_RE = /^[A-Za-z0-9_-]{1,80}$/;
+
+  var urls = {
+    config: function () { return 'config.json'; },
+    version: function () { return 'data/version.json'; },
+    campus: function (version) { return withVersion('data/campus.json', version); },
+    floor: function (floorId, version) { return withVersion('floors/' + encodeURIComponent(floorId) + '.svg', version); },
+    schedule: function (id) { return 'data/schedules/' + encodeURIComponent(id) + '.json'; },
+    links: function () { return 'data/links.json'; }
+  };
+
+  function withVersion(url, version) {
+    if (version === null || version === undefined || version === '') { return url; }
+    return url + '?v=' + encodeURIComponent(String(version));
+  }
+
+  function isId(v) { return typeof v === 'string' && ID_RE.test(v); }
+
+  /*
+   * Startup decision from the cached copy and the published version:
+   *   'cache'  the cached copy is current;  'stale'  the version check failed, use the cached copy offline;
+   *   'fetch'  download campus.json (no cache, or a newer version is published).
+   */
+  function planLoad(cached, remoteVersion, versionFailed) {
+    var have = !!(cached && cached.data && cached.version !== null && cached.version !== undefined);
+    if (versionFailed || remoteVersion === null || remoteVersion === undefined || remoteVersion === '') {
+      return have ? 'stale' : 'fetch';
+    }
+    if (have && String(cached.version) === String(remoteVersion)) { return 'cache'; }
+    return 'fetch';
+  }
+
+  /* The version a freshly downloaded campus.json is cached under: the published version first. */
+  function versionOf(remoteVersion, data) {
+    if (remoteVersion !== null && remoteVersion !== undefined && remoteVersion !== '') { return String(remoteVersion); }
+    if (data && data.version !== undefined && data.version !== null && data.version !== '') { return String(data.version); }
+    var cfg = (data && data.config) || [];
+    for (var i = 0; i < cfg.length; i++) { if (cfg[i] && cfg[i].key === 'dataVersion') { return String(cfg[i].value); } }
+    return '0';
+  }
+
+  function looksLikeCampus(data) { return !!(data && typeof data === 'object' && (data.buildings || data.config)); }
+  function looksLikeSvg(text) { return typeof text === 'string' && text.indexOf('<svg') !== -1; }
+
+  /* Site config with defaults; anything malformed reads as "not configured". */
+  function normalizeConfig(raw) {
+    var c = (raw && typeof raw === 'object') ? raw : {};
+    var a = (c.analytics && typeof c.analytics === 'object') ? c.analytics : {};
+    return {
+      mapsApiKey: typeof c.mapsApiKey === 'string' ? c.mapsApiKey.replace(/^\s+|\s+$/g, '') : '',
+      analytics: { provider: typeof a.provider === 'string' ? a.provider : 'goatcounter', site: typeof a.site === 'string' ? a.site : '' },
+      basePath: typeof c.basePath === 'string' ? c.basePath : '',
+      domain: typeof c.domain === 'string' ? c.domain : ''
+    };
+  }
+
+  /* Query string of a location-like object -> {name: first value}. */
+  function queryParams(search) {
+    var out = {};
+    var s = String(search || '').replace(/^\?/, '');
+    if (!s) { return out; }
+    var parts = s.split('&');
+    for (var i = 0; i < parts.length; i++) {
+      if (!parts[i]) { continue; }
+      var eq = parts[i].indexOf('=');
+      var k = eq === -1 ? parts[i] : parts[i].slice(0, eq);
+      var v = eq === -1 ? '' : parts[i].slice(eq + 1);
+      try { k = decodeURIComponent(k.replace(/\+/g, ' ')); } catch (e) { continue; }
+      /* values stay raw for ?qr= (base64 with + and /); decode the rest */
+      if (k !== 'qr') { try { v = decodeURIComponent(v.replace(/\+/g, ' ')); } catch (e2) { continue; } }
+      if (!(k in out)) { out[k] = v; }
+    }
+    return out;
+  }
+
+  /* The page's own URL without query or hash: the share-link base. */
+  function pageUrl(loc) {
+    if (!loc || !loc.href) { return ''; }
+    return String(loc.href).split('#')[0].split('?')[0];
+  }
+
+  function request(url, kind, cacheMode, cb) {
+    if (typeof fetch !== 'function') { setTimeout(function () { cb(new Error('This browser cannot load data (no fetch).')); }, 0); return; }
+    fetch(url, { cache: cacheMode || 'default', credentials: 'same-origin' }).then(function (r) {
+      if (!r.ok) { throw new Error('HTTP ' + r.status + ' for ' + url); }
+      return kind === 'json' ? r.json() : r.text();
+    }).then(function (v) { cb(null, v); }, function (err) { cb(err || new Error('Request failed: ' + url)); });
+  }
+
+  return {
+    urls: urls,
+    withVersion: withVersion,
+    isId: isId,
+    planLoad: planLoad,
+    versionOf: versionOf,
+    looksLikeCampus: looksLikeCampus,
+    looksLikeSvg: looksLikeSvg,
+    normalizeConfig: normalizeConfig,
+    queryParams: queryParams,
+    pageUrl: pageUrl,
+    getConfig: function (cb) { request(urls.config(), 'json', 'no-cache', cb); },
+    getVersion: function (cb) { request(urls.version(), 'json', 'no-store', cb); },
+    getCampus: function (version, cb) { request(urls.campus(version), 'json', 'default', cb); },
+    getFloorSvg: function (floorId, version, cb) {
+      if (!isId(floorId)) { setTimeout(function () { cb(new Error('Invalid floor id')); }, 0); return; }
+      request(urls.floor(floorId, version), 'text', 'default', cb);
+    },
+    getSchedule: function (id, cb) {
+      if (!isId(id)) { setTimeout(function () { cb(new Error('Invalid schedule id')); }, 0); return; }
+      request(urls.schedule(id), 'json', 'no-cache', cb);
+    },
+    getLinks: function (cb) { request(urls.links(), 'json', 'no-cache', cb); }
+  };
+})();
+</script>

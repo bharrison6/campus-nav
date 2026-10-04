@@ -1,7 +1,7 @@
 {
   "name": "murray-state-campus-navigation",
   "version": "1.0.0",
-  "description": "Murray State campus navigation: Google Apps Script web app with CAD-derived indoor floor plans and routing",
+  "description": "Murray State campus navigation: a static web app (GitHub Pages) with CAD-derived indoor floor plans and routing",
   "scripts": {
     "test": "npm run test:unit && npm run test:pipeline",
     "test:unit": "node --test \"tests/unit/*.unit.mjs\"",
@@ -9,6 +9,8 @@
     "test:e2e": "playwright test -c tests/e2e/playwright.config.ts",
     "test:e2e:headed": "playwright test -c tests/e2e/playwright.config.ts --headed",
     "test:smoke": "playwright test -c playwright.config.ts",
+    "build": "node scripts/build/build-site.mjs",
+    "preview": "node dev/serve.mjs --dist dist --base /campus-nav/ --build",
     "serve": "node dev/serve.mjs",
     "pipeline": "node scripts/floorplan-pipeline/run.mjs --in data/dwg --out data/floorplans"
   },

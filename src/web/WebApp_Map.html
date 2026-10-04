@@ -1,13 +1,13 @@
 <script>
 /*
- * Map: Google Maps with building markers when Config.mapsApiKey is set (read at runtime, never
- * hardcoded); otherwise, or when the map fails to load, a building list with key-free
+ * Map: Google Maps with building markers when config.json carries mapsApiKey (injected at build time
+ * from the MAPS_API_KEY secret, never committed); otherwise, or when the map fails to load, a building list with key-free
  * "Open in Google Maps" walking-direction links. ES5.
  */
 var MAP = { mode: null, map: null, markers: {}, timer: null };
 
 function mapsKey() {
-  var k = getConfigValue('mapsApiKey');
+  var k = (APP.site && APP.site.mapsApiKey) || getConfigValue('mapsApiKey');
   k = k === null || k === undefined ? '' : String(k).replace(/^\s+|\s+$/g, '');
   if (!k || /REMOVED|^\*+/.test(k)) { return ''; }
   return k;

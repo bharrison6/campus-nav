@@ -1,0 +1,13 @@
+{
+  "id": "eday-sample",
+  "title": "Engineering Day (sample schedule)",
+  "date": "2026-11-07",
+  "events": [
+    { "time": "08:30", "title": "Check-in and welcome", "buildingId": "bld-it", "roomId": "room-it-1-0141", "note": "Sample entry: replace with the real E-Day program.", "links": ["eday-program"] },
+    { "time": "09:15", "title": "Robotics lab open house", "buildingId": "bld-it", "roomId": "room-it-1-0143", "links": [] },
+    { "time": "10:00", "title": "Senior design showcase", "buildingId": "bld-it", "roomId": "room-it-2-0241", "links": ["eday-program"] },
+    { "time": "11:00", "title": "Physics demonstrations", "buildingId": "bld-ep", "roomId": "room-ep-1-1332" },
+    { "time": "12:00", "title": "Lunch", "buildingId": "bld-cc", "note": "Outdoor walking directions only: this building has no indoor map yet." },
+    { "time": "13:00", "title": "Engineering physics talk", "buildingId": "bld-ep", "roomId": "room-ep-2-2321", "links": ["msu-home"] }
+  ]
+}

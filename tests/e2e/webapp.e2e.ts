@@ -1,15 +1,21 @@
 import { expect, test, type Page } from '@playwright/test';
 
-// Runs against dev/serve.mjs, which answers google.script.run with the real .gs backend seeded from the
-// generated SeedFloorData.gs (the DWG pipeline's output) and serves the embedded FP_*.html floor plans.
-// Data facts used here (data/floorplans/*.json): IT (bld-it) floors 1-2 public and its mezzanine (room 0301)
-// hidden; EP (bld-ep) floors 1-2 public and its penthouse (3300*) hidden; IT has entrances on both floors;
-// EP 1322 is reachable only through its own exterior door; no mapsApiKey is configured.
+// Runs against the built static site (npm run build output) served at /campus-nav/ by dev/serve.mjs --dist
+// (tests/e2e/playwright.config.ts). The data is the exporter's data/campus.json and floors/*.svg (the DWG
+// pipeline's output). Data facts used here (data/floorplans/*.json): IT (bld-it) floors 1-2 public and its
+// mezzanine (room 0301) hidden; EP (bld-ep) floors 1-2 public and its penthouse (3300*) hidden; IT has entrances
+// on both floors; EP 1322 is reachable only through its own exterior door; the build has no Maps key.
+// Failures (a floor plan that will not load, no network) are made with page.route, not with app test hooks.
 
+const BASE_PATH = '/campus-nav/';
+
+// Navigation is page-relative ('./'), never '/', so every test exercises the sub-path deployment.
 async function boot(page: Page, query = '') {
-  await page.goto('/' + query);
+  await page.goto('./' + query);
   await expect(page.locator('#loading-screen')).toBeHidden();
 }
+
+const failData = (page: Page) => page.route(/\/(config\.json|data\/[^?]*)(\?.*)?$/, (r) => r.abort('internetdisconnected'));
 
 async function searchAndOpen(page: Page, q: string, title: string) {
   const input = page.locator('#search-input');
@@ -190,7 +196,8 @@ test('hidden floors stay out of the picker and search', async ({ page }) => {
 });
 
 test('floor plan failure falls back to a simplified plan that still works', async ({ page }) => {
-  await boot(page, '?mock_fail=getFloorPlanSvg');
+  await page.route('**/floors/*.svg*', (r) => r.abort('failed'));
+  await boot(page);
   await page.getByRole('tab', { name: 'Indoor' }).click();
   await page.locator('#building-select').selectOption('bld-it');
   await expect(page.locator('#viewer-notice')).toContainText('Simplified plan');
@@ -201,13 +208,15 @@ test('floor plan failure falls back to a simplified plan that still works', asyn
 test('offline reload uses cached campus data', async ({ page }) => {
   await boot(page);
   await expect(page.locator('#stale-banner')).toBeHidden();
-  await boot(page, '?mock_offline=1');
+  await failData(page);
+  await boot(page);
   await expect(page.locator('#stale-banner')).toBeVisible();
   await expect(page.locator('#bcard-bld-it')).toBeVisible();
 });
 
 test('first load with no data and no cache shows a retryable error', async ({ page }) => {
-  await page.goto('/?mock_offline=1');
+  await failData(page);
+  await page.goto('./');
   await expect(page.locator('#loading-screen')).toHaveClass(/is-error/);
   await expect(page.locator('#loading-retry')).toBeVisible();
 });

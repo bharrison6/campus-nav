@@ -244,11 +244,9 @@ test('getFloorPlanSvg errors clearly; include() validates; doGet serves both pag
   assert.throws(() => g.getFloorPlanSvg('floor-it-9'), /FP_floor_it_9 not found for floor floor-it-9/);
   assert.throws(() => g.getFloorPlanSvg('../x'), /floorId is required/);
   assert.equal(doGetJson(R, { action: 'getFloorPlanSvg', floorId: 'floor-it-9' }).ok, false);
-  assert.ok(g.include('WebApp').length > 1000);
+  // The public web app moved to src/web (static site, lane F); only the admin page is still an Apps Script page.
+  assert.ok(g.include('Admin').length > 1000);
   assert.throws(() => g.include('../x'), /invalid/);
-  const web = R.ctx.doGet({ parameter: {} });
-  assert.equal(web.file, 'WebApp');
-  assert.equal(web.metaTags.viewport, 'width=device-width, initial-scale=1, viewport-fit=cover');
   const admin = R.ctx.doGet({ parameter: { action: 'admin' } });
   assert.equal(admin.file, 'Admin');
   assert.equal(admin.metaTags.viewport, 'width=device-width, initial-scale=1');
@@ -321,12 +319,12 @@ test('real seed: the public payload drops only the mezzanine and the penthouse',
   assert.deepEqual(all.floors.filter((f) => f.public === false).map((f) => f.id).sort(), ['floor-ep-3', 'floor-it-3']);
   assert.deepEqual(pub.floors.map((f) => f.id).sort(), ['floor-ep-1', 'floor-ep-2', 'floor-it-1', 'floor-it-2']);
   const stats = REAL.run('getCampusDataStats', []);
-  // Measured 2026-10-03: 620,517 vs 612,283 bytes (1.3 %). Not material, so the web app keeps
-  // MSCN_DATA_FN = 'getAllCampusData' and filters hidden floors itself.
+  // Measured 2026-10-03: 620,517 vs 612,283 bytes (1.3 %). Not material, so the published data/campus.json is
+  // the full getAllCampusData payload and the web app (src/web/WebApp_Data.html) filters hidden floors itself.
   assert.ok(stats.public.jsonBytes < stats.full.jsonBytes);
   assert.ok(stats.public.jsonBytes > stats.full.jsonBytes * 0.95);
-  const core = readFileSync(join(SRC, 'WebApp_Core.html'), 'utf8');
-  assert.match(core, /var MSCN_DATA_FN = 'getAllCampusData';/);
+  const adapter = readFileSync(join(ROOT, 'src', 'web', 'WebApp_Data.html'), 'utf8');
+  assert.match(adapter, /'data\/campus\.json'/);
 });
 
 function floorSnapshot(data, floorId) {
