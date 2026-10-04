@@ -61,8 +61,17 @@ The Map tab is the site's own map: no Google Maps key, no billing, no tile serve
 desktop) or Apple Maps (iPhone, iPad) open only from the "Directions to campus" links, at the chosen door. If a
 `MAPS_API_KEY` repository secret was ever created for v3, delete it under **Settings > Secrets and variables >
 Actions**; nothing reads it any more, and the Google Cloud key can be deleted too. The map's data is refreshed by
-the scripts that generate `data/campus-map/` (README, campus-map data section); OpenStreetMap's license requires
-the attribution the map always shows.
+the scripts that generate `data/campus-map/` (README, "The campus map data").
+
+**Attribution.** The buildings, paths and walking graph come from OpenStreetMap under the Open Database License, which
+requires the "© OpenStreetMap contributors" credit the map always shows (bottom corner, linking to
+openstreetmap.org/copyright); keep it visible in any restyle. The optional aerial layer is USDA NAIP imagery (public
+domain, served by USGS The National Map), credited in the same corner when the layer is on. Nothing else needs
+crediting on the page; MapLibre's license file ships beside it in `vendor/`.
+
+**OpenStreetMap contributions (your call).** The repository corrects two things OpenStreetMap gets wrong near IT
+and EP (one polygon covering EP and its northern neighbor, and five missing walks; README, "OpenStreetMap
+contribution candidates"). Contributing them to OpenStreetMap is optional public editing under your own account.
 
 ## 4. A custom domain (optional, later)
 
@@ -94,7 +103,10 @@ published by committing the result:
 
 1. `npm run admin` and open `http://localhost:8790/` (it runs only on your computer; there is no PIN).
 2. Make the edits. Every save is written at once to `data/overrides/<collection>.json`.
-3. `git diff data/overrides` to review, then commit and push. The workflow publishes it within minutes.
+3. `git diff data/overrides` to review, then commit and push. The workflow publishes it within minutes. A change to
+   a primary entrance or a building's levels or height also reruns the campus-map build in the background (the
+   admin log says when it is done, about 6 s); commit what it regenerated (`data/campus-map`, `data/georef`,
+   `data/floorplans`, `tools/admin/gs/SeedCampusMap.gs`) with the overrides.
 
 Optional before pushing: `npm run preview` builds the site and serves it at
 `http://localhost:8787/campus-nav/`, so you can check the change locally. New or revised floor drawings go
