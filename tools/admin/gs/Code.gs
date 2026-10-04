@@ -1,7 +1,8 @@
 /**
- * Code.gs — Main router for Murray State Campus Navigation.
- * doGet serves the WebApp and Admin pages as templates (so pages can
- * include() partials) and routes ?action= JSON requests.
+ * Code.gs — Router and floor-plan reader for Murray State Campus Navigation.
+ * getFloorPlanSvg feeds the export (floors/<id>.svg) and the admin canvases.
+ * doGet/doPost are the v2 Apps Script entry points: nothing deploys them since
+ * v3; they remain only while the v2 dev harness (dev/serve.mjs) still calls them.
  */
 
 /*
