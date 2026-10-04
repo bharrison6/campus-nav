@@ -1,8 +1,8 @@
 import { expect, test, type Page, type Request } from '@playwright/test';
 
 // What the static deployment adds on top of the app behaviour (webapp.e2e.ts): sub-path-safe URLs, the 404
-// redirect for deep links, the data cache, official schedules by id, the Maps key from config.json, and
-// analytics that load only when configured. The site under test is the key-free, analytics-off build.
+// redirect for deep links, the data cache, official schedules by id, no Google and no map key anywhere, and
+// analytics that load only when configured. The site under test is the analytics-off build.
 
 const BASE_PATH = '/campus-nav/';
 
@@ -62,7 +62,9 @@ test('the built page has no root-relative src/href and no leftover template scri
   expect(html).not.toContain('google.script');
   const res = await request.get('./config.json');
   expect(res.ok()).toBe(true);
-  expect(await res.json()).toMatchObject({ mapsApiKey: '', basePath: BASE_PATH, analytics: { site: '' } });
+  const cfg = await res.json();
+  expect(cfg).toMatchObject({ basePath: BASE_PATH, analytics: { site: '' } });
+  expect('mapsApiKey' in cfg).toBe(false);
 });
 
 test('a deep path that does not exist lands on the app with its query kept (404.html redirect)', async ({ page }) => {
@@ -131,20 +133,19 @@ test('a scanned schedule QR (an app URL with ?sched=) opens the official schedul
   await expect(page.locator('#official-title')).toHaveText('Engineering Day (sample schedule)');
 });
 
-test('key-free fallback: no Maps key in config.json means no Maps request and the building list', async ({ page }) => {
+test('the map is self-hosted: no request leaves the site, even with a stale mapsApiKey in config.json', async ({ page, request }) => {
+  await withConfig(page, { mapsApiKey: 'TEST-KEY-not-real-0123456789' });
   const hosts = externalHosts(page);
   await boot(page);
-  await expect(page.locator('#map-notice')).toContainText('not configured');
-  expect(hosts.filter((h) => h.includes('googleapis'))).toEqual([]);
-});
-
-test('a Maps key from config.json is used (and a failed Maps load still falls back)', async ({ page }) => {
-  await withConfig(page, { mapsApiKey: 'TEST-KEY-not-real-0123456789' });
-  const maps = page.waitForRequest((r) => r.url().startsWith('https://maps.googleapis.com/maps/api/js'));
-  await page.route('https://maps.googleapis.com/**', (r) => r.abort('failed'));
-  await boot(page);
-  expect(new URL((await maps).url()).searchParams.get('key')).toBe('TEST-KEY-not-real-0123456789');
-  await expect(page.locator('#map-notice')).toContainText('could not load');
+  await expect(page.locator('#map-canvas')).toHaveAttribute('data-map-ready', 'true', { timeout: 20_000 });
+  await page.getByRole('tab', { name: 'Indoor' }).click();
+  await expect(page.locator('#viewer svg.fv-svg')).toBeVisible();
+  expect(hosts, 'external hosts').toEqual([]);
+  const html = await (await request.get('./')).text();
+  expect(html).not.toMatch(/maps\.googleapis|gm_authFailure|google\.maps\./);
+  for (const f of ['vendor/maplibre-gl.mjs', 'vendor/maplibre-gl-worker.mjs', 'vendor/maplibre-gl.css', 'vendor/modules.mjs', 'data/map-manifest.json', 'sw.js']) {
+    expect((await request.get('./' + f)).status(), f).toBe(200);
+  }
 });
 
 test('analytics stay off unless config.json names a site', async ({ page }) => {

@@ -22,3 +22,21 @@ test('the deployed site loads, fetches the campus data and draws a floor plan', 
   await expect(page.locator('#viewer svg.fv-svg')).toBeVisible({ timeout: 30_000 });
   await expect(page.locator('#viewer [data-mscn-room]').first()).toBeAttached();
 });
+
+// v4: the campus map is part of the site (no tile server, no key): its manifest, the files it names, and MapLibre.
+test('the deployed site serves the campus map: manifest, buildings, basemap, MapLibre, service worker', async ({ request }) => {
+  const res = await request.get('./data/map-manifest.json');
+  expect(res.status(), 'data/map-manifest.json').toBe(200);
+  const man = await res.json();
+  expect(man.buildings, 'the manifest names a buildings file').toBeTruthy();
+  expect(man.fixture, 'the deployed map is not the lane K test fixture').toBeFalsy();
+  for (const p of [man.buildings, ...(man.basemap || []), ...(man.outdoorGraph ? [man.outdoorGraph] : [])]) {
+    const r = await request.get('./' + p);
+    expect(r.status(), p).toBe(200);
+    const fc = await r.json();
+    expect(Array.isArray(fc.features) || Array.isArray(fc.nodes), p + ' has features').toBe(true);
+  }
+  for (const p of ['vendor/maplibre-gl.mjs', 'vendor/maplibre-gl-worker.mjs', 'vendor/maplibre-gl.css', 'vendor/modules.mjs', 'sw.js']) {
+    expect((await request.get('./' + p)).status(), p).toBe(200);
+  }
+});

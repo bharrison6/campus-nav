@@ -414,15 +414,18 @@ function routeOnPosition(fix) {
     if (wantsGps && GPS.state === 'on') { computeRoute(); }
     return;
   }
-  if (r.startKind !== 'gps' || GPS.state !== 'on') { return; }
+  if (r.startKind !== 'gps') { return; }
   var step = r.steps[NAV.stepIndex];
   if (!step || step.kind !== 'outdoor' || !step.coords || !step.coords.length) { return; }
   var here = [fix.lng, fix.lat];
-  if (step.exitType === 'door' && MSCNGeo.haversine(here, step.coords[step.coords.length - 1]) < AT_DOOR_METERS) {
+  /* At the door (GPS may already read "inside" there): the floor plan takes over. */
+  if (step.exitType === 'door' && (GPS.state === 'on' || GPS.state === 'indoors') &&
+      MSCNGeo.haversine([fix.raw.lng, fix.raw.lat], step.coords[step.coords.length - 1]) < AT_DOOR_METERS) {
     toast('You are at the door. The floor plan takes over.', 'success');
     goToStep(NAV.stepIndex + 1);
     return;
   }
+  if (GPS.state !== 'on') { return; }
   var line = (NAV.stepIndex === 0 && r.lead ? [r.lead[1]] : []).concat(step.coords);
   var d = MSCNGeo.distanceToLine(here, line);
   if (d > Math.max(OFF_PATH_METERS, Number(fix.accuracy || 0) * 0.8)) {
