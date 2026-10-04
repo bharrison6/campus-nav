@@ -8,7 +8,7 @@ import path from 'node:path';
 import http from 'node:http';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
-import { READ_FNS, SERVER_FNS, createAdmin, isWriteFn, resolveSiteUrl } from '../../tools/admin/server.mjs';
+import { READ_FNS, SERVER_FNS, createAdmin, isWriteFn, mapInputsOf, resolveSiteUrl } from '../../tools/admin/server.mjs';
 import { buildExport } from '../../scripts/data/export-campus-data.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -89,6 +89,47 @@ test('writes land in data/overrides as the difference from the seed and pipeline
   const base = buildExport({ overridesDir: freshDir() }).campus.rooms.find((r) => r.id === 'room-it-1-0141').label;
   again.call('updateRoom', [{ id: 'room-it-1-0141', label: base }]);
   assert.deepEqual(readOv(dir, 'rooms'), []);
+});
+
+test('a save that changes a primary door, levels or height reruns the campus-map build in the background; others do not', async () => {
+  const runs = [];
+  const logs = [];
+  let release;
+  const admin = createAdmin({ overridesDir: freshDir(), log: (l) => logs.push(l),
+    rebuildMap: () => { runs.push(Date.now()); return new Promise((ok) => { release = () => ok('no changes'); }); } });
+  admin.call('updateRoom', [{ id: 'room-it-1-0141', label: 'Dean of Engineering' }]);
+  assert.equal(runs.length, 0, 'a room label is not a campus-map input');
+  admin.call('updateNavNode', [{ id: 'ep-1-n0356', primary: true }]);
+  assert.equal(runs.length, 1, 'an entrance primary flag is');
+  assert.equal(admin.status().mapRebuild.running, true);
+  admin.call('updateBuilding', [{ id: 'bld-it', levels: 4 }]);
+  assert.equal(runs.length, 1, 'a save during a run queues one more run instead of a parallel one');
+  release();
+  await new Promise((ok) => setTimeout(ok, 20));
+  assert.equal(runs.length, 2, 'the queued run starts when the first settles');
+  release();
+  await admin.mapRebuildIdle();
+  const st = admin.status().mapRebuild;
+  assert.equal(st.running, false);
+  assert.equal(st.last.ok, true);
+  assert.ok(st.last.ms >= 0);
+  assert.ok(logs.some((l) => /campus map rebuilt in \d+\.\d s: no changes/.test(l)), logs.join(' | '));
+  // a failing build is reported, not thrown at the editor
+  const bad = createAdmin({ overridesDir: freshDir(), log: quiet, rebuildMap: () => Promise.reject(new Error('boom')) });
+  bad.call('updateBuilding', [{ id: 'bld-ep', height: 21 }]);
+  await bad.mapRebuildIdle();
+  assert.deepEqual([bad.status().mapRebuild.last.ok, bad.status().mapRebuild.last.error], [false, 'boom']);
+  // the inputs string sees exactly those fields
+  const d = { navNodes: [{ id: 'a', type: 'entrance', floorId: 'f', x: 1, y: 2, primary: 'true' }, { id: 'b', type: 'room', primary: true }], buildings: [{ id: 'x', levels: 3, height: '' }] };
+  assert.equal(mapInputsOf(d), JSON.stringify([[['a', 'f', 1, 2, true]], [['x', '3', '']]]));
+});
+
+test('the admin rebuilds the map only for the repository overrides by default (npm run campus-map reads data/overrides)', () => {
+  const logs = [];
+  const admin = createAdmin({ overridesDir: freshDir(), log: (l) => logs.push(l) });
+  admin.call('updateBuilding', [{ id: 'bld-it', levels: 4 }]);
+  assert.ok(logs.some((l) => /not rebuilt \(overrides outside data\/overrides\)/.test(l)), logs.join(' | '));
+  assert.equal(admin.status().mapRebuild.last, null);
 });
 
 test('a failed write changes nothing on disk or in memory', () => {

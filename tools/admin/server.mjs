@@ -2,6 +2,9 @@
 // The local admin: Admin.html on localhost, answered by the backend (tools/admin/gs) in the Apps Script stand-in,
 // over seed + pipeline data + data/overrides. Every write is saved straight away as data/overrides/*.json (only the
 // difference from the seed and pipeline data); commit and push those files to publish. Never deployed, so no PIN.
+// A save that changes what the campus map is built from (an entrance's primary flag or position, a building's levels
+// or height) reruns npm run campus-map in the background (offline, committed inputs), so data/campus-map, data/georef
+// and the floors' entrance blocks match the overrides; the admin then reloads. getAdminStatus reports the last run.
 //
 //   npm run admin                       http://localhost:8790/
 //   node tools/admin/server.mjs [--port 8790]
@@ -9,10 +12,10 @@
 // Environment:
 //   MSCN_SITE_URL      the public site QR codes link to (https, default https://bharrison6.github.io/campus-nav/,
 //                      or build.config.json "siteUrl" when that file sets one)
-//   MSCN_MAPS_API_KEY  optional browser key for the Buildings map here (must allow localhost); kept in memory only
 //   MSCN_OVERRIDES_DIR where edits are saved (default data/overrides; tests point it elsewhere)
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFile } from 'node:child_process';
 import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { OVERRIDES_DIR, REPO, describeReport, openCampus } from '../../scripts/data/campus-engine.mjs';
@@ -43,12 +46,67 @@ export function resolveSiteUrl(env = process.env) {
   return url.endsWith('/') ? url : url + '/';
 }
 
+/**
+ * What the campus map is built from, of the admin's data: entrance nodes (primary, floor, position) and buildings'
+ * levels and height. Two writes that leave this string unchanged need no rebuild.
+ */
+export function mapInputsOf(data) {
+  const truthy = (v) => v === true || v === 'true';
+  const ents = (data.navNodes || []).filter((n) => n.type === 'entrance')
+    .map((n) => [n.id, n.floorId, Number(n.x), Number(n.y), truthy(n.primary)]).sort((a, b) => (a[0] < b[0] ? -1 : 1));
+  const blds = (data.buildings || []).map((b) => [b.id, String(b.levels ?? ''), String(b.height ?? '')]).sort((a, b) => (a[0] < b[0] ? -1 : 1));
+  return JSON.stringify([ents, blds]);
+}
+
+/** npm run campus-map (offline): resolves with its last output line, rejects with its error output. */
+export function runCampusMap({ timeoutMs = 180_000 } = {}) {
+  return new Promise((ok, fail) => {
+    execFile(process.execPath, [path.join(REPO, 'scripts', 'campus-map', 'run.mjs')], { cwd: REPO, timeout: timeoutMs, windowsHide: true },
+      (err, stdout, stderr) => {
+        if (err) return fail(new Error(String(stderr || err.message).trim().split(/\r?\n/).slice(-3).join(' ')));
+        const lines = String(stdout).trim().split(/\r?\n/);
+        return ok(lines[lines.length - 1].trim());
+      });
+  });
+}
+
 /** A path as the log shows it: repo-relative inside the repository, absolute elsewhere. */
 const shown = (p) => (path.relative(REPO, p).startsWith('..') ? p : path.relative(REPO, p));
 
-export function createAdmin({ overridesDir = OVERRIDES_DIR, gsDir, extraCode, env = process.env, log = console.log } = {}) {
-  const open = () => openCampus({ gsDir, overridesDir, extraCode, props: { mapsApiKey: env.MSCN_MAPS_API_KEY } });
+/**
+ * @param {Function|null} [o.rebuildMap] runs the campus-map build after a map-relevant save (returns a promise);
+ *   default: npm run campus-map when the overrides are the repository's own (it reads data/overrides), else none
+ */
+export function createAdmin({ overridesDir = OVERRIDES_DIR, gsDir, extraCode, env = process.env, log = console.log, rebuildMap } = {}) {
+  const open = () => openCampus({ gsDir, overridesDir, extraCode });
   let campus = open();
+  const rebuild = rebuildMap !== undefined ? rebuildMap
+    : (path.resolve(overridesDir) === path.resolve(OVERRIDES_DIR) && !gsDir ? () => runCampusMap() : null);
+  const map = { running: false, pending: false, last: null, idle: Promise.resolve() };
+
+  /** Reruns the campus-map build in the background; edits saved meanwhile queue one more run. */
+  function rebuildCampusMap(why) {
+    if (!rebuild) { log(`[admin] ${why}: the campus map is not rebuilt (overrides outside data/overrides)`); return; }
+    if (map.running) { map.pending = true; return; }
+    map.running = true;
+    const t0 = Date.now();
+    log(`[admin] ${why}: rebuilding the campus map (npm run campus-map)`);
+    const run = map.idle = new Promise((ok) => ok(rebuild())).then(
+      (out) => {
+        map.last = { ok: true, ms: Date.now() - t0, at: new Date().toISOString(), output: out || '' };
+        log(`[admin] campus map rebuilt in ${(map.last.ms / 1000).toFixed(1)} s${out ? ': ' + out : ''}`);
+        campus = open(); // the build rewrites the floors' entrance blocks and the generated seed the admin reads
+      },
+      (err) => {
+        map.last = { ok: false, ms: Date.now() - t0, at: new Date().toISOString(), error: String((err && err.message) || err) };
+        log(`[admin] campus map rebuild FAILED after ${(map.last.ms / 1000).toFixed(1)} s: ${map.last.error}`);
+      },
+    ).then(() => {
+      map.running = false;
+      if (map.pending) { map.pending = false; rebuildCampusMap('edits saved during the last rebuild'); }
+      return map.idle === run ? undefined : map.idle; // settles when the queued run (if any) has settled too
+    });
+  }
   const siteUrl = resolveSiteUrl(env);
   for (const l of describeReport(campus.report)) log(`[admin] ${l}`);
 
@@ -59,7 +117,7 @@ export function createAdmin({ overridesDir = OVERRIDES_DIR, gsDir, extraCode, en
       try { records = JSON.parse(fs.readFileSync(p, 'utf8')).length; } catch { records = 0; }
       return { name: `${c}.json`, records };
     });
-    return { overridesDir, files, report: describeReport(campus.report) };
+    return { overridesDir, files, report: describeReport(campus.report), mapRebuild: { running: map.running, last: map.last } };
   }
 
   /** One google.script.run call. Writes are saved to the overrides files before the reply. */
@@ -73,6 +131,7 @@ export function createAdmin({ overridesDir = OVERRIDES_DIR, gsDir, extraCode, en
     if (READ_FNS.includes(fn)) return campus.gas.run(fn, args);
     if (isWriteFn(fn) && typeof campus.gas.ctx[fn] === 'function') {
       let value;
+      const before = mapInputsOf(campus.gas.run('getAllCampusData', []));
       try {
         value = campus.gas.run(fn, args);
       } catch (e) {
@@ -81,6 +140,7 @@ export function createAdmin({ overridesDir = OVERRIDES_DIR, gsDir, extraCode, en
       }
       const written = campus.save();
       log(`[admin] ${fn}: ${written.length ? 'saved ' + written.map(shown).join(', ') : 'no change to the overrides'}`);
+      if (written.length && mapInputsOf(campus.gas.run('getAllCampusData', [])) !== before) rebuildCampusMap(fn);
       return value;
     }
     throw new Error('Script function not found: ' + fn);
@@ -135,7 +195,7 @@ export function createAdmin({ overridesDir = OVERRIDES_DIR, gsDir, extraCode, en
       return send(res, 500, 'text/plain', String((err && err.message) || err));
     }
   });
-  return { server, call, status, siteUrl, campus: () => campus };
+  return { server, call, status, siteUrl, campus: () => campus, mapRebuildIdle: () => map.idle };
 }
 
 const isMain = !!process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);

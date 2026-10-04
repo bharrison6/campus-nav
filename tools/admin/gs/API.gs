@@ -17,9 +17,9 @@ function getDataVersion() {
 /**
  * Everything, every floor and room (admin and any client that wants all data).
  * config is an array of { key, value }. A resolved mapsApiKey entry is added
- * when a key is configured (Script Property first, Config sheet fallback): the
- * local admin sets one from MSCN_MAPS_API_KEY for its map; the export removes it
- * (the site's key comes from the build). SHEET_ID never reaches clients.
+ * when a key is configured (Script Property first, Config sheet fallback; the
+ * archived Apps Script deployment's mechanism: the local admin sets none and v4
+ * has no map key); the export removes it. SHEET_ID never reaches clients.
  */
 function getAllCampusData() {
   return buildCampusPayload_(getSpreadsheet_());

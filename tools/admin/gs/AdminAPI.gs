@@ -3,7 +3,7 @@
  *
  * Since v3 these run only in the local admin (tools/admin/server.mjs) on the operator's machine, in the Apps
  * Script stand-in; the server turns the resulting sheet into data/overrides/*.json after every write. The admin
- * is never served publicly, so there is no PIN; the Maps key and settings live in the build configuration.
+ * is never served publicly, so there is no PIN; the site settings live in the build configuration (no map key).
  *
  * Rows are built from the tab's v2 headers (Init.gs getSheetDefinitions_), so a
  * record is passed as an object keyed by column name. Updates MERGE: a field
