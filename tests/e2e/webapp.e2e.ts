@@ -155,7 +155,7 @@ test('without a start, routes begin at the building entrance', async ({ page }) 
   await expect(activeRoute(page)).toHaveCount(1);
 });
 
-test('EP 1322 (exterior door only): reachable from outside, and no false "turn off Avoid stairs" hint from it', async ({ page }) => {
+test('EP 1322 (exterior door only): reachable from outside; from it, out its own door and back in by a primary door', async ({ page }) => {
   await boot(page);
   await searchAndOpen(page, 'EP 1322', 'EP 1322');
   await page.getByRole('button', { name: 'Navigate here' }).click();
@@ -164,9 +164,24 @@ test('EP 1322 (exterior door only): reachable from outside, and no false "turn o
   await expect(panel).toContainText('Arrive at EP 1322');
   await page.locator('#route-close').click();
 
+  // v4: its door (ep-1-n0365) is a sole door, joined to the paths, so EP 1322 -> EP 2321 walks outside and back in
   await setStart(page, 'EP 1322', 'EP 1322');
   await searchAndOpen(page, 'EP 2321', 'EP 2321');
   await page.getByRole('button', { name: 'Navigate here' }).click();
+  await expect(panel.locator('#route-sentence')).toHaveText(/^Leave by the .+, walk \d+ m along the path, enter by the .+, take the (stairs|elevator) up to Second Floor, arrive at EP 2321\.$/);
+  const kinds = () => page.evaluate(() => (window as any).NAV.route.steps.map((s: any) => s.kind).join(','));
+  expect(await kinds()).toMatch(/^walk,outdoor,door,walk/);
+  await page.locator('label.switch').click();
+  await expect(panel.locator('#route-sentence')).toHaveText(/take the elevator up to Second Floor, arrive at EP 2321\.$/);
+});
+
+test('without the outdoor graph EP 1322 is cut off from the rest of EP, with no false "turn off Avoid stairs" hint', async ({ page }) => {
+  await page.route('**/data/campus-map/outdoor-graph.json', (r) => r.fulfill({ status: 404, body: '' }));
+  await boot(page);
+  await setStart(page, 'EP 1322', 'EP 1322');
+  await searchAndOpen(page, 'EP 2321', 'EP 2321');
+  await page.getByRole('button', { name: 'Navigate here' }).click();
+  const panel = page.locator('#route-panel');
   await expect(panel).toContainText('No route was found between these points.');
   await page.locator('label.switch').click();
   await expect(panel).toContainText('No route was found between these points.');
