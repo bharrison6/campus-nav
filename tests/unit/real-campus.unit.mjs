@@ -3,12 +3,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { loadInclude, GAS_SRC, GAS_RUNTIME } from './load-include.mjs';
+import { loadInclude } from './load-include.mjs';
 
 const require = createRequire(import.meta.url);
-const { makeRuntime } = require(GAS_RUNTIME);
+const { makeRuntime } = require('../../dev/gas-runtime.cjs');
 
-const gas = makeRuntime(GAS_SRC);
+const gas = makeRuntime(); // the backend in tools/admin/gs (GS_DIR)
 gas.ctx.initSystem();
 const data = gas.run('getAllCampusData', []);
 

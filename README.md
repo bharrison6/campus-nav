@@ -3,8 +3,8 @@
 A campus wayfinding web app for Murray State University. Visitors search for a room ("IT 141", "EP 2321"),
 see it on a floor plan, and get turn-by-turn directions to it: across floors by stairs or elevator (with an
 "Avoid stairs" option), and between buildings with an outdoor walking leg. It also reads QR codes posted in
-buildings (they set "you are here"), keeps a personal class schedule, and has a PIN-protected admin page for
-editing the data.
+buildings (they set "you are here"), keeps a personal class schedule, and comes with an admin tool, run on the
+operator's own computer, for editing the data.
 
 Indoor coverage today: **Collins Industry and Technology Center (IT, building 0135)** and **Engineering and
 Physics (EP, building 0174)**, floors 1 and 2 of each, drawn from the university's AutoCAD floor plans. The
@@ -41,8 +41,8 @@ buildings.
   navigation graph (`WebApp_Pathfinding.html`), step cards, the Google Maps outdoor view, the schedule and
   the QR scanner. Without a Maps key the Map tab lists buildings with "Open in Google Maps" walking links.
   All browser code is ES5 (no `let`/`const`, arrow functions or template literals); a unit test enforces it.
-- **Admin page** (`?action=admin`, `Admin.html`): QR code generator, floors, rooms, navigation graph and
-  buildings editors, the floor-data Import tab, and Settings (Maps key, admin PIN, reload campus data).
+- **Admin** (`tools/admin`, `npm run admin`, local only): QR code generator, floors, rooms, navigation graph and
+  buildings editors; saves go to `data/overrides` (see "Editing the data" below).
 - **Deep links:** `?qr=<base64 JSON>` (what the admin's QR generator prints: a location or a schedule
   entry), `?loc=<navNodeId>` (start here), `?room=<roomId>` (open a room; add `&nav=1` to start a route).
 
@@ -50,24 +50,57 @@ buildings.
 
 | path | what |
 |---|---|
-| `scripts/apps-script/` | the Apps Script project: `src/`, `deploy.ps1`, `DEPLOYMENT.md` |
-| `scripts/floorplan-pipeline/` | the DWG to SVG / JSON / nav-graph / GAS-seed pipeline (Node) |
-| `data/dwg/` | source drawings (IT `0135_1..3-bp.dwg`, EP `0174_1..3-bp.dwg`) |
-| `data/floorplans/` | generated per-floor JSON and SVG, `cross-floor-edges.json`, `pipeline-report.json` |
-| `dev/` | local preview harness: `serve.mjs`, the Apps Script runtime stand-in `gas-runtime.cjs`, `mock-gas.js` |
-| `tests/unit/` | Node unit tests (pathfinding, search, ES5 check, backend, real campus data) |
+| `scripts/floorplan-pipeline/` | the DWG to SVG / JSON / nav-graph / seed pipeline (Node); reads the drawings from outside the repo |
+| `data/floorplans/` | generated per-floor JSON and SVG, `cross-floor-edges.json`, `pipeline-report.json` (committed) |
+| `data/overrides/` | the operator's edits on top of the generated data, one JSON file per collection (committed) |
+| `scripts/data/` | the build-time export (`export-campus-data.mjs`) and the overrides merge it shares with the admin |
+| `tools/admin/` | the local admin: `Admin.html`, `server.mjs` (`npm run admin`); `gs/` holds the backend `.gs` files and the floor-plan assets |
+| `dev/` | `gas-runtime.cjs`, the Apps Script stand-in that runs `tools/admin/gs` in Node; the v2 preview harness |
+| `tests/unit/` | Node unit tests (pathfinding, search, ES5 check, backend, overrides, export, admin, real campus data) |
 | `tests/e2e/` | Playwright tests against the local harness |
 | `tests/smoke.spec.ts` | Playwright smoke test against a deployed URL |
-| `archive/` | retired code (the 2026-02 raster pipeline) |
+| `archive/` | retired code: the 2026-02 raster pipeline, `apps-script-v2/` (the Apps Script deployment) |
+
+## Data flow
+
+```
+ drawings (DWG, outside the repo)            tools/admin/gs/SeedData.gs   (89 buildings, codes, numbers)
+        |  npm run pipeline                          |
+        v                                            |
+ data/floorplans/*  +  tools/admin/gs/SeedFloorData.gs, FP_floor_*.html   (generated, committed)
+        |                                            |
+        +-------------------- base ------------------+
+                                |   + data/overrides/*.json   (operator edits, committed; npm run admin)
+                                v
+   node scripts/data/export-campus-data.mjs --out <dir>       (run by the site build)
+        -> <dir>/campus.json, <dir>/floors/<floorId>.svg, <dir>/version.json  ->  the static site
+```
+
+The export runs the backend `.gs` code in the Node stand-in (`dev/gas-runtime.cjs`), seeds it the way the v2
+`initSystem()` seeded a new sheet, merges the overrides, and writes exactly what `getAllCampusData` returns
+(the Maps key is never in it; the site's `config.json` carries the key). `version` is a content hash, so the
+same inputs give byte-identical files; `version.json` adds `builtAt` and `gitSha`. `npm run export:data` writes
+it to `build/data` for a look.
+
+## Where the drawings live
+
+The six facilities drawings (IT `0135_1..3-bp.dwg`, EP `0174_1..3-bp.dwg`) are **not in this repository** and
+must never be added: only the floor plans derived from them are published. They live in the project folder
+beside the code repository, `../drawings/dwg/` (OneDrive-backed, university-controlled). The pipeline reads
+`MSCN_DWG_DIR`, defaulting to that folder; `data/dwg/` and `*.dwg` are gitignored.
+
+Without the drawings (CI, a fresh clone) `npm test` still passes: the pipeline tests that need them are
+skipped with one message, and `committed-outputs.test.mjs` still checks that the committed outputs agree with
+each other.
 
 ## The floor-plan pipeline
 
-`npm run pipeline` reads every DWG in `data/dwg`, one per process (libredwg compiled to WebAssembly,
-`@mlightcad/libredwg-web`), and writes:
+`npm run pipeline` reads every DWG in `MSCN_DWG_DIR` (or `--in <dir>`), one per process (libredwg compiled to
+WebAssembly, `@mlightcad/libredwg-web`), and writes:
 
 - `data/floorplans/floor-<bldg>-<level>.json` and `.svg` for each floor;
 - `data/floorplans/cross-floor-edges.json` (stair and elevator links) and `pipeline-report.json`;
-- `scripts/apps-script/src/FP_floor_*.html` (the SVGs as Apps Script files) and `SeedFloorData.gs`.
+- `tools/admin/gs/FP_floor_*.html` (the SVGs as the backend's plan assets) and `SeedFloorData.gs`.
 
 How it reads the drawings: rooms are the `AREA-ROOM` polylines, numbered by the `FMGRM1` room tags; units come
 from `$INSUNITS` (inches, checked against the tags' room areas); door swings and gaps in the walls between
@@ -75,21 +108,50 @@ room polygons become openings; corridor centerlines become the walking graph; st
 across floors become cross-floor links (stairs not step-free). The drawings carry no room-use text, so room
 types (stair, elevator, restroom, corridor, storage, mechanical) come only from geometric evidence and the
 rest are `other`. The run is deterministic: a rerun on the same drawings reproduces the committed outputs
-byte for byte, and `npm run test:pipeline` fails if they drift.
+byte for byte, and `npm run test:pipeline` (with the drawings present) fails if they drift.
 
 ### New or revised drawings
 
-1. Put the DWG files in `data/dwg/`. A new floor or building also needs an entry in
-   `scripts/floorplan-pipeline/config.mjs` (`FLOORS`, `BUILDINGS`), and a new building needs its row in
-   `scripts/apps-script/src/SeedData.gs` (`getBuildingOverrides_`: code, number, `hasIndoor: true`).
+1. Put the DWG files in the drawings folder (`../drawings/dwg/`, or wherever `MSCN_DWG_DIR` points). A new
+   floor or building also needs an entry in `scripts/floorplan-pipeline/config.mjs` (`FLOORS`, `BUILDINGS`),
+   and a new building needs its row in `tools/admin/gs/SeedData.gs` (`getBuildingOverrides_`: code, number,
+   `hasIndoor: true`).
 2. `npm run pipeline`, then read the summary it prints (unreachable rooms, isolated entrances, vertical
    stacks) and `data/floorplans/pipeline-report.json`.
-3. `npm test` and `npm run test:e2e`; update tests that name rooms which changed.
-4. Commit the regenerated files, then deploy (`scripts/apps-script/DEPLOYMENT.md`).
-5. Load the new data into the live sheet: admin page > Settings > **Reload Campus Data** (replaces buildings,
-   floors, rooms and the navigation graph with the deployed seed; photos and QR locations are kept). To
-   replace a single floor instead, use the admin **Import** tab with `data/floorplans/floor-<id>.json`; its
-   stair and elevator links are kept when their node ids are unchanged.
+3. `npm test` (with the drawings present) and `npm run test:e2e`; update tests that name rooms which changed.
+4. Check the overrides still fit: the export (and `npm run admin`) prints an `ORPHAN` line for every edit
+   whose room, node or edge the new drawings no longer produce. Orphans are skipped, never applied, and stay in
+   the file until you fix or remove them.
+5. Commit the regenerated files and push; the site rebuilds.
+
+## Editing the data (local admin)
+
+```
+npm run admin             # http://localhost:8790/  (runs only on this computer, never published; no PIN)
+```
+
+The admin page (QR codes, buildings and entrances, floors, room polygons, the navigation graph) runs against the
+same engine as the export. Every save is written at once to `data/overrides/<collection>.json`, holding only
+the difference from the generated data. To publish an edit: `git diff data/overrides` to review, commit, push.
+
+Overrides format: one file per collection (`buildings`, `floors`, `rooms`, `navNodes`, `navEdges`, `photos`,
+`qrLocations`, `config`), each an array of records merged by `id` (`config` by `key`) over the seed and pipeline
+data, in that order:
+
+```json
+[
+  {"id":"room-it-1-0141","label":"Dean of Engineering"},
+  {"id":"room-ep-1-1322","_delete":true},
+  {"id":"qrloc-1759572000000","_new":true,"buildingId":"bld-it","floorId":"floor-it-1","nodeId":"it-1-n0012","description":"Main lobby","permanent":true,"expires":"","createdDate":"2026-10-04T10:00:00.000Z"}
+]
+```
+
+A partial record changes only the fields it names; `"_delete": true` removes the record; `"_new": true` marks a
+record the operator added. Hand edits are fine (use **Settings > Reload from disk** in a running admin to pick
+them up). `config` may not set `mapsApiKey` or `dataVersion`. The admin's Settings tab shows how many records
+each file holds and lists orphans. Whole floors are not imported by hand any more: new drawings go through the
+pipeline. QR codes link to `MSCN_SITE_URL` (default the planned Pages address); `MSCN_MAPS_API_KEY` optionally
+enables the Buildings map in the admin (a key that allows localhost; kept in memory only).
 
 ## The web app (static site)
 
@@ -104,17 +166,15 @@ payload>`, `?sched=<scheduleId>`. Operator steps (Pages, Maps key secret, analyt
 
 ## Deployment
 
-See [`scripts/apps-script/DEPLOYMENT.md`](scripts/apps-script/DEPLOYMENT.md): the current deployment, how to
-deploy changes (`deploy.ps1`: push, new version, repoint the permanent deployment), first-run setup, and the
-operator steps still needed to go live.
+The v2 Apps Script deployment is retired (the university Workspace blocks anonymous Apps Script web apps); its
+deploy script and notes are kept in [`archive/apps-script-v2/`](archive/apps-script-v2/README.md). The static
+site's build and go-live steps replace them.
 
 ## Secrets
 
-The Google Maps browser key and the admin PIN live only in the Apps Script project's **Script Properties**
-(`mapsApiKey`, `ADMIN_PIN`), set by the project owner: the first `?action=init` generates the PIN, and the
-admin Settings tab can replace either value without ever displaying it. Neither value belongs in this
-repository, a chat or a log. `scripts/apps-script/.clasp.json` holds the script id; it is gitignored and each
-machine creates its own with `clasp clone`.
+There is no admin PIN: the admin runs only on the operator's computer. The Google Maps browser key is never in
+this repository, the overrides or the exported data; the site build supplies it. A key does not belong in a
+chat or a log either. `.clasp.json` (the archived Apps Script deployment's script id) stays gitignored.
 
 ## Development and tests
 

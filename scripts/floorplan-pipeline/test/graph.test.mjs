@@ -1,6 +1,8 @@
-// Integration: run the real pipeline (without writing) over data/dwg and check the navigation graph and the emitted
+// Integration: run the real pipeline (without writing) over the drawings and check the navigation graph and the emitted
 // GAS seed against the v2 data contract. Parsing is cached in scripts/floorplan-pipeline/.cache.
-import test from 'node:test';
+// The drawings are not in the repository (MSCN_DWG_DIR, default <repo>/../drawings/dwg): without them every test in
+// this file is skipped with one message, so CI stays green; the committed outputs are still checked by tests/unit.
+import nodeTest from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -8,18 +10,24 @@ import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 import { runPipeline } from '../pipeline.mjs';
 import { buildSeedGs, HEADERS } from '../stages/emit-gas.mjs';
-import { FLOORS, planAssetName } from '../config.mjs';
+import { DWG_DIR_ENV, FLOORS, hasDrawings, planAssetName, resolveDwgDir } from '../config.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '..', '..', '..');
-const result = runPipeline({
-  inDir: path.join(repo, 'data/dwg'),
+const dwgDir = resolveDwgDir(repo);
+const present = hasDrawings(dwgDir);
+const SKIP = `drawings not found at ${dwgDir} (set ${DWG_DIR_ENV}); DWG-dependent pipeline checks skipped`;
+if (!present) console.log(`# ${SKIP}`);
+/** Every test here needs the drawings: skipped, with the reason, when they are absent. */
+const test = (name, fn) => nodeTest(name, present ? {} : { skip: SKIP }, fn);
+const result = present ? runPipeline({
+  inDir: dwgDir,
   outDir: path.join(repo, 'data/floorplans'),
-  gasDir: path.join(repo, 'scripts/apps-script/src'),
+  gasDir: path.join(repo, 'tools/admin/gs'),
   cacheDir: path.join(repo, 'scripts/floorplan-pipeline/.cache'),
   log: () => {},
   write: false,
-});
+}) : { floors: [], crossEdges: [], report: {} };
 const { floors, crossEdges, report } = result;
 
 /** Adjacency over every floor graph plus the cross-floor edges. */
@@ -177,10 +185,10 @@ test('SeedFloorData.gs evaluates, rows follow the contract headers, under 2 MB',
 });
 
 test('committed generated files are up to date with the DWGs and the pipeline', () => {
-  const committed = fs.readFileSync(path.join(repo, 'scripts/apps-script/src/SeedFloorData.gs'), 'utf8');
+  const committed = fs.readFileSync(path.join(repo, 'tools/admin/gs/SeedFloorData.gs'), 'utf8');
   assert.equal(committed, buildSeedGs(floors, crossEdges, { unitName: 'inches' }), 'run `npm run pipeline` and commit');
   for (const f of floors) {
-    assert.equal(fs.readFileSync(path.join(repo, 'scripts/apps-script/src', `${f.planAsset}.html`), 'utf8'), f.svg, f.floorId);
+    assert.equal(fs.readFileSync(path.join(repo, 'tools/admin/gs', `${f.planAsset}.html`), 'utf8'), f.svg, f.floorId);
     assert.equal(fs.readFileSync(path.join(repo, 'data/floorplans', `${f.floorId}.svg`), 'utf8'), f.svg, f.floorId);
   }
 });

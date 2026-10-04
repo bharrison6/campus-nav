@@ -12,7 +12,9 @@
     "build": "node scripts/build/build-site.mjs",
     "preview": "node dev/serve.mjs --dist dist --base /campus-nav/ --build",
     "serve": "node dev/serve.mjs",
-    "pipeline": "node scripts/floorplan-pipeline/run.mjs --in data/dwg --out data/floorplans"
+    "pipeline": "node scripts/floorplan-pipeline/run.mjs --out data/floorplans",
+    "export:data": "node scripts/data/export-campus-data.mjs --out build/data",
+    "admin": "node tools/admin/server.mjs"
   },
   "repository": {
     "type": "git",

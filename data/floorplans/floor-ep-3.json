@@ -5,7 +5,7 @@
  "level": 3,
  "label": "Penthouse",
  "public": false,
- "source": "data/dwg/0174_3-bp.dwg",
+ "source": "0174_3-bp.dwg",
  "planAsset": "FP_floor_ep_3",
  "svgFile": "floor-ep-3.svg",
  "widthPx": 2070.8,

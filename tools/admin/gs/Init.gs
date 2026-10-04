@@ -1,21 +1,18 @@
 /**
- * Init.gs — Sheet creation, schema (data contract v2), seeding, and the
- * first-run ADMIN_PIN bootstrap for Murray State Campus Navigation.
+ * Init.gs — Sheet creation, schema (data contract v2) and seeding for Murray
+ * State Campus Navigation. Since v3 the "sheet" is the in-memory one of the
+ * Apps Script stand-in (dev/gas-runtime.cjs), seeded fresh on every export and
+ * every local admin start; operator edits live in data/overrides.
  *
  * Naming: helpers end with an underscore so google.script.run cannot call them
  * (Apps Script hides only trailing-underscore functions from the client).
  */
 
 /**
- * Creates the backing Google Sheet if it does not exist, ensures every tab has
- * the v2 headers and text formats, seeds empty tabs, and generates an
- * ADMIN_PIN in Script Properties on first run.
+ * Creates the backing sheet if it does not exist, ensures every tab has the v2
+ * headers and text formats, and seeds empty tabs. Idempotent.
  *
- * Idempotent: safe to call repeatedly. Never returns a secret value; the
- * operator reads ADMIN_PIN in the Apps Script editor (Project Settings >
- * Script Properties).
- *
- * @return {Object} { initialized, created, url, seeded, counts, schemaMismatch, floorSeedSource, settings }
+ * @return {Object} { initialized, created, url, seeded, counts, schemaMismatch, floorSeedSource }
  */
 function initSystem() {
   var lock = LockService.getScriptLock();
@@ -44,7 +41,6 @@ function initSystem() {
     var mismatch = ensureAllSheets_(ss);
     seedConfig_(ss);
     var seeded = seedAllCampusData(ss);
-    ensureAdminPin_();
 
     return {
       initialized: true,
@@ -53,8 +49,7 @@ function initSystem() {
       seeded: seeded,
       counts: countRows_(ss),
       schemaMismatch: mismatch,
-      floorSeedSource: floorSeedSource_(),
-      settings: settingsStatus_()
+      floorSeedSource: floorSeedSource_()
     };
   } finally {
     lock.releaseLock();
@@ -185,24 +180,4 @@ function countRows_(ss) {
     counts[defs[i].name] = sheet ? Math.max(sheet.getLastRow() - 1, 0) : 0;
   }
   return counts;
-}
-
-/**
- * Generates a random 6-digit ADMIN_PIN into Script Properties when none exists.
- * Returns only whether it generated one; the value never leaves the property store.
- * @return {boolean}
- */
-function ensureAdminPin_() {
-  var props = PropertiesService.getScriptProperties();
-  if (props.getProperty('ADMIN_PIN')) return false;
-  var digest = Utilities.computeDigest(
-    Utilities.DigestAlgorithm.SHA_256,
-    Utilities.getUuid() + ':' + Utilities.getUuid() + ':' + new Date().getTime()
-  );
-  var n = 0;
-  for (var i = 0; i < 6; i++) {
-    n = (n * 256 + (digest[i] & 255)) % 900000;
-  }
-  props.setProperty('ADMIN_PIN', String(100000 + n));
-  return true;
 }

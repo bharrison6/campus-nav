@@ -1,5 +1,9 @@
 /**
- * AdminAPI.gs — Admin operations (contract v2). Every write requires the admin PIN.
+ * AdminAPI.gs — Admin write operations (contract v2).
+ *
+ * Since v3 these run only in the local admin (tools/admin/server.mjs) on the operator's machine, in the Apps
+ * Script stand-in; the server turns the resulting sheet into data/overrides/*.json after every write. The admin
+ * is never served publicly, so there is no PIN; the Maps key and settings live in the build configuration.
  *
  * Rows are built from the tab's v2 headers (Init.gs getSheetDefinitions_), so a
  * record is passed as an object keyed by column name. Updates MERGE: a field
@@ -9,49 +13,14 @@
  */
 
 // ============================================================================
-// PIN, lockout, and the admin-operation wrapper
+// The admin-operation wrapper
 // ============================================================================
 
-var PIN_FAILURE_LIMIT_ = 10;
-var PIN_LOCKOUT_SECONDS_ = 600;
-
 /**
- * Verifies the admin PIN against Script Property ADMIN_PIN.
- * After 10 failed attempts within 10 minutes all PIN checks are refused for
- * 10 minutes (the web app is anonymous, so the lockout is global).
- * @param {string} pin
- * @return {boolean} True if valid.
- */
-function verifyAdminPin(pin) {
-  var stored = PropertiesService.getScriptProperties().getProperty('ADMIN_PIN');
-  if (!stored) {
-    throw new Error('Admin PIN not configured. Run ?action=init once; the generated PIN is then in the Apps Script editor under Project Settings > Script Properties (ADMIN_PIN).');
-  }
-  var cache = CacheService.getScriptCache();
-  var failures = parseInt(cache.get('adminPinFailures') || '0', 10);
-  if (failures >= PIN_FAILURE_LIMIT_) {
-    throw new Error('Too many failed PIN attempts. Try again in 10 minutes.');
-  }
-  if (pin !== undefined && pin !== null && pin !== '' && String(pin) === String(stored)) {
-    cache.remove('adminPinFailures');
-    return true;
-  }
-  cache.put('adminPinFailures', String(failures + 1), PIN_LOCKOUT_SECONDS_);
-  return false;
-}
-
-function requirePin_(pin) {
-  if (!verifyAdminPin(pin)) {
-    throw new Error('Invalid admin PIN');
-  }
-}
-
-/**
- * Verifies data.pin, takes the script lock, opens the spreadsheet, runs the
- * callback, bumps dataVersion, and returns the callback's result.
+ * Takes the script lock, opens the spreadsheet, runs the callback, bumps
+ * dataVersion, and returns the callback's result.
  */
 function adminOp_(data, callback) {
-  requirePin_(data ? data.pin : '');
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
@@ -75,63 +44,6 @@ function incrementDataVersion_(ss) {
     }
   }
   configSheet.appendRow(['dataVersion', '1']);
-}
-
-// ============================================================================
-// Settings (secrets live only in Script Properties; values never returned)
-// ============================================================================
-
-/**
- * Settings status for the admin Settings tab: booleans and the key's source,
- * never values. The admin page calls it after PIN login; a pin argument, when
- * passed, is verified.
- * @param {string=} pin
- * @return {Object} { mapsApiKeyConfigured, mapsApiKeySource, adminPinConfigured }
- */
-function getSettingsStatus(pin) {
-  if (pin !== undefined && pin !== null && pin !== '') requirePin_(pin);
-  return settingsStatus_();
-}
-
-/**
- * Stores the Google Maps browser key in Script Property mapsApiKey.
- * An empty key removes the property (the Config sheet fallback then applies).
- * @param {string} pin
- * @param {string} key
- * @return {Object} settings status (booleans only)
- */
-function setMapsApiKey(pin, key) {
-  requirePin_(pin);
-  var value = String(key === undefined || key === null ? '' : key).replace(/^\s+|\s+$/g, '');
-  var props = PropertiesService.getScriptProperties();
-  if (value === '') {
-    props.deleteProperty('mapsApiKey');
-  } else {
-    if (!/^[A-Za-z0-9_-]{20,128}$/.test(value)) {
-      throw new Error('That does not look like a Google Maps API key (letters, digits, - and _, 20 to 128 characters).');
-    }
-    props.setProperty('mapsApiKey', value);
-  }
-  try { incrementDataVersion_(getSpreadsheet_()); } catch (e) { /* not initialized yet */ }
-  return settingsStatus_();
-}
-
-/**
- * Changes ADMIN_PIN. The new PIN must be 6 to 20 characters with no spaces
- * (the admin page enforces the same rule; the generated first PIN is 6 digits).
- * @param {string} pin - Current PIN.
- * @param {string} newPin
- * @return {Object} { changed: true }
- */
-function changeAdminPin(pin, newPin) {
-  requirePin_(pin);
-  var value = String(newPin === undefined || newPin === null ? '' : newPin).replace(/^\s+|\s+$/g, '');
-  if (!/^\S{6,20}$/.test(value)) {
-    throw new Error('The new PIN must be 6 to 20 characters with no spaces.');
-  }
-  PropertiesService.getScriptProperties().setProperty('ADMIN_PIN', value);
-  CacheService.getScriptCache().remove('adminPinFailures');
-  return { changed: true };
 }
 
 // ============================================================================
@@ -316,7 +228,7 @@ function requireNonEmptyArray_(value, name) {
 // ============================================================================
 
 /**
- * @param {Object} data - pin, buildingId, floorId, nodeId, description, permanent, expires.
+ * @param {Object} data - buildingId, floorId, nodeId, description, permanent, expires.
  * @return {Object} { id }
  */
 function saveQrLocation(data) {
@@ -376,7 +288,7 @@ function deleteRoom(data) {
   return adminOp_(data, function (ss) { return deleteRecord_(ss, 'Rooms', data, 'Room'); });
 }
 
-/** @param {Object} data - pin, floorId, rooms (array of room objects). */
+/** @param {Object} data - floorId, rooms (array of room objects). */
 function saveBatchRooms(data) {
   return adminOp_(data, function (ss) {
     validateRequired_(data, ['floorId', 'rooms']);
@@ -424,7 +336,7 @@ function deleteNavNode(data) {
   });
 }
 
-/** @param {Object} data - pin, floorId, nodes (array of node objects). */
+/** @param {Object} data - floorId, nodes (array of node objects). */
 function saveBatchNavNodes(data) {
   return adminOp_(data, function (ss) {
     validateRequired_(data, ['floorId', 'nodes']);
@@ -453,209 +365,12 @@ function deleteNavEdge(data) {
   return adminOp_(data, function (ss) { return deleteRecord_(ss, 'NavEdges', data, 'NavEdge'); });
 }
 
-/** @param {Object} data - pin, edges (array of edge objects). */
+/** @param {Object} data - edges (array of edge objects). */
 function saveBatchNavEdges(data) {
   return adminOp_(data, function (ss) {
     validateRequired_(data, ['edges']);
     requireNonEmptyArray_(data.edges, 'edges');
     return createBatch_(ss, 'NavEdges', data.edges, 'edge-', null);
-  });
-}
-
-// ============================================================================
-// Floor import (pipeline JSON) and reseed
-// ============================================================================
-
-/**
- * Bulk-replaces one floor's rooms, nav nodes and nav edges from the floor
- * pipeline's JSON (data/floorplans/<floorId>.json).
- *
- * payload (object or JSON string):
- *   floorId            required (or floor.id)
- *   floor              optional Floors record to upsert (object keyed by header)
- *   rooms              array of room objects (or v2 row arrays)
- *   navNodes | nodes | nav.nodes   array of node objects (or v2 row arrays)
- *   navEdges | edges | nav.edges   array of edge objects (or v2 row arrays); may
- *                      include cross-floor edges to nodes on other floors
- * The pipeline's per-floor file is accepted as written: edges may use from/to
- * for fromNodeId/toNodeId, rooms may carry center: [x, y] for centerX/centerY.
- * Extra fields (area, doors, use text) are ignored.
- *
- * Replacement rule: every room and node on the floor is removed, then the
- * payload rows are written. An existing edge is removed when it shares an id
- * with an imported edge, when both its ends are on this floor (the payload's
- * edges replace them), or when either end no longer exists. Cross-floor edges
- * whose ends survive (node ids are stable across pipeline runs) are kept, so
- * re-importing one floor does not cut its stair and elevator links.
- *
- * @param {string} pin
- * @param {Object|string} payload
- * @return {Object} counts written and removed, danglingEdges, floorUpserted
- */
-function importFloorData(pin, payload) {
-  requirePin_(pin);
-  var p = typeof payload === 'string' ? JSON.parse(payload) : payload;
-  if (!p || typeof p !== 'object') throw new Error('importFloorData: payload must be an object or JSON string');
-  var floorId = p.floorId || (p.floor && p.floor.id);
-  if (typeof floorId !== 'string' || !/^[A-Za-z0-9-]+$/.test(floorId)) {
-    throw new Error('importFloorData: floorId is required');
-  }
-
-  var roomDef = getSheetDefinition_('Rooms');
-  var nodeDef = getSheetDefinition_('NavNodes');
-  var edgeDef = getSheetDefinition_('NavEdges');
-  var newRooms = importRows_(roomDef, p.rooms || [], floorId, 1);
-  var nav = p.nav || {};
-  var newNodes = importRows_(nodeDef, p.navNodes || p.nodes || nav.nodes || [], floorId, 1);
-  var newEdges = importRows_(edgeDef, p.navEdges || p.edges || nav.edges || [], null, -1);
-
-  var lock = LockService.getScriptLock();
-  lock.waitLock(30000);
-  try {
-    var ss = getSpreadsheet_();
-    var floorUpserted = false;
-    if (p.floor) {
-      var floorObj = shallowCopy_(p.floor);
-      floorObj.id = floorId;
-      var floors = tab_(ss, 'Floors');
-      var fRow = findRowById_(floors.sheet, floorId);
-      if (fRow === -1) {
-        appendRows_(floors.sheet, floors.def, [objectToRow_(floors.def, floorObj, null)]);
-      } else {
-        var existing = floors.sheet.getRange(fRow, 1, 1, floors.def.headers.length).getValues()[0];
-        formatTextRange_(floors.sheet, floors.def, fRow, 1);
-        floors.sheet.getRange(fRow, 1, 1, floors.def.headers.length).setValues([objectToRow_(floors.def, floorObj, existing)]);
-      }
-      floorUpserted = true;
-    }
-
-    var rooms = tab_(ss, 'Rooms');
-    var roomRows = dataRows_(rooms.sheet, rooms.def);
-    var keptRooms = filterRows_(roomRows, function (r) { return String(r[1]) !== floorId; });
-    rewriteRows_(rooms.sheet, rooms.def, keptRooms.concat(newRooms));
-
-    var nodes = tab_(ss, 'NavNodes');
-    var nodeRows = dataRows_(nodes.sheet, nodes.def);
-    var touched = {};
-    var keptNodes = filterRows_(nodeRows, function (r) {
-      if (String(r[1]) === floorId) { touched[String(r[0])] = true; return false; }
-      return true;
-    });
-    for (var n = 0; n < newNodes.length; n++) touched[String(newNodes[n][0])] = true;
-    rewriteRows_(nodes.sheet, nodes.def, keptNodes.concat(newNodes));
-
-    var allNodes = {};
-    for (var k = 0; k < keptNodes.length; k++) allNodes[String(keptNodes[k][0])] = true;
-    for (var m = 0; m < newNodes.length; m++) allNodes[String(newNodes[m][0])] = true;
-
-    var newEdgeIds = {};
-    for (var e = 0; e < newEdges.length; e++) newEdgeIds[String(newEdges[e][0])] = true;
-    var edges = tab_(ss, 'NavEdges');
-    var edgeRows = dataRows_(edges.sheet, edges.def);
-    var crossFloorKept = 0;
-    var keptEdges = filterRows_(edgeRows, function (r) {
-      var from = String(r[1]);
-      var to = String(r[2]);
-      if (newEdgeIds[String(r[0])]) return false;
-      if (touched[from] && touched[to]) return false;
-      if (!allNodes[from] || !allNodes[to]) return false;
-      if (touched[from] || touched[to]) crossFloorKept++;
-      return true;
-    });
-    rewriteRows_(edges.sheet, edges.def, keptEdges.concat(newEdges));
-
-    var dangling = 0;
-    for (var d = 0; d < newEdges.length; d++) {
-      if (!allNodes[String(newEdges[d][1])] || !allNodes[String(newEdges[d][2])]) dangling++;
-    }
-
-    incrementDataVersion_(ss);
-    return {
-      floorId: floorId,
-      floorUpserted: floorUpserted,
-      written: { rooms: newRooms.length, navNodes: newNodes.length, navEdges: newEdges.length },
-      removed: {
-        rooms: roomRows.length - keptRooms.length,
-        navNodes: nodeRows.length - keptNodes.length,
-        navEdges: edgeRows.length - keptEdges.length
-      },
-      crossFloorEdgesKept: crossFloorKept,
-      danglingEdges: dangling
-    };
-  } finally {
-    lock.releaseLock();
-  }
-}
-
-/**
- * Converts import items to stored rows; enforces ids, uniqueness, and (when
- * floorCol >= 0) that every row belongs to floorId (filled in when blank).
- */
-function importRows_(def, items, floorId, floorCol) {
-  if (Object.prototype.toString.call(items) !== '[object Array]') {
-    throw new Error('importFloorData: ' + def.name + ' must be an array');
-  }
-  var rows = [];
-  var seen = {};
-  for (var i = 0; i < items.length; i++) {
-    var row = toRow_(def, importAliases_(def.name, items[i]));
-    if (floorCol >= 0) {
-      if (row[floorCol] === '' || row[floorCol] === null) row[floorCol] = floorId;
-      if (String(row[floorCol]) !== floorId) {
-        throw new Error('importFloorData: ' + def.name + ' ' + row[0] + ' belongs to ' + row[floorCol] + ', not ' + floorId);
-      }
-    }
-    if (!row[0]) throw new Error('importFloorData: ' + def.name + ' item ' + (i + 1) + ' has no id');
-    if (seen[row[0]]) throw new Error('importFloorData: duplicate ' + def.name + ' id ' + row[0]);
-    seen[row[0]] = true;
-    rows.push(row);
-  }
-  return rows;
-}
-
-/**
- * Maps the pipeline's per-floor JSON field names onto contract headers:
- * edges from/to -> fromNodeId/toNodeId, rooms center [x, y] -> centerX/centerY.
- * Row arrays and objects that already use the contract names pass through.
- */
-function importAliases_(tabName, item) {
-  if (!item || typeof item !== 'object' || Object.prototype.toString.call(item) === '[object Array]') return item;
-  var o = shallowCopy_(item);
-  if (tabName === 'NavEdges') {
-    if (o.fromNodeId === undefined && o.from !== undefined) o.fromNodeId = o.from;
-    if (o.toNodeId === undefined && o.to !== undefined) o.toNodeId = o.to;
-  } else if (tabName === 'Rooms') {
-    if (o.centerX === undefined && Object.prototype.toString.call(o.center) === '[object Array]') {
-      o.centerX = o.center[0];
-      o.centerY = o.center[1];
-    }
-  }
-  return o;
-}
-
-function filterRows_(rows, keep) {
-  var out = [];
-  for (var i = 0; i < rows.length; i++) if (keep(rows[i])) out.push(rows[i]);
-  return out;
-}
-
-/**
- * Clears and re-seeds Buildings, Floors, Rooms, NavNodes and NavEdges from
- * SeedData.gs / SeedFloorData.gs. Seeds are validated before anything is cleared.
- * @param {Object} data - pin.
- * @return {Object} { reseeded: true, seeded }
- */
-function reseedCampusData(data) {
-  return adminOp_(data, function (ss) {
-    var datasets = getSeedDatasets_();
-    for (var v = 0; v < datasets.length; v++) validateSeedRows_(datasets[v].name, datasets[v].rows);
-    for (var i = 0; i < datasets.length; i++) {
-      var sheet = ss.getSheetByName(datasets[i].name);
-      if (sheet && sheet.getLastRow() > 1) {
-        sheet.getRange(2, 1, sheet.getLastRow() - 1, Math.max(sheet.getLastColumn(), 1)).clearContent();
-      }
-    }
-    return { reseeded: true, seeded: seedAllCampusData(ss) };
   });
 }
 
@@ -677,7 +392,7 @@ function updateBuilding(data) {
   return adminOp_(data, function (ss) { return updateRecord_(ss, 'Buildings', data, 'Building'); });
 }
 
-/** @param {Object} data - pin, id, entrances (array). */
+/** @param {Object} data - id, entrances (array). */
 function updateBuildingEntrances(data) {
   return adminOp_(data, function (ss) {
     validateRequired_(data, ['id', 'entrances']);

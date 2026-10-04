@@ -1,5 +1,6 @@
 /**
- * API.gs — Read-side data access (contract v2) and the settings read helpers.
+ * API.gs — Read-side data access (contract v2). getAllCampusData is the object
+ * the build-time export publishes as campus.json (scripts/data/export-campus-data.mjs).
  */
 
 function getDataVersion() {
@@ -16,9 +17,9 @@ function getDataVersion() {
 /**
  * Everything, every floor and room (admin and any client that wants all data).
  * config is an array of { key, value }. A resolved mapsApiKey entry is added
- * when a key is configured (Script Property first, Config sheet fallback):
- * it is a browser key that Maps JavaScript needs on the client, so it is the
- * one stored setting that does reach clients. ADMIN_PIN and SHEET_ID never do.
+ * when a key is configured (Script Property first, Config sheet fallback): the
+ * local admin sets one from MSCN_MAPS_API_KEY for its map; the export removes it
+ * (the site's key comes from the build). SHEET_ID never reaches clients.
  */
 function getAllCampusData() {
   return buildCampusPayload_(getSpreadsheet_());
@@ -175,22 +176,6 @@ function getMapsApiKey_(configObjects) {
     if (config[i].key === 'mapsApiKey' && config[i].value) return String(config[i].value);
   }
   return '';
-}
-
-/** Settings booleans only. Never values. */
-function settingsStatus_() {
-  var props = PropertiesService.getScriptProperties();
-  var source = 'none';
-  if (props.getProperty('mapsApiKey')) {
-    source = 'scriptProperty';
-  } else if (getMapsApiKey_()) {
-    source = 'configSheet';
-  }
-  return {
-    mapsApiKeyConfigured: source !== 'none',
-    mapsApiKeySource: source,
-    adminPinConfigured: !!props.getProperty('ADMIN_PIN')
-  };
 }
 
 function getSpreadsheet_() {

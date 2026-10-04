@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 // Regenerate floor-plan SVGs, floor JSON, the GAS floor-plan assets and SeedFloorData.gs from the DWGs.
-//   node scripts/floorplan-pipeline/run.mjs --in data/dwg --out data/floorplans [--gas scripts/apps-script/src]
+//   node scripts/floorplan-pipeline/run.mjs [--in <dwg dir>] [--out data/floorplans] [--gas tools/admin/gs]
 //        [--cache scripts/floorplan-pipeline/.cache] [--force-parse]
+// The drawings are not in the repository: --in, else $MSCN_DWG_DIR, else <repo>/../drawings/dwg (config.mjs).
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runPipeline } from './pipeline.mjs';
+import { DWG_DIR_ENV, hasDrawings, resolveDwgDir } from './config.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '..', '..');
@@ -14,11 +16,18 @@ const opt = (name, dflt) => {
   return i >= 0 ? argv[i + 1] : dflt;
 };
 
+const inDir = opt('--in') ? path.resolve(repo, opt('--in')) : resolveDwgDir(repo);
+if (!hasDrawings(inDir)) {
+  console.error(`DWG directory ${inDir} is missing or incomplete. Point ${DWG_DIR_ENV} (or --in) at the folder holding the drawings.`);
+  process.exit(2);
+}
+console.log(`drawings: ${inDir}`);
+
 const started = Date.now();
 const { report } = runPipeline({
-  inDir: path.resolve(repo, opt('--in', 'data/dwg')),
+  inDir,
   outDir: path.resolve(repo, opt('--out', 'data/floorplans')),
-  gasDir: path.resolve(repo, opt('--gas', 'scripts/apps-script/src')),
+  gasDir: path.resolve(repo, opt('--gas', 'tools/admin/gs')),
   cacheDir: path.resolve(repo, opt('--cache', 'scripts/floorplan-pipeline/.cache')),
   forceParse: argv.includes('--force-parse'),
 });
