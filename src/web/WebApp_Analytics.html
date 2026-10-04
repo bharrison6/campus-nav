@@ -10,7 +10,8 @@
 var MSCNAnalytics = (function () {
   var EVENTS = ['search', 'route_start', 'floor_change', 'qr_scan', 'sched_open'];
   var SCRIPT = 'https://gc.zgo.at/count.js';
-  var state = { on: false, ready: false, queue: [], endpoint: '' };
+  /* decided: config.json has been read (events from before that, e.g. a deep link, wait in the queue) */
+  var state = { decided: false, on: false, ready: false, queue: [], endpoint: '' };
 
   /* "mysite" -> https://mysite.goatcounter.com/count; a full https URL is used as the endpoint (self-hosted). */
   function endpointFor(site) {
@@ -31,12 +32,15 @@ var MSCNAnalytics = (function () {
     try { if (window.goatcounter && window.goatcounter.count) { window.goatcounter.count(o); } } catch (e) { /* analytics never breaks the app */ }
   }
 
+  function off() { state.decided = true; state.on = false; state.queue = []; return false; }
+
   function init(cfg) {
     var a = cfg || {};
     if (state.on) { return true; }
-    if ((a.provider || 'goatcounter') !== 'goatcounter') { return false; }
+    if ((a.provider || 'goatcounter') !== 'goatcounter') { return off(); }
     var endpoint = endpointFor(a.site);
-    if (!endpoint) { return false; }
+    if (!endpoint) { return off(); }
+    state.decided = true;
     state.on = true;
     state.endpoint = endpoint;
     window.goatcounter = window.goatcounter || {};
@@ -53,13 +57,13 @@ var MSCNAnalytics = (function () {
       state.queue = [];
       for (var i = 0; i < q.length; i++) { send(q[i]); }
     };
-    s.onerror = function () { state.on = false; state.queue = []; };
+    s.onerror = off;
     document.head.appendChild(s);
     return true;
   }
 
   function track(name, label) {
-    if (!state.on) { return; }
+    if (state.decided && !state.on) { return; }
     var o = eventFor(name, label);
     if (!o) { return; }
     if (state.ready) { send(o); } else if (state.queue.length < 50) { state.queue.push(o); }

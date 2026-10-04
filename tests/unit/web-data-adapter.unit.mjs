@@ -81,7 +81,12 @@ test('analytics: only the five named events, with a short non-personal label', (
   assert.equal(A.eventFor('page_scroll', 'x'), null);
   assert.equal(A.eventFor('search', '<b>' + 'y'.repeat(100)).title.length, 60);
   assert.equal(/[<>]/.test(A.eventFor('search', '<b>').title), false);
-  // track() before init() is a no-op: nothing is queued when analytics is not configured
+  // before config.json is read, events wait in a bounded queue; a config without a site drops them for good
+  A.track('search', 'room');
+  A.track('not_an_event');
+  assert.equal(A.state.queue.length, 1);
+  assert.equal(A.init({ provider: 'goatcounter', site: '' }), false);
+  assert.equal(A.state.queue.length, 0);
   A.track('search', 'room');
   assert.equal(A.state.queue.length, 0);
 });
