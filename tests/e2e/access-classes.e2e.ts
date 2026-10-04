@@ -93,6 +93,12 @@ test('an emergency exit is drawn on the floor plan and never on a route; the rou
   await expect(page.locator(`#viewer .fv-marker--door-alt[data-marker-id="class:${SIDE}"]`)).toHaveCount(1);
   await expect(page.locator('#viewer .fv-marker--door-main')).not.toHaveCount(0);
   await expect(page.locator('#viewer .is-emergency')).not.toHaveCount(0);
+  // the door step draws the door; the walk after it draws the route line
+  if ((await page.evaluate(() => { const w = window as any; return w.NAV.route.steps[w.NAV.stepIndex].kind; })) === 'door') {
+    const at = await page.evaluate(() => (window as any).NAV.stepIndex);
+    await page.locator('#route-next').click();
+    await expect(page.locator('#route-step .count')).toContainText(`Step ${at + 2} of`);
+  }
   await expect(page.locator('#viewer .fv-route[data-route="active"] .fv-route-line')).toHaveCount(1);
 
   // the legend says what the three classes mean

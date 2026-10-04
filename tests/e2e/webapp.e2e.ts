@@ -202,7 +202,12 @@ test('cross-building route: out by a door, along the paths on the map, in by a d
   await searchAndOpen(page, 'EP 1332', 'EP 1332');
   await page.getByRole('button', { name: 'Navigate here' }).click();
   const panel = page.locator('#route-panel');
-  await expect(panel.locator('#route-step .title')).toHaveText(/^Leave by the .+ entrance$/);
+  // v5: IT's main doors; from IT 145 the route goes up to the second floor's east (terrace) main door first
+  await expect(panel.locator('#route-step .title')).toHaveText(/^(Leave by the .+ entrance|Take the stairs up to Second Floor)$/);
+  if ((await panel.locator('#route-step .title').textContent())!.startsWith('Take the')) {
+    await page.locator('#route-next').click();
+    await expect(panel.locator('#route-step .title')).toHaveText(/^Leave by the .+ entrance(, level 2)?$/);
+  }
   await page.locator('#route-next').click();
   await expect(panel.locator('#route-step .title')).toHaveText(/^Walk to the .+ of Engineering and Physics Building$/);
   await expect(page.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true');

@@ -162,7 +162,7 @@ test('building view: IT\'s real floors stacked, the floor chip switches the acti
   await expect(page.locator('#floor-picker [aria-checked="true"]')).toHaveText('Second Floor');
 });
 
-test('one route door to room: map walk, the door hands off to the floor plan, stairs, arrival; back to the map when leaving', async ({ page }) => {
+test('one route door to room: map walk, the door hands off to the floor plan, arrival; back to the map when leaving', async ({ page }) => {
   await boot(page);
   await mapReady(page);
   await search(page, 'IT 241', 'IT 241');
@@ -175,17 +175,16 @@ test('one route door to room: map walk, the door hands off to the floor plan, st
   await expect(step(page).locator('.title')).toHaveText(/^Walk to the .+ of Collins Industry and Technology Center$/);
   await expect(page.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('#map-canvas')).not.toHaveAttribute('data-route-lines', '0');
-  await expect(panel.locator('#route-sentence')).toHaveText(/^Walk \d+ m along the path, enter by the .+, take the stairs up to Second Floor, arrive at IT 241\.$/);
+  // v5: from EP the route enters IT by its main east door on the second floor (at grade on the terrace), no stairs
+  await expect(panel.locator('#route-sentence')).toHaveText(/^Walk \d+ m along the path, enter by the East entrance, level 2, arrive at IT 241\.$/);
   await expect(panel.locator('#route-campus')).toHaveAttribute('href', /^https:\/\/www\.google\.com\/maps\/dir\/\?api=1&destination=/);
 
   await page.locator('#route-next').click();
   await expect(step(page)).toHaveAttribute('data-step-kind', 'door');
   await expect(page.getByRole('tab', { name: 'Indoor' })).toHaveAttribute('aria-selected', 'true');
-  await expect(page.locator('#floor-picker [aria-checked="true"]')).toHaveText('First Floor');
+  await expect(page.locator('#floor-picker [aria-checked="true"]')).toHaveText('Second Floor');
   await expect(page.locator('#viewer .fv-marker--door')).toHaveCount(1);
 
-  await page.locator('#route-next').click();
-  await expect(step(page).locator('.title')).toHaveText('Take the stairs up to Second Floor');
   await page.locator('#route-next').click();
   await expect(step(page).locator('.title')).toHaveText('Arrive at IT 241');
   await expect(page.locator('#floor-picker [aria-checked="true"]')).toHaveText('Second Floor');
