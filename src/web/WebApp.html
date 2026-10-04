@@ -8,6 +8,7 @@
   <meta name="description" content="Find rooms and buildings at Murray State University: indoor floor plans, step-by-step routes, and campus walking directions.">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 36 36%27%3E%3Crect width=%2736%27 height=%2736%27 rx=%279%27 fill=%27%23ecac00%27/%3E%3Cpath d=%27M18 7c-4.4 0-8 3.4-8 7.8C10 20.6 18 29 18 29s8-8.4 8-14.2C26 10.4 22.4 7 18 7zm0 10.8a3 3 0 110-6 3 3 0 010 6z%27 fill=%27%23002144%27/%3E%3C/svg%3E">
   <title>Murray State Campus Nav</title>
+  <link rel="stylesheet" href="vendor/maplibre-gl.css">
   <?!= include('WebApp_Styles') ?>
 </head>
 <body>
@@ -43,9 +44,14 @@
 
     <div id="stale-banner" role="status" hidden>Offline: showing saved campus data</div>
 
+    <div id="stage">
     <main id="views">
       <section id="view-map" class="view is-active" role="tabpanel" aria-labelledby="tab-map">
-        <div id="map-canvas" hidden></div>
+        <div id="map-canvas" hidden role="region" aria-label="Campus map"></div>
+        <div class="map-overlay" id="map-overlay">
+          <div id="bview-bar" class="bview-bar" role="group" aria-label="Building view" hidden></div>
+          <div id="map-status" class="map-status" role="status" aria-live="polite" hidden></div>
+        </div>
         <div id="map-fallback" class="view-scroll" hidden>
           <div class="building-list" id="building-list"></div>
         </div>
@@ -79,7 +85,6 @@
             </div>
             <div id="room-sheet" class="sheet" role="dialog" aria-modal="false" aria-labelledby="room-sheet-title" hidden></div>
           </div>
-          <div id="route-panel" class="route-panel" role="region" aria-label="Route" hidden></div>
         </div>
       </section>
 
@@ -118,6 +123,8 @@
         </div>
       </section>
     </main>
+    <div id="route-panel" class="route-panel" role="region" aria-label="Route" hidden></div>
+    </div>
 
     <nav class="tabbar" role="tablist" aria-label="Sections">
       <button type="button" role="tab" id="tab-map" data-view="map" aria-controls="view-map" aria-selected="true">
@@ -159,18 +166,24 @@
   </div>
 
   <div id="toast" role="status" aria-live="polite" hidden></div>
+  <div id="update-banner" role="status" hidden><span>Campus Nav was updated.</span><button type="button" class="btn" id="update-reload">Reload</button></div>
 
   <noscript><p style="padding:16px">This app needs JavaScript.</p></noscript>
 
+  <?!= include('WebApp_Geo') ?>
   <?!= include('WebApp_Pathfinding') ?>
+  <?!= include('WebApp_MapStyle') ?>
   <?!= include('WebApp_Search') ?>
   <?!= include('WebApp_Viewer') ?>
   <?!= include('WebApp_Data') ?>
   <?!= include('WebApp_Analytics') ?>
   <?!= include('WebApp_Core') ?>
   <?!= include('WebApp_Indoor') ?>
+  <?!= include('WebApp_Route') ?>
+  <?!= include('WebApp_Gps') ?>
   <?!= include('WebApp_Map') ?>
   <?!= include('WebApp_Schedule') ?>
   <?!= include('WebApp_Main') ?>
+  <script type="module" src="vendor/modules.mjs"></script>
 </body>
 </html>

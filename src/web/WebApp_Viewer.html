@@ -155,8 +155,6 @@ var FloorViewer = (function () {
     for (var ti = 0; ti < texts.length; ti++) {
       if (!cadLabels || !cadLabels.contains(texts[ti])) { hadText = true; break; }
     }
-    var paper = el('rect', { 'class': 'fv-paper', x: base.x, y: base.y, width: base.w, height: base.h });
-    svg.insertBefore(paper, svg.firstChild);
 
     this.host.innerHTML = '';
     this.host.appendChild(svg);

@@ -3,11 +3,13 @@
  * Data adapter for the static site: every server read the Apps Script version made is now a fetch
  * of a file the build wrote next to index.html. All URLs are relative
  * to the page (no leading slash), so one build serves at /campus-nav/ and at a domain root.
- *   config.json                 {mapsApiKey, analytics: {provider, site}, basePath, domain}
+ *   config.json                 {analytics: {provider, site}, basePath, domain}   (no map key: v4 draws its own map)
  *   data/version.json           {version, builtAt, gitSha}   (the cache key for campus data and floor plans)
  *   data/campus.json            the public campus data (getPublicCampusData: no hidden floors, no mapsApiKey row)
  *   floors/<floorId>.svg        a floor plan
  *   data/schedules/<id>.json    an official event schedule;  data/links.json  {linkId: {title, url}}
+ *   data/map-manifest.json      what of the campus map exists (build-site.mjs copyCampusMap): {buildings, basemap[],
+ *                               outdoorGraph, aerial, georef{buildingId: doc}, georefModule, fixture}; then those files
  * DOM-free at load time (tests/unit loads it in a bare VM). ES5 syntax.
  */
 var MSCNData = (function () {
@@ -19,7 +21,8 @@ var MSCNData = (function () {
     campus: function (version) { return withVersion('data/campus.json', version); },
     floor: function (floorId, version) { return withVersion('floors/' + encodeURIComponent(floorId) + '.svg', version); },
     schedule: function (id) { return 'data/schedules/' + encodeURIComponent(id) + '.json'; },
-    links: function () { return 'data/links.json'; }
+    links: function () { return 'data/links.json'; },
+    mapManifest: function () { return 'data/map-manifest.json'; }
   };
 
   function withVersion(url, version) {
@@ -60,7 +63,6 @@ var MSCNData = (function () {
     var c = (raw && typeof raw === 'object') ? raw : {};
     var a = (c.analytics && typeof c.analytics === 'object') ? c.analytics : {};
     return {
-      mapsApiKey: typeof c.mapsApiKey === 'string' ? c.mapsApiKey.replace(/^\s+|\s+$/g, '') : '',
       analytics: { provider: typeof a.provider === 'string' ? a.provider : 'goatcounter', site: typeof a.site === 'string' ? a.site : '' },
       basePath: typeof c.basePath === 'string' ? c.basePath : '',
       domain: typeof c.domain === 'string' ? c.domain : ''
@@ -122,7 +124,16 @@ var MSCNData = (function () {
       if (!isId(id)) { setTimeout(function () { cb(new Error('Invalid schedule id')); }, 0); return; }
       request(urls.schedule(id), 'json', 'no-cache', cb);
     },
-    getLinks: function (cb) { request(urls.links(), 'json', 'no-cache', cb); }
+    getLinks: function (cb) { request(urls.links(), 'json', 'no-cache', cb); },
+    getMapManifest: function (cb) { request(urls.mapManifest(), 'json', 'no-cache', cb); },
+    /* A file the map manifest names (relative, under data/). */
+    getMapFile: function (path, cb) {
+      if (typeof path !== 'string' || !/^data\/[A-Za-z0-9_\/.-]+\.(geo)?json$/.test(path) || path.indexOf('..') !== -1) {
+        setTimeout(function () { cb(new Error('Invalid map file')); }, 0);
+        return;
+      }
+      request(path, 'json', 'default', cb);
+    }
   };
 })();
 </script>

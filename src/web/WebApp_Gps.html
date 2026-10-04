@@ -1,0 +1,120 @@
+<script>
+/*
+ * GPS: the walker's position from the browser (decision mscn-v4-gps-offline-and-google-as-exit-only).
+ * navigator.geolocation.watchPosition with high accuracy; the blue dot is drawn by WebApp_Map with its accuracy ring
+ * and heading (the device's, else the direction of travel), snapped onto the nearest outdoor path when close. States:
+ *   off | locating | on | indoors (inside a building with indoor maps: scan a code instead)
+ *   | offcampus (more than OFF_CAMPUS_METERS outside the campus map) | denied | unavailable
+ * Starts only when asked (the map's "locate me" control, or "My location" as a route start); never a blank state:
+ * every state says what to do instead. Each fix goes to the map (MAPV.setGps) and the route (routeOnPosition). ES5.
+ */
+var GPS = { state: 'off', fix: null, watchId: null, last: null, listeners: [] };
+
+var SNAP_METERS = 25;
+var OFF_CAMPUS_METERS = 400;
+
+function gpsSupported() { return !!(window.navigator && navigator.geolocation && navigator.geolocation.watchPosition); }
+
+function gpsStart() {
+  if (!gpsSupported()) { gpsSetState('unavailable'); return; }
+  if (GPS.watchId !== null) { gpsNotify(); return; }
+  gpsSetState('locating');
+  try {
+    GPS.watchId = navigator.geolocation.watchPosition(gpsOnPosition, gpsOnError, { enableHighAccuracy: true, maximumAge: 4000, timeout: 20000 });
+  } catch (e) {
+    GPS.watchId = null;
+    gpsSetState('unavailable');
+  }
+}
+
+function gpsStop() {
+  if (GPS.watchId !== null && gpsSupported()) { navigator.geolocation.clearWatch(GPS.watchId); }
+  GPS.watchId = null;
+  GPS.fix = null;
+  GPS.last = null;
+  gpsSetState('off');
+}
+
+function gpsSetState(state) {
+  GPS.state = state;
+  gpsNotify();
+}
+
+function gpsNotify() {
+  if (window.MAPV) { MAPV.setGps(GPS); }
+  for (var i = 0; i < GPS.listeners.length; i++) { GPS.listeners[i](GPS); }
+}
+
+/* The campus area: the map's buildings envelope when loaded, else the plan's campus bbox. */
+function gpsCampusBox() {
+  if (window.MAPV && MAPV.bounds) { return MAPV.bounds; }
+  return [-88.333, 36.606, -88.310, 36.625];
+}
+
+function gpsDistanceOutside(p, box) {
+  var L = MSCNGeo.local([(box[0] + box[2]) / 2, (box[1] + box[3]) / 2]);
+  var q = L.toXY(p);
+  var lo = L.toXY([box[0], box[1]]);
+  var hi = L.toXY([box[2], box[3]]);
+  var dx = Math.max(lo[0] - q[0], 0, q[0] - hi[0]);
+  var dy = Math.max(lo[1] - q[1], 0, q[1] - hi[1]);
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+function gpsOnPosition(pos) {
+  var c = pos.coords;
+  var p = [Number(c.longitude), Number(c.latitude)];
+  if (!isFinite(p[0]) || !isFinite(p[1])) { return; }
+  var heading = (c.heading !== null && c.heading !== undefined && isFinite(c.heading) && (c.speed === null || c.speed === undefined || c.speed > 0.3)) ? Number(c.heading) : null;
+  if (heading === null && GPS.last && MSCNGeo.haversine(GPS.last, p) > 4) { heading = MSCNGeo.bearing(GPS.last, p); }
+  if (heading === null && GPS.fix) { heading = GPS.fix.heading; }
+  var fix = { lng: p[0], lat: p[1], accuracy: Number(c.accuracy) || 50, heading: heading, at: pos.timestamp || Date.now(), raw: { lng: p[0], lat: p[1] },
+    snapped: false, insideBuildingId: null };
+  if (!GPS.last || MSCNGeo.haversine(GPS.last, p) > 4) { GPS.last = p; }
+  var inside = window.MAPV ? MAPV.indoorBuildingAt(p) : null;
+  var state = 'on';
+  if (gpsDistanceOutside(p, gpsCampusBox()) > OFF_CAMPUS_METERS) {
+    state = 'offcampus';
+  } else if (inside) {
+    state = 'indoors';
+    fix.insideBuildingId = inside;
+  } else if (APP.graph && APP.graph.hasOutdoor) {
+    var s = MSCNGeo.nearestEdge(APP.graph.outdoorEdges, p);
+    if (s && s.dist <= Math.min(SNAP_METERS, Math.max(8, fix.accuracy))) {
+      fix.lng = s.point[0];
+      fix.lat = s.point[1];
+      fix.snapped = true;
+    }
+  }
+  GPS.fix = fix;
+  GPS.state = state;
+  gpsNotify();
+  if (typeof routeOnPosition === 'function') { routeOnPosition(fix); }
+}
+
+function gpsOnError(err) {
+  var code = err && err.code;
+  if (code === 1) {
+    if (GPS.watchId !== null && gpsSupported()) { navigator.geolocation.clearWatch(GPS.watchId); }
+    GPS.watchId = null;
+    GPS.fix = null;
+    gpsSetState('denied');
+  } else if (!GPS.fix) {
+    gpsSetState('unavailable');
+  }
+  if (NAV.route && !NAV.route.steps.length && NAV.dest) { computeRoute(); }
+}
+
+/* What the map's status chip says in each state; null when nothing needs saying. */
+function gpsMessage() {
+  var st = GPS.state;
+  if (st === 'locating') { return 'Finding your location…'; }
+  if (st === 'denied') { return 'Location is off for this site. You can still choose a starting building, or scan a campus QR code.'; }
+  if (st === 'unavailable') { return 'Your location is not available right now. Choose a starting building, or scan a campus QR code.'; }
+  if (st === 'indoors') {
+    return 'You seem to be inside ' + buildingName(GPS.fix && GPS.fix.insideBuildingId) + '. GPS is not precise indoors: scan a nearby campus QR code to set where you are.';
+  }
+  if (st === 'offcampus') { return 'You are not on campus yet.'; }
+  return null;
+}
+</script>

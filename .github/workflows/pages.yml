@@ -1,8 +1,6 @@
 # Builds the static campus-navigation site and deploys it to GitHub Pages on every push to main.
-# Repository settings this needs (docs/go-live.md): Settings > Pages > Source = "GitHub Actions";
-# Settings > Secrets and variables > Actions > MAPS_API_KEY (a referrer-restricted browser key; optional,
-# without it the site uses its key-free building list). The key reaches only the build step's environment
-# and the published config.json; it is never written to the repository.
+# Repository settings this needs (docs/go-live.md): Settings > Pages > Source = "GitHub Actions". No secrets: the
+# campus map is MapLibre drawing committed OpenStreetMap data, bundled into the site (no map key, no tile server).
 name: Deploy site to GitHub Pages
 
 on:
@@ -41,8 +39,6 @@ jobs:
 
       - name: Build the site
         run: npm run build
-        env:
-          MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
 
       - uses: actions/configure-pages@v6
 

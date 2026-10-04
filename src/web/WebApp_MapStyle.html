@@ -1,0 +1,304 @@
+<script>
+/*
+ * MSCNMapStyle: the MapLibre style for the campus map, generated from the app's design tokens (the --map-* and
+ * --room-type-* CSS custom properties in WebApp_Styles, read by WebApp_Map for the current light or dark theme), and
+ * the GeoJSON for the indoor "building view". Pure ES5, no DOM (Node unit tests load it).
+ *   build(tokens, opts) -> style JSON          opts: {buildings, base (FeatureCollections), aerial?, aerialVisible?, fixture?}
+ *   paint(tokens) -> {layerId: {property: value}}   the token-driven paint, reapplied on a theme change
+ *   classifyBase(feature, fileHint) -> 'paths'|'roads'|'parking'|'landuse'|'water'|'labels'
+ *   mergeBase([{fc, hint}]) -> one FeatureCollection with properties.layer set
+ *   indoorFeatures(spec) -> FeatureCollection of stacked floor slabs and room extrusions (see below)
+ * No glyphs URL: MapLibre draws label glyphs locally from the system font, so no font files or CDN are needed.
+ */
+var MSCNMapStyle = (function () {
+  'use strict';
+
+  var OSM_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors';
+  var FONT = ['Segoe UI Semibold', 'Roboto Medium', 'Helvetica Neue Medium', 'Arial Bold'];
+  var ROOM_TYPES = ['corridor', 'restroom', 'stair', 'elevator', 'storage', 'mechanical', 'other'];
+
+  /* Floor stacking in the building view (meters): exaggerated so the slabs read as separate levels. */
+  var FLOOR_STEP = 6;
+  var SLAB = 0.5;
+  var ROOM_ACTIVE = 2.4;
+  var ROOM_OTHER = 0.35;
+
+  var PATH_KINDS = { footway: 1, path: 1, pedestrian: 1, steps: 1, crossing: 1, sidewalk: 1, cycleway: 1, track: 1, bridleway: 1 };
+  var WATER_KINDS = { water: 1, pond: 1, basin: 1, reservoir: 1, river: 1, stream: 1, canal: 1, lake: 1 };
+  var PARKING_KINDS = { parking: 1, parking_space: 1, 'parking-lot': 1, parking_lot: 1 };
+  var HINTS = { paths: 'paths', path: 'paths', footways: 'paths', footway: 'paths', roads: 'roads', road: 'roads', service: 'roads',
+    parking: 'parking', landuse: 'landuse', green: 'landuse', greens: 'landuse', grass: 'landuse', park: 'landuse',
+    water: 'water', labels: 'labels', label: 'labels' };
+
+  function classifyBase(f, hint) {
+    var p = (f && f.properties) || {};
+    if (p.layer && HINTS[String(p.layer).toLowerCase()]) { return HINTS[String(p.layer).toLowerCase()]; }
+    if (hint && HINTS[String(hint).toLowerCase()]) { return HINTS[String(hint).toLowerCase()]; }
+    var g = (f && f.geometry && f.geometry.type) || '';
+    var kind = String(p.kind || '').toLowerCase();
+    if (g === 'Point' || g === 'MultiPoint') { return 'labels'; }
+    if (/LineString/.test(g)) {
+      if (PATH_KINDS[kind] || p.steps === true) { return 'paths'; }
+      if (WATER_KINDS[kind]) { return 'water'; }
+      return 'roads';
+    }
+    if (PARKING_KINDS[kind]) { return 'parking'; }
+    if (WATER_KINDS[kind]) { return 'water'; }
+    return 'landuse';
+  }
+
+  /* parts: [{fc, hint}] (hint: the layer file's name, e.g. 'paths' for layers/paths.geojson) */
+  function mergeBase(parts) {
+    var out = [];
+    for (var i = 0; i < parts.length; i++) {
+      var fs = (parts[i] && parts[i].fc && parts[i].fc.features) || [];
+      for (var k = 0; k < fs.length; k++) {
+        var f = fs[k];
+        if (!f || !f.geometry) { continue; }
+        var props = {};
+        var src = f.properties || {};
+        for (var key in src) { if (src.hasOwnProperty(key)) { props[key] = src[key]; } }
+        props.layer = classifyBase(f, parts[i].hint);
+        if (props.layer === 'paths') { props.steps = props.steps === true || String(props.kind).toLowerCase() === 'steps'; }
+        out.push({ type: 'Feature', properties: props, geometry: f.geometry });
+      }
+    }
+    return { type: 'FeatureCollection', features: out };
+  }
+
+  function isLayer(name) { return ['==', ['get', 'layer'], name]; }
+
+  function roomColorExpr(t) {
+    var e = ['match', ['get', 'type']];
+    for (var i = 0; i < ROOM_TYPES.length; i++) {
+      if (ROOM_TYPES[i] === 'other') { continue; }
+      e.push(ROOM_TYPES[i], (t.room && t.room[ROOM_TYPES[i]]) || t.roomOther);
+    }
+    e.push((t.room && t.room.other) || t.roomOther || '#dde3eb');
+    return e;
+  }
+
+  /* Every token-driven paint property, by layer id. build() uses it and the map reapplies it on a theme change. */
+  function paint(t) {
+    return {
+      'background': { 'background-color': t.land },
+      'landuse': { 'fill-color': t.green },
+      'water': { 'fill-color': t.water },
+      'parking': { 'fill-color': t.parking, 'fill-outline-color': t.roadCasing },
+      'roads-casing': { 'line-color': t.roadCasing },
+      'roads': { 'line-color': t.road },
+      'paths-casing': { 'line-color': t.pathCasing },
+      'paths': { 'line-color': t.path },
+      'steps': { 'line-color': t.steps },
+      'buildings-3d': {
+        'fill-extrusion-color': ['case',
+          ['boolean', ['feature-state', 'selected'], false], t.buildingSelected,
+          ['==', ['get', 'indoor'], true], t.buildingIndoor,
+          t.building]
+      },
+      'indoor-slab': { 'fill-extrusion-color': t.slab },
+      'indoor-slab-above': { 'fill-extrusion-color': t.slab },
+      'indoor-rooms': { 'fill-extrusion-color': roomColorExpr(t) },
+      'indoor-rooms-active': { 'fill-extrusion-color': roomColorExpr(t) },
+      'indoor-room-selected': { 'fill-extrusion-color': t.buildingSelected },
+      'route-casing': { 'line-color': t.routeCasing },
+      'route-dim': { 'line-color': t.routeDim },
+      'route-line': { 'line-color': t.route },
+      'route-lead': { 'line-color': t.route },
+      'route-points': {
+        'circle-color': ['match', ['get', 'kind'], 'start', t.start, 'dest', t.dest, 'door', t.door, t.route],
+        'circle-stroke-color': t.labelHalo
+      },
+      'gps-accuracy': { 'fill-color': t.gps },
+      'gps-heading': { 'fill-color': t.gps },
+      'gps-dot': { 'circle-color': t.gps, 'circle-stroke-color': t.labelHalo },
+      'building-labels': { 'text-color': t.label, 'text-halo-color': t.labelHalo },
+      'path-labels': { 'text-color': t.labelMuted || t.label, 'text-halo-color': t.labelHalo },
+      'place-labels': { 'text-color': t.labelMuted || t.label, 'text-halo-color': t.labelHalo }
+    };
+  }
+
+  function emptyFC() { return { type: 'FeatureCollection', features: [] }; }
+
+  function withPaint(layer, p) {
+    var own = layer.paint || {};
+    var tok = p[layer.id] || {};
+    var out = {};
+    var k;
+    for (k in own) { if (own.hasOwnProperty(k)) { out[k] = own[k]; } }
+    for (k in tok) { if (tok.hasOwnProperty(k)) { out[k] = tok[k]; } }
+    layer.paint = out;
+    return layer;
+  }
+
+  function build(t, opts) {
+    opts = opts || {};
+    var p = paint(t);
+    var osm = OSM_ATTRIBUTION + (opts.fixture ? ' &middot; fixture data' : '');
+    var sources = {
+      'campus-base': { type: 'geojson', data: opts.base || emptyFC(), attribution: osm },
+      'campus-buildings': { type: 'geojson', data: opts.buildings || emptyFC(), generateId: true, attribution: osm },
+      'indoor': { type: 'geojson', data: emptyFC() },
+      'route': { type: 'geojson', data: emptyFC() },
+      'route-points': { type: 'geojson', data: emptyFC() },
+      'gps': { type: 'geojson', data: emptyFC() }
+    };
+    var layers = [{ id: 'background', type: 'background', paint: {} }];
+    if (opts.aerial && opts.aerial.tiles) {
+      sources.aerial = {
+        type: 'raster', tiles: [opts.aerial.tiles], tileSize: 256, minzoom: opts.aerial.minzoom || 15, maxzoom: opts.aerial.maxzoom || 18,
+        attribution: opts.aerial.attribution || 'Imagery: USDA NAIP (public domain)'
+      };
+      if (opts.aerial.bounds) { sources.aerial.bounds = opts.aerial.bounds; }
+      layers.push({ id: 'aerial', type: 'raster', source: 'aerial', layout: { visibility: opts.aerialVisible ? 'visible' : 'none' },
+        paint: { 'raster-opacity': 0.92, 'raster-saturation': -0.15 } });
+    }
+    var polyOnly = ['==', ['geometry-type'], 'Polygon'];
+    layers.push(
+      { id: 'landuse', type: 'fill', source: 'campus-base', filter: ['all', isLayer('landuse'), polyOnly], paint: { 'fill-opacity': opts.aerialVisible ? 0.35 : 1 } },
+      { id: 'water', type: 'fill', source: 'campus-base', filter: ['all', isLayer('water'), polyOnly], paint: {} },
+      { id: 'parking', type: 'fill', source: 'campus-base', filter: ['all', isLayer('parking'), polyOnly], paint: { 'fill-opacity': opts.aerialVisible ? 0.5 : 1 } },
+      { id: 'roads-casing', type: 'line', source: 'campus-base', filter: isLayer('roads'), layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-width': ['interpolate', ['exponential', 1.6], ['zoom'], 14, 3, 18, 18, 20, 44] } },
+      { id: 'roads', type: 'line', source: 'campus-base', filter: isLayer('roads'), layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-width': ['interpolate', ['exponential', 1.6], ['zoom'], 14, 1.6, 18, 14, 20, 38] } },
+      { id: 'paths-casing', type: 'line', source: 'campus-base', filter: ['all', isLayer('paths'), ['!=', ['get', 'steps'], true]],
+        layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-width': ['interpolate', ['linear'], ['zoom'], 15, 2.5, 18, 6, 20, 12] } },
+      { id: 'paths', type: 'line', source: 'campus-base', filter: ['all', isLayer('paths'), ['!=', ['get', 'steps'], true]],
+        layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-width': ['interpolate', ['linear'], ['zoom'], 15, 1.2, 18, 3.5, 20, 8] } },
+      { id: 'steps', type: 'line', source: 'campus-base', filter: ['all', isLayer('paths'), ['==', ['get', 'steps'], true]],
+        paint: { 'line-width': ['interpolate', ['linear'], ['zoom'], 15, 2, 18, 5, 20, 10], 'line-dasharray': [0.6, 0.5] } },
+      { id: 'route-casing', type: 'line', source: 'route', layout: { 'line-cap': 'round', 'line-join': 'round' },
+        filter: ['==', ['get', 'active'], true], paint: { 'line-width': ['interpolate', ['linear'], ['zoom'], 15, 7, 19, 14] } },
+      { id: 'route-dim', type: 'line', source: 'route', layout: { 'line-cap': 'round', 'line-join': 'round' },
+        filter: ['all', ['!=', ['get', 'active'], true], ['!=', ['get', 'lead'], true]], paint: { 'line-width': ['interpolate', ['linear'], ['zoom'], 15, 3, 19, 7] } },
+      { id: 'route-line', type: 'line', source: 'route', layout: { 'line-cap': 'round', 'line-join': 'round' },
+        filter: ['all', ['==', ['get', 'active'], true], ['!=', ['get', 'lead'], true]], paint: { 'line-width': ['interpolate', ['linear'], ['zoom'], 15, 4, 19, 9] } },
+      { id: 'route-lead', type: 'line', source: 'route', filter: ['==', ['get', 'lead'], true],
+        paint: { 'line-width': 3, 'line-dasharray': [1, 1.2], 'line-opacity': 0.8 } },
+      { id: 'buildings-3d', type: 'fill-extrusion', source: 'campus-buildings',
+        paint: {
+          'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], 14.5, 0, 15.5, ['coalesce', ['get', 'height'], 8]],
+          'fill-extrusion-base': 0, 'fill-extrusion-opacity': 0.9, 'fill-extrusion-vertical-gradient': true
+        } },
+      { id: 'indoor-slab', type: 'fill-extrusion', source: 'indoor', filter: ['all', ['==', ['get', 'role'], 'slab'], ['!=', ['get', 'above'], true]],
+        paint: { 'fill-extrusion-base': ['get', 'base'], 'fill-extrusion-height': ['get', 'top'], 'fill-extrusion-opacity': 0.88 } },
+      { id: 'indoor-rooms', type: 'fill-extrusion', source: 'indoor',
+        filter: ['all', ['==', ['get', 'role'], 'room'], ['!=', ['get', 'active'], true], ['!=', ['get', 'above'], true]],
+        paint: { 'fill-extrusion-base': ['get', 'base'], 'fill-extrusion-height': ['get', 'top'], 'fill-extrusion-opacity': 0.55 } },
+      { id: 'indoor-rooms-active', type: 'fill-extrusion', source: 'indoor', filter: ['all', ['==', ['get', 'role'], 'room'], ['==', ['get', 'active'], true]],
+        paint: { 'fill-extrusion-base': ['get', 'base'], 'fill-extrusion-height': ['get', 'top'], 'fill-extrusion-opacity': 0.96, 'fill-extrusion-vertical-gradient': true } },
+      { id: 'indoor-room-selected', type: 'fill-extrusion', source: 'indoor', filter: ['all', ['==', ['get', 'role'], 'room'], ['==', ['get', 'selected'], true]],
+        paint: { 'fill-extrusion-base': ['get', 'base'], 'fill-extrusion-height': ['+', ['get', 'top'], 0.6], 'fill-extrusion-opacity': 0.98 } },
+      { id: 'indoor-slab-above', type: 'fill-extrusion', source: 'indoor', filter: ['all', ['==', ['get', 'role'], 'slab'], ['==', ['get', 'above'], true]],
+        paint: { 'fill-extrusion-base': ['get', 'base'], 'fill-extrusion-height': ['get', 'top'], 'fill-extrusion-opacity': 0.22 } },
+      { id: 'gps-accuracy', type: 'fill', source: 'gps', filter: ['==', ['get', 'kind'], 'accuracy'], paint: { 'fill-opacity': 0.14 } },
+      { id: 'gps-heading', type: 'fill', source: 'gps', filter: ['==', ['get', 'kind'], 'heading'], paint: { 'fill-opacity': 0.35 } },
+      { id: 'route-points', type: 'circle', source: 'route-points',
+        paint: { 'circle-radius': ['match', ['get', 'kind'], 'door', 7, 8], 'circle-stroke-width': 3, 'circle-pitch-alignment': 'viewport' } },
+      { id: 'gps-dot', type: 'circle', source: 'gps', filter: ['==', ['get', 'kind'], 'dot'],
+        paint: { 'circle-radius': 8, 'circle-stroke-width': 3, 'circle-pitch-alignment': 'viewport' } },
+      { id: 'path-labels', type: 'symbol', source: 'campus-base', minzoom: 17, filter: ['all', isLayer('paths'), ['has', 'name'], ['!=', ['get', 'name'], '']],
+        layout: { 'symbol-placement': 'line', 'text-field': ['get', 'name'], 'text-font': FONT, 'text-size': 11 },
+        paint: { 'text-halo-width': 1.5 } },
+      { id: 'place-labels', type: 'symbol', source: 'campus-base', minzoom: 15.5, filter: ['all', isLayer('labels'), ['has', 'name']],
+        layout: { 'text-field': ['get', 'name'], 'text-font': FONT, 'text-size': 12 },
+        paint: { 'text-halo-width': 1.5 } },
+      { id: 'building-labels', type: 'symbol', source: 'campus-buildings', minzoom: 15.6, filter: ['has', 'name'],
+        layout: {
+          'text-field': ['get', 'name'], 'text-font': FONT, 'text-size': ['interpolate', ['linear'], ['zoom'], 16, 11, 19, 14],
+          'text-max-width': 9, 'symbol-sort-key': ['case', ['==', ['get', 'indoor'], true], 0, 1], 'text-padding': 4
+        },
+        paint: { 'text-halo-width': 1.8 } }
+    );
+    for (var i = 0; i < layers.length; i++) { withPaint(layers[i], p); }
+    return {
+      version: 8,
+      name: 'Murray State campus',
+      sources: sources,
+      layers: layers,
+      light: { anchor: 'viewport', color: '#ffffff', intensity: t.lightIntensity ? Number(t.lightIntensity) : 0.38, position: [1.4, 210, 35] }
+    };
+  }
+
+  /*
+   * indoorFeatures(spec) -> FeatureCollection for the building view
+   *   spec = { floors: [{id, level}] (sorted bottom up), roomsByFloor: {floorId: [{id, type, polygon}]},
+   *            footprint: [[lng, lat]...] | null, project(x, y) -> [lng, lat], activeFloorId, selectedRoomId }
+   * Each floor is a slab (the footprint, or the hull of its rooms) at FLOOR_STEP spacing; rooms of the active floor
+   * stand ROOM_ACTIVE tall in their type colors, rooms of lower floors are thin, floors above the active one are
+   * faint slabs only so they do not hide it.
+   */
+  function indoorFeatures(spec) {
+    var out = [];
+    var floors = spec.floors || [];
+    var activeIdx = 0;
+    var i;
+    for (i = 0; i < floors.length; i++) { if (floors[i].id === spec.activeFloorId) { activeIdx = i; } }
+    for (i = 0; i < floors.length; i++) {
+      var f = floors[i];
+      var base = i * FLOOR_STEP;
+      var above = i > activeIdx;
+      var rooms = (spec.roomsByFloor && spec.roomsByFloor[f.id]) || [];
+      var rings = [];
+      for (var r = 0; r < rooms.length; r++) {
+        var poly = rooms[r].polygon;
+        if (!poly || poly.length < 3) { continue; }
+        var ring = [];
+        for (var k = 0; k < poly.length; k++) { ring.push(spec.project(Number(poly[k][0]), Number(poly[k][1]))); }
+        ring.push(ring[0]);
+        rings.push({ room: rooms[r], ring: ring });
+      }
+      var slab = spec.footprint && spec.footprint.length > 3 ? spec.footprint : hullRing(rings);
+      if (slab) {
+        out.push({ type: 'Feature', properties: { role: 'slab', floorId: f.id, level: f.level, base: base, top: base + SLAB, above: above, active: i === activeIdx },
+          geometry: { type: 'Polygon', coordinates: [slab] } });
+      }
+      if (above) { continue; }
+      var active = i === activeIdx;
+      for (var q = 0; q < rings.length; q++) {
+        var rm = rings[q].room;
+        out.push({ type: 'Feature', properties: {
+          role: 'room', roomId: rm.id, floorId: f.id, type: rm.type || 'other', active: active, above: false,
+          selected: rm.id === spec.selectedRoomId, base: base + SLAB, top: base + SLAB + (active ? ROOM_ACTIVE : ROOM_OTHER)
+        }, geometry: { type: 'Polygon', coordinates: [rings[q].ring] } });
+      }
+    }
+    return { type: 'FeatureCollection', features: out };
+  }
+
+  function hullRing(rings) {
+    var pts = [];
+    for (var i = 0; i < rings.length; i++) { for (var k = 0; k < rings[i].ring.length; k++) { pts.push(rings[i].ring[k]); } }
+    if (pts.length < 3) { return null; }
+    pts.sort(function (a, b) { return a[0] - b[0] || a[1] - b[1]; });
+    function cross(o, a, b) { return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]); }
+    var lower = [];
+    var upper = [];
+    var j;
+    for (j = 0; j < pts.length; j++) {
+      while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], pts[j]) <= 0) { lower.pop(); }
+      lower.push(pts[j]);
+    }
+    for (j = pts.length - 1; j >= 0; j--) {
+      while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], pts[j]) <= 0) { upper.pop(); }
+      upper.push(pts[j]);
+    }
+    var h = lower.slice(0, -1).concat(upper.slice(0, -1));
+    h.push(h[0]);
+    return h;
+  }
+
+  return {
+    OSM_ATTRIBUTION: OSM_ATTRIBUTION,
+    ROOM_TYPES: ROOM_TYPES,
+    FLOOR_STEP: FLOOR_STEP,
+    classifyBase: classifyBase,
+    mergeBase: mergeBase,
+    paint: paint,
+    build: build,
+    indoorFeatures: indoorFeatures,
+    hullRing: hullRing
+  };
+})();
+</script>

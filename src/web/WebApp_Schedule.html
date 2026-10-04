@@ -144,10 +144,9 @@ function navigateToEvent(id) {
     openRoom(room.id, { navigate: true });
     return;
   }
-  var t = buildingTarget(ev.building, null);
-  if (t) {
-    window.open(directionsUrl(t.lat, t.lng), '_blank', 'noopener');
-    toast('That room is not on the indoor map; opening walking directions to the building.');
+  if (APP.by.buildings[ev.building]) {
+    toast('That room is not on the indoor map; routing to the building.');
+    navigateToBuilding(ev.building);
   } else {
     showError('That room is not in the campus data.');
   }
@@ -467,9 +466,8 @@ function renderOfficialSchedule() {
 function goToOfficialEvent(ev) {
   if (!ev) { return; }
   if (ev.roomId && APP.by.rooms[ev.roomId]) { openRoom(ev.roomId, { navigate: true }); return; }
-  var t = buildingTarget(ev.buildingId, null);
-  if (t) {
-    window.open(directionsUrl(t.lat, t.lng), '_blank', 'noopener');
+  if (APP.by.buildings[ev.buildingId]) {
+    navigateToBuilding(ev.buildingId);
   } else {
     showError('That place is not in the campus data.');
   }

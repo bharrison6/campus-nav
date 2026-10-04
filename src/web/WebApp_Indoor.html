@@ -1,7 +1,8 @@
 <script>
 /*
- * Indoor: building and floor pickers, the floor viewer, room detail sheet, starting point,
- * and routing (step cards that switch floors; a key-free outdoor leg between buildings). ES5.
+ * Indoor: building and floor pickers, the floor viewer, room detail sheet and the starting point. The route itself
+ * (state NAV, the shared route panel, steps that switch between the map and the floor plan) is WebApp_Route; this
+ * module draws the route's indoor steps on the plan. ES5.
  */
 var IND = {
   viewer: null,
@@ -9,16 +10,10 @@ var IND = {
   floorId: null,
   loadedFloorId: null,
   loadToken: 0,
-  selectedRoomId: null,
-  start: null,
-  routeDestId: null,
-  route: null,
-  stepIndex: 0,
-  avoidStairs: false
+  selectedRoomId: null
 };
 
 function initIndoor() {
-  IND.avoidStairs = lsGet(LS_KEYS.avoidStairs) === '1';
   IND.viewer = new FloorViewer($('viewer'), { resolveRoomId: resolveRoomRef, onTap: onViewerTap });
 
   var sel = $('building-select');
@@ -90,9 +85,10 @@ function shortFloorLabel(f) {
 
 function routeFloors() {
   var out = {};
-  if (IND.route && IND.route.steps) {
-    for (var i = 0; i < IND.route.steps.length; i++) {
-      if (IND.route.steps[i].kind === 'walk') { out[IND.route.steps[i].floorId] = true; }
+  var r = window.NAV ? NAV.route : null;
+  if (r && r.steps) {
+    for (var i = 0; i < r.steps.length; i++) {
+      if (r.steps[i].kind === 'walk') { out[r.steps[i].floorId] = true; }
     }
   }
   return out;
@@ -232,8 +228,8 @@ function decorateFloor() {
   v.clearRoomClass('is-selected');
   v.clearRoomClass('is-start');
   v.clearRoomClass('is-dest');
-  if (IND.start && IND.start.roomId) { v.setRoomClass(IND.start.roomId, 'is-start', true); }
-  if (IND.route && IND.route.destRoomId) { v.setRoomClass(IND.route.destRoomId, 'is-dest', true); }
+  if (NAV.start && NAV.start.roomId) { v.setRoomClass(NAV.start.roomId, 'is-start', true); }
+  if (NAV.route && NAV.route.destRoomId) { v.setRoomClass(NAV.route.destRoomId, 'is-dest', true); }
   if (IND.selectedRoomId) { v.setRoomClass(IND.selectedRoomId, 'is-selected', true); }
 
   var routes = [];
@@ -244,35 +240,40 @@ function decorateFloor() {
     markers.push({ id: 'photo:' + photos[i].id, x: photos[i].x, y: photos[i].y, kind: 'photo', title: photos[i].caption || 'Photo' });
   }
 
-  var r = IND.route;
+  var r = NAV.route;
+  function linkMarker(id, pt, type) {
+    if (type === 'door') { return { id: id, x: pt[0], y: pt[1], kind: 'door', text: 'D', title: 'Door' }; }
+    return { id: id, x: pt[0], y: pt[1], kind: 'link', text: type === 'elevator' ? 'E' : 'S', title: type === 'elevator' ? 'Elevator' : 'Stairs' };
+  }
   if (r && r.steps && r.steps.length) {
     var walks = [];
     for (i = 0; i < r.steps.length; i++) { if (r.steps[i].kind === 'walk') { walks.push(r.steps[i]); } }
     for (i = 0; i < r.steps.length; i++) {
       var s = r.steps[i];
-      if (s.kind !== 'walk' || s.floorId !== floorId) { continue; }
-      routes.push({ points: s.points, dim: i !== IND.stepIndex });
-      if (s.exitType && s.points.length) {
-        var last = s.points[s.points.length - 1];
-        markers.push({ id: 'link:' + i, x: last[0], y: last[1], kind: 'link', text: s.exitType === 'elevator' ? 'E' : 'S', title: s.exitType === 'elevator' ? 'Elevator' : 'Stairs' });
+      if (s.floorId !== floorId) { continue; }
+      if (s.kind === 'door') {
+        if (s.points && s.points.length) { markers.push(linkMarker('door:' + i, s.points[0], 'door')); }
+        continue;
       }
-      if (s.entryType && s.points.length) {
-        markers.push({ id: 'link-in:' + i, x: s.points[0][0], y: s.points[0][1], kind: 'link', text: s.entryType === 'elevator' ? 'E' : 'S', title: s.entryType === 'elevator' ? 'Elevator' : 'Stairs' });
-      }
+      if (s.kind !== 'walk') { continue; }
+      routes.push({ points: s.points, dim: i !== NAV.stepIndex });
+      if (s.exitType && s.points.length) { markers.push(linkMarker('link:' + i, s.points[s.points.length - 1], s.exitType)); }
+      if (s.entryType && s.entryType !== 'door' && s.points.length) { markers.push(linkMarker('link-in:' + i, s.points[0], s.entryType)); }
     }
     if (walks.length) {
       var first = walks[0];
       var end = walks[walks.length - 1];
-      if (first.floorId === floorId && first.points.length) {
+      var startsIndoors = r.steps[0].kind === 'walk';
+      if (startsIndoors && first.floorId === floorId && first.points.length) {
         markers.push({ id: 'start', x: first.points[0][0], y: first.points[0][1], kind: 'start', title: 'Start' });
       }
-      if (end.floorId === floorId && end.points.length) {
+      if (end.floorId === floorId && end.points.length && r.steps[r.steps.length - 1] === end) {
         var p = end.points[end.points.length - 1];
         markers.push({ id: 'dest', x: p[0], y: p[1], kind: 'dest', title: 'Destination' });
       }
     }
-  } else if (IND.start && IND.start.kind === 'node') {
-    var n = APP.by.nodes[IND.start.nodeId];
+  } else if (NAV.start && NAV.start.kind === 'node') {
+    var n = APP.by.nodes[NAV.start.nodeId];
     if (n && n.floorId === floorId) { markers.push({ id: 'you', x: n.x, y: n.y, kind: 'you', title: 'You are here' }); }
   }
   v.setRoutes(routes);
@@ -329,7 +330,7 @@ function showRoomSheet(room, moveFocus) {
   var b = buildingOfFloor(room.floorId);
   var use = MSCNSearch.useText(room);
   var type = MSCNSearch.typeText(room);
-  var isStart = IND.start && IND.start.roomId === room.id;
+  var isStart = NAV.start && NAV.start.roomId === room.id;
   var chips = '';
   if (type && MSCNSearch.norm(type) !== MSCNSearch.norm(use)) { chips += '<span class="chip">' + escapeHtml(type) + '</span>'; }
   if (isStart) { chips += '<span class="chip">Starting point</span>'; }
@@ -379,27 +380,28 @@ function openRoom(roomId, opts) {
 function setStartRoom(roomId) {
   var room = APP.by.rooms[roomId];
   if (!room) { return; }
-  IND.start = { kind: 'room', roomId: roomId, label: roomTitle(room) };
+  NAV.start = { kind: 'room', roomId: roomId, label: roomTitle(room) };
   closeRoomSheet();
-  toast('Starting point set to ' + IND.start.label, 'success');
-  if (IND.routeDestId) { computeRoute(); } else { decorateFloor(); }
+  toast('Starting point set to ' + NAV.start.label, 'success');
+  if (NAV.dest) { computeRoute(); } else { decorateFloor(); }
 }
 
 function setStartNode(nodeId, label) {
-  IND.start = { kind: 'node', nodeId: nodeId, label: label || 'Scanned location' };
-  if (IND.routeDestId) { computeRoute(); } else { decorateFloor(); }
+  NAV.start = { kind: 'node', nodeId: nodeId, label: label || 'Scanned location' };
+  if (NAV.dest) { computeRoute(); } else { decorateFloor(); }
 }
 
 function clearStart() {
-  IND.start = null;
-  if (IND.routeDestId) { computeRoute(); } else { decorateFloor(); }
+  NAV.start = null;
+  if (NAV.dest) { computeRoute(); } else { decorateFloor(); }
   if (IND.selectedRoomId && !$('room-sheet').hidden) { showRoomSheet(APP.by.rooms[IND.selectedRoomId], false); }
 }
 
 function updateStartChip() {
   var chip = $('start-chip');
-  if (!IND.start) { chip.hidden = true; return; }
-  $('start-chip-text').textContent = 'From ' + IND.start.label;
+  var s = NAV.start;
+  if (!s || (s.kind !== 'room' && s.kind !== 'node')) { chip.hidden = true; return; }
+  $('start-chip-text').textContent = 'From ' + s.label;
   chip.hidden = false;
 }
 
@@ -425,237 +427,6 @@ function roomNodeIds(roomId) {
   if (!isFinite(c.x) || !isFinite(c.y)) { return []; }
   var n = MSCNPath.nearestNode(APP.graph, room.floorId, c.x, c.y, function (node) { return !MSCNPath.isTransitionType(node.type); });
   return n ? [n.id] : [];
-}
-
-function resolveStart(destBuildingId) {
-  var g = APP.graph;
-  var s = IND.start;
-  if (s && s.kind === 'room') {
-    var room = APP.by.rooms[s.roomId];
-    var f = room ? APP.by.floors[room.floorId] : null;
-    return { ids: roomNodeIds(s.roomId), label: s.label, buildingId: f ? f.buildingId : null,
-      error: 'Your starting room is not connected to the navigation map yet.' };
-  }
-  if (s && s.kind === 'node') {
-    var ok = !!g.nodes[s.nodeId];
-    return { ids: ok ? [s.nodeId] : [], label: s.label, buildingId: ok ? MSCNPath.buildingOfNode(g, s.nodeId) : null,
-      error: 'Your scanned location is not on the public map.' };
-  }
-  var ents = MSCNPath.entranceIds(g, destBuildingId);
-  return { ids: ents, label: 'the building entrance', buildingId: destBuildingId,
-    error: 'No entrance is mapped for this building yet. Set a starting room with "Set as start" instead.' };
-}
-
-function transitionName(node) {
-  if (!node) { return ''; }
-  if (node.label) { return String(node.label); }
-  var room = node.roomId ? APP.by.rooms[node.roomId] : null;
-  var use = room ? MSCNSearch.useText(room) : '';
-  if (/^\s*(stairs?|stairway|stairwell|elevators?|lift)\s*$/i.test(use)) { return ''; }
-  return /stair|elevator|lift/i.test(use) ? use : '';
-}
-
-function entranceNameForNode(buildingId, nodeId) {
-  var b = APP.by.buildings[buildingId];
-  var ents = (b && b.entrances) || [];
-  for (var i = 0; i < ents.length; i++) { if (ents[i].nodeId === nodeId && ents[i].name) { return ents[i].name; } }
-  return 'the entrance';
-}
-
-function haversineMeters(a, b) {
-  if (!a || !b) { return 0; }
-  var R = 6371000;
-  var toRad = Math.PI / 180;
-  var dLat = (Number(b.lat) - Number(a.lat)) * toRad;
-  var dLng = (Number(b.lng) - Number(a.lng)) * toRad;
-  var h = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(Number(a.lat) * toRad) * Math.cos(Number(b.lat) * toRad) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
-  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
-}
-
-function walkStepsFor(route, destinationLabel) {
-  var g = APP.graph;
-  var segs = MSCNPath.segmentPath(g, route);
-  var raw = MSCNPath.buildSteps(g, segs, {
-    floorLabel: floorLabel,
-    destination: destinationLabel,
-    transitionName: transitionName
-  });
-  var out = [];
-  for (var i = 0; i < raw.length; i++) {
-    var pts = [];
-    for (var k = 0; k < segs[i].nodes.length; k++) { pts.push([Number(segs[i].nodes[k].x), Number(segs[i].nodes[k].y)]); }
-    out.push({
-      kind: 'walk', floorId: raw[i].floorId, title: raw[i].title, detail: raw[i].detail, distance: raw[i].distance,
-      points: pts, exitType: segs[i].exit ? segs[i].exit.type : null, entryType: segs[i].entry ? segs[i].entry.type : null
-    });
-  }
-  return out;
-}
-
-function navigateToRoom(roomId) {
-  var dest = APP.by.rooms[roomId];
-  var destB = dest ? buildingOfFloor(dest.floorId) : null;
-  MSCNAnalytics.track('route_start', destB ? destB.id : 'room');
-  IND.routeDestId = roomId;
-  computeRoute();
-}
-
-function computeRoute() {
-  var destId = IND.routeDestId;
-  var room = APP.by.rooms[destId];
-  if (!room) { endRoute(); return; }
-  var g = APP.graph;
-  var destFloor = APP.by.floors[room.floorId];
-  var destB = destFloor ? destFloor.buildingId : null;
-  var opts = { accessibleOnly: IND.avoidStairs };
-  var goals = roomNodeIds(destId);
-  var st = resolveStart(destB);
-  var route = { destRoomId: destId, destLabel: roomTitle(room), fromLabel: st.label, steps: [], meters: 0, error: null };
-  /* Suggest turning off "Avoid stairs" only when stairs would actually connect the two points. */
-  function noRouteMsg(fromIds, toIds) {
-    if (IND.avoidStairs && MSCNPath.findPath(g, fromIds, toIds, { accessibleOnly: false })) {
-      return 'No step-free route was found. Turn off "Avoid stairs" to include stairs.';
-    }
-    return 'No route was found between these points.';
-  }
-
-  if (!goals.length) {
-    route.error = 'This room is not connected to the navigation map yet.';
-  } else if (!st.ids.length) {
-    route.error = st.error;
-  } else if (st.buildingId && destB && st.buildingId !== destB) {
-    var exits = MSCNPath.entranceIds(g, st.buildingId);
-    var entries = MSCNPath.entranceIds(g, destB);
-    var leg1 = exits.length ? MSCNPath.findPath(g, st.ids, exits, opts) : null;
-    var leg2 = entries.length ? MSCNPath.findPath(g, entries, goals, opts) : null;
-    if (!leg2) {
-      route.error = entries.length ? noRouteMsg(entries, goals) : 'No entrance is mapped for ' + buildingName(destB) + ' yet.';
-    } else {
-      if (leg1) {
-        var exitNode = leg1.nodeIds[leg1.nodeIds.length - 1];
-        var exitName = entranceNameForNode(st.buildingId, exitNode);
-        var s1 = walkStepsFor(leg1, exitName);
-        s1[s1.length - 1].title = 'Leave by ' + (exitName === 'the entrance' ? 'the nearest exit' : 'the ' + exitName);
-        route.steps = route.steps.concat(s1);
-        route.meters += leg1.distance;
-      }
-      var fromT = buildingTarget(st.buildingId, leg1 ? leg1.nodeIds[leg1.nodeIds.length - 1] : null);
-      var toT = buildingTarget(destB, leg2.nodeIds[0]);
-      var outdoorM = haversineMeters(fromT, toT);
-      route.steps.push({
-        kind: 'outdoor', title: 'Walk to ' + buildingName(destB),
-        detail: (outdoorM ? 'About ' + MSCNPath.formatMeters(outdoorM * 1.25) + ' outside' : 'Head outside') +
-          (toT ? ' to the ' + toT.name + '.' : '.'),
-        url: toT ? directionsUrl(toT.lat, toT.lng) : '', buildingId: destB
-      });
-      route.meters += outdoorM * 1.25;
-      route.steps = route.steps.concat(walkStepsFor(leg2, roomTitle(room)));
-      route.meters += leg2.distance;
-    }
-  } else {
-    var r = MSCNPath.findPath(g, st.ids, goals, opts);
-    if (r) {
-      route.steps = walkStepsFor(r, roomTitle(room));
-      route.meters = r.distance;
-    } else {
-      route.error = noRouteMsg(st.ids, goals);
-    }
-  }
-
-  IND.route = route;
-  IND.stepIndex = 0;
-  closeRoomSheet(true);
-  IND.selectedRoomId = null;
-  renderRoutePanel();
-  if (route.steps.length) {
-    goToStep(0);
-  } else {
-    renderFloorPicker();
-    decorateFloor();
-  }
-}
-
-function goToStep(i) {
-  var r = IND.route;
-  if (!r || !r.steps[i]) { return; }
-  IND.stepIndex = i;
-  renderRoutePanel();
-  var step = r.steps[i];
-  if (step.kind === 'walk') {
-    showFloor(step.floorId, function () {
-      decorateFloor();
-      updateViewerInsets();
-      IND.viewer.focusPoints(step.points);
-    });
-  } else {
-    decorateFloor();
-  }
-}
-
-function endRoute() {
-  IND.route = null;
-  IND.routeDestId = null;
-  IND.stepIndex = 0;
-  var p = $('route-panel');
-  p.hidden = true;
-  p.innerHTML = '';
-  renderFloorPicker();
-  decorateFloor();
-}
-
-function renderRoutePanel() {
-  var p = $('route-panel');
-  var r = IND.route;
-  if (!r) { p.hidden = true; return; }
-  var html = '<div class="route-head"><div class="ends"><span>Route to</span><strong id="route-dest">' + escapeHtml(r.destLabel) + '</strong>' +
-    '<span>From ' + escapeHtml(r.fromLabel) + '</span></div>' +
-    '<button type="button" class="sheet-close" id="route-close" aria-label="End route">' + ICONS.close + '</button></div>';
-  if (r.error) {
-    html += '<div class="route-step is-error" role="alert"><div class="title">No route</div><div class="detail">' + escapeHtml(r.error) + '</div></div>';
-  } else {
-    var step = r.steps[IND.stepIndex];
-    var n = r.steps.length;
-    html += '<div class="route-summary" id="route-summary">' + escapeHtml(MSCNPath.formatMeters(r.meters)) + ' · about ' +
-      escapeHtml(MSCNPath.formatMinutes(r.meters)) + ' · ' + n + (n === 1 ? ' step' : ' steps') + '</div>';
-    html += '<div class="route-step" id="route-step" aria-live="polite"><div class="count">Step ' + (IND.stepIndex + 1) + ' of ' + n +
-      (step.kind === 'walk' ? ' · ' + escapeHtml(floorLabel(step.floorId)) : ' · Outdoors') + '</div>' +
-      '<div class="title">' + escapeHtml(step.title) + '</div><div class="detail">' + escapeHtml(step.detail) +
-      (step.url ? ' <a href="' + escapeHtml(step.url) + '" target="_blank" rel="noopener">Open walking directions</a>' : '') +
-      '</div></div>';
-    var dots = '';
-    for (var i = 0; i < n; i++) { dots += '<span class="' + (i === IND.stepIndex ? 'on' : '') + '"></span>'; }
-    var lastStep = IND.stepIndex === n - 1;
-    html += '<div class="route-nav">' +
-      '<button type="button" class="btn btn-secondary" id="route-prev"' + (IND.stepIndex === 0 ? ' disabled' : '') + '>Previous</button>' +
-      (n > 1 ? '<div class="step-dots" aria-hidden="true">' + dots + '</div>' : '') +
-      '<button type="button" class="btn btn-primary" id="route-next">' + (lastStep ? 'Done' : 'Next') + '</button></div>';
-  }
-  html += '<div class="route-options"><label class="switch"><input type="checkbox" id="avoid-stairs"' + (IND.avoidStairs ? ' checked' : '') + '>' +
-    '<span class="track" aria-hidden="true"></span>Avoid stairs</label></div>';
-  p.innerHTML = html;
-  p.hidden = false;
-  $('route-close').onclick = function () { endRoute(); $('viewer').focus(); };
-  var prev = $('route-prev');
-  var next = $('route-next');
-  if (prev) { prev.onclick = function () { goToStep(IND.stepIndex - 1); focusSoon('route-prev'); }; }
-  if (next) {
-    next.onclick = function () {
-      if (IND.stepIndex >= IND.route.steps.length - 1) { endRoute(); $('viewer').focus(); return; }
-      goToStep(IND.stepIndex + 1);
-      focusSoon('route-next');
-    };
-  }
-  $('avoid-stairs').onchange = function (e) {
-    IND.avoidStairs = !!e.target.checked;
-    lsSet(LS_KEYS.avoidStairs, IND.avoidStairs ? '1' : '0');
-    computeRoute();
-    focusSoon('avoid-stairs');
-  };
-}
-
-function focusSoon(id) {
-  setTimeout(function () { var e = $(id); if (e && !e.disabled) { e.focus(); } }, 0);
 }
 
 /* ---------- QR location ---------- */

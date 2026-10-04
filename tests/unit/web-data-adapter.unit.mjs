@@ -40,11 +40,15 @@ test('ids: letters, digits, hyphen and underscore only', () => {
   for (const bad of ['', '../x', 'a/b', 'a b', 'x'.repeat(81), null, 5]) assert.equal(D.isId(bad), false, String(bad));
 });
 
-test('normalizeConfig: defaults, trimming, and junk reads as not configured', () => {
-  assert.deepEqual(plain(D.normalizeConfig(null)), { mapsApiKey: '', analytics: { provider: 'goatcounter', site: '' }, basePath: '', domain: '' });
-  assert.deepEqual(plain(D.normalizeConfig({ mapsApiKey: '  k  ', analytics: { provider: 'goatcounter', site: 'msu' }, basePath: '/campus-nav/' })),
-    { mapsApiKey: 'k', analytics: { provider: 'goatcounter', site: 'msu' }, basePath: '/campus-nav/', domain: '' });
-  assert.equal(D.normalizeConfig({ mapsApiKey: 42, analytics: 'x' }).mapsApiKey, '');
+test('normalizeConfig: defaults, junk reads as not configured, and a stale mapsApiKey is dropped (v4 has no map key)', () => {
+  assert.deepEqual(plain(D.normalizeConfig(null)), { analytics: { provider: 'goatcounter', site: '' }, basePath: '', domain: '' });
+  assert.deepEqual(plain(D.normalizeConfig({ mapsApiKey: 'k', analytics: { provider: 'goatcounter', site: 'msu' }, basePath: '/campus-nav/' })),
+    { analytics: { provider: 'goatcounter', site: 'msu' }, basePath: '/campus-nav/', domain: '' });
+  assert.equal(D.normalizeConfig({ analytics: 'x' }).analytics.site, '');
+});
+
+test('the map manifest is a relative URL under data/', () => {
+  assert.equal(D.urls.mapManifest(), 'data/map-manifest.json');
 });
 
 test('queryParams keeps ?qr= raw (base64) and decodes the rest; pageUrl drops query and hash', () => {

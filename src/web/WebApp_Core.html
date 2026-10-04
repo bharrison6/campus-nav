@@ -79,7 +79,6 @@ function toast(msg, kind, ms) {
 function showError(msg) { toast(msg, 'error', 5000); }
 
 /* ---------- site config (config.json; cached so an offline start keeps its settings) ---------- */
-var siteWaiters = [];
 
 function loadSiteConfig() {
   MSCNData.getConfig(function (err, raw) {
@@ -92,14 +91,7 @@ function loadSiteConfig() {
     }
     APP.site = cfg;
     MSCNAnalytics.init(cfg.analytics);
-    var w = siteWaiters;
-    siteWaiters = [];
-    for (var i = 0; i < w.length; i++) { w[i](cfg); }
   });
-}
-
-function whenSiteConfig(fn) {
-  if (APP.site) { fn(APP.site); } else { siteWaiters.push(fn); }
 }
 
 function errText(err) {
@@ -218,22 +210,66 @@ function resolveRoomRef(raw, floorId) {
   return null;
 }
 
-function directionsUrl(lat, lng) {
-  return 'https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(Number(lat) + ',' + Number(lng)) + '&travelmode=walking';
+function isAppleDevice() {
+  var ua = String((window.navigator && navigator.userAgent) || '');
+  return /iPad|iPhone|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
 }
 
-/* Best outdoor target for a building: an entrance (optionally the one tied to a nav node), else the building point. */
+/*
+ * "Directions to campus": the visitor's own maps app, to a door's coordinates (decision
+ * mscn-v4-gps-offline-and-google-as-exit-only). Apple Maps on iPhone and iPad, Google Maps elsewhere. This is the only
+ * place the app hands off to an outside map; walking on campus is our own map.
+ */
+function directionsToCampusUrl(lat, lng) {
+  var ll = Number(lat) + ',' + Number(lng);
+  if (isAppleDevice()) { return 'https://maps.apple.com/?daddr=' + encodeURIComponent(ll); }
+  return 'https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(ll);
+}
+
+function entranceLabel(e) { return (e && (e.label || e.name)) || ''; }
+
+/* Best outdoor target for a building: the given entrance node, a primary door, any mapped entrance, the building point. */
 function buildingTarget(buildingId, nodeId) {
   var b = APP.by.buildings[buildingId];
   if (!b) { return null; }
+  var g = APP.graph;
+  var n = nodeId && g ? g.nodes[nodeId] : null;
+  if (n && MSCNPath.hasLngLat(n)) { return { lat: n.lat, lng: n.lng, name: doorName(n, buildingId), nodeId: n.id }; }
+  var prim = g ? MSCNPath.primaryEntrances(g, buildingId) : [];
+  if (prim.length) { n = g.nodes[prim[0]]; return { lat: n.lat, lng: n.lng, name: doorName(n, buildingId), nodeId: n.id }; }
   var ents = b.entrances || [];
-  for (var i = 0; i < ents.length; i++) {
-    if (nodeId && ents[i].nodeId === nodeId && ents[i].lat && ents[i].lng) {
-      return { lat: ents[i].lat, lng: ents[i].lng, name: ents[i].name || 'Entrance' };
-    }
+  var i;
+  for (i = 0; i < ents.length; i++) {
+    if (nodeId && ents[i].nodeId === nodeId && ents[i].lat && ents[i].lng) { return { lat: ents[i].lat, lng: ents[i].lng, name: entranceLabel(ents[i]) || 'entrance' }; }
   }
-  if (ents.length && ents[0].lat && ents[0].lng) { return { lat: ents[0].lat, lng: ents[0].lng, name: ents[0].name || 'Entrance' }; }
+  for (i = 0; i < ents.length; i++) {
+    if (ents[i].lat && ents[i].lng && MSCNPath.toBool(ents[i].primary, false)) { return { lat: ents[i].lat, lng: ents[i].lng, name: entranceLabel(ents[i]) || 'entrance' }; }
+  }
+  if (ents.length && ents[0].lat && ents[0].lng) { return { lat: ents[0].lat, lng: ents[0].lng, name: entranceLabel(ents[0]) || 'entrance' }; }
   if (b.lat && b.lng) { return { lat: b.lat, lng: b.lng, name: b.name }; }
+  return null;
+}
+
+/* What a door is called in step text: its label (admin or data), else its side of the building ("east entrance"). */
+function doorName(node, buildingId) {
+  if (!node) { return 'entrance'; }
+  var b = APP.by.buildings[buildingId || ''] || null;
+  var ents = (b && b.entrances) || [];
+  for (var i = 0; i < ents.length; i++) { if (ents[i].nodeId === node.id && entranceLabel(ents[i])) { return entranceLabel(ents[i]); } }
+  if (node.label) { return String(node.label); }
+  var c = buildingCenter(buildingId);
+  if (c && MSCNPath.hasLngLat(node) && MSCNGeo.haversine(c, node) > 4) {
+    return MSCNGeo.compass(MSCNGeo.bearing(c, node)) + ' entrance';
+  }
+  return 'entrance';
+}
+
+/* A building's center: its map footprint when the map has loaded one, else the seeded point. */
+function buildingCenter(buildingId) {
+  var fp = window.MAPV && MAPV.centers ? MAPV.centers[buildingId] : null;
+  if (fp) { return fp; }
+  var b = APP.by.buildings[buildingId || ''];
+  if (b && b.lat && b.lng && isFinite(Number(b.lat)) && Number(b.lat) !== 0) { return { lat: Number(b.lat), lng: Number(b.lng) }; }
   return null;
 }
 
@@ -290,6 +326,7 @@ function loadCampusData(onReady) {
   MSCNData.getVersion(function (err, info) {
     var remote = (!err && info && info.version !== undefined) ? info.version : null;
     var plan = MSCNData.planLoad(cached, remote, !!err);
+    if (plan === 'fetch' && cached && typeof checkForUpdate === 'function') { checkForUpdate(); }
     if (plan === 'cache') { onReady(cached.data, cached.version, false); }
     else if (plan === 'stale') { onReady(cached.data, cached.version, true); }
     else { fetchFreshData(cached, remote, onReady); }
