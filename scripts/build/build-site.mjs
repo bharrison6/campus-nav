@@ -1,4 +1,4 @@
-// Builds the static site (plan mscn-v3-static-migration, lane F).
+// Builds the static site.
 //
 //   npm run build                                  -> dist/
 //   node scripts/build/build-site.mjs --out <dir> [--config build.config.json]

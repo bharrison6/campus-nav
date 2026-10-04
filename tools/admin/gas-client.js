@@ -1,7 +1,7 @@
 // google.script.run for the local admin page, injected by tools/admin/server.mjs.
 // Mirrors the Apps Script client chain (withSuccessHandler / withFailureHandler / withUserObject): every call is
 // POSTed to /__admin/run/<fn>, where the server runs the backend function (tools/admin/gs) and, for a write, saves
-// the overrides files. Same mechanism as the v2 dev harness's dev/mock-gas.js, without its test flags.
+// the overrides files.
 (function () {
   function callServer(name, args) {
     return fetch('/__admin/run/' + encodeURIComponent(name), {

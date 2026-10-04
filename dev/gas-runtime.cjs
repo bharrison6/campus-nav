@@ -24,7 +24,7 @@ const vm = require('vm');
 const crypto = require('crypto');
 
 const CELL_LIMIT = 50000;
-/** The backend's home since v3 (moved from scripts/apps-script/src). */
+/** The backend's home since v3. */
 const GS_DIR = path.resolve(__dirname, '..', 'tools', 'admin', 'gs');
 
 function makeRuntime(srcDir, extraCode, opts) {
