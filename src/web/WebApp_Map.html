@@ -156,7 +156,19 @@ function styleOptions() {
   if (man.aerial && man.aerial.tiles) {
     aerial = { tiles: absUrl(man.aerial.tiles), minzoom: man.aerial.minzoom, maxzoom: man.aerial.maxzoom, attribution: man.aerial.attribution, bounds: man.aerial.bounds };
   }
-  return { buildings: MAPV.buildings, base: MAPV.base, aerial: aerial, aerialVisible: MAPV.aerialOn, fixture: !!man.fixture };
+  return { buildings: MAPV.buildings, base: MAPV.base, photos: outdoorPhotos(), aerial: aerial, aerialVisible: MAPV.aerialOn, fixture: !!man.fixture };
+}
+
+/* Outdoor photos (campus data `photos`, type outdoor, with lat/lng) as map points; a tap opens the photo viewer. */
+function outdoorPhotos() {
+  var out = [];
+  var list = (APP.data && APP.data.photos) || [];
+  for (var i = 0; i < list.length; i++) {
+    var p = list[i];
+    if (!p || p.type !== 'outdoor' || !isFinite(Number(p.lat)) || !isFinite(Number(p.lng)) || !Number(p.lat)) { continue; }
+    out.push({ type: 'Feature', properties: { photoId: String(p.id) }, geometry: { type: 'Point', coordinates: [Number(p.lng), Number(p.lat)] } });
+  }
+  return { type: 'FeatureCollection', features: out };
 }
 
 function createMap(ml) {
@@ -282,12 +294,17 @@ function setAerial(on) {
 
 function onMapClick(e) {
   var map = MAPV.map;
-  var hits = map.queryRenderedFeatures(e.point, { layers: presentLayers(['indoor-room-selected', 'indoor-rooms-active', 'buildings-3d']) });
+  var hits = map.queryRenderedFeatures(e.point, { layers: presentLayers(['photos', 'indoor-room-selected', 'indoor-rooms-active', 'buildings-3d']) });
   if (!hits.length) {
     if (!MAPV.view) { closeBuildingSheet(); clearSelectedBuilding(); }
     return;
   }
   var f = hits[0];
+  if (f.layer.id === 'photos') {
+    var photos = (APP.data && APP.data.photos) || [];
+    for (var i = 0; i < photos.length; i++) { if (String(photos[i].id) === f.properties.photoId) { showPanorama(photos[i]); } }
+    return;
+  }
   if (f.layer.id.indexOf('indoor-') === 0 && f.properties.roomId) {
     showMapRoom(f.properties.roomId, false);
     return;
@@ -600,6 +617,7 @@ MAPV.focusRouteStep = function (route, index) {
   var bb = MSCNGeo.bbox(coords);
   if (!bb) { return; }
   if (MAPV.view && s.kind === 'outdoor') { exitBuildingView(); }
+  MAPV.map.resize(); /* the route panel may just have taken space from the map */
   var wide = window.innerWidth >= 720;
   MAPV.map.fitBounds([[bb[0], bb[1]], [bb[2], bb[3]]], {
     padding: { top: 70, bottom: 50, left: wide ? 420 : 40, right: 70 }, pitch: 45, bearing: MAPV.map.getBearing(), maxZoom: 18.6, duration: mapDuration(900)

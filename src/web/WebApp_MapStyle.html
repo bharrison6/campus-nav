@@ -112,6 +112,7 @@ var MSCNMapStyle = (function () {
       'gps-accuracy': { 'fill-color': t.gps },
       'gps-heading': { 'fill-color': t.gps },
       'gps-dot': { 'circle-color': t.gps, 'circle-stroke-color': t.labelHalo },
+      'photos': { 'circle-color': t.door, 'circle-stroke-color': t.labelHalo },
       'building-labels': { 'text-color': t.label, 'text-halo-color': t.labelHalo },
       'path-labels': { 'text-color': t.labelMuted || t.label, 'text-halo-color': t.labelHalo },
       'place-labels': { 'text-color': t.labelMuted || t.label, 'text-halo-color': t.labelHalo }
@@ -141,7 +142,8 @@ var MSCNMapStyle = (function () {
       'indoor': { type: 'geojson', data: emptyFC() },
       'route': { type: 'geojson', data: emptyFC() },
       'route-points': { type: 'geojson', data: emptyFC() },
-      'gps': { type: 'geojson', data: emptyFC() }
+      'gps': { type: 'geojson', data: emptyFC() },
+      'photos': { type: 'geojson', data: opts.photos || emptyFC() }
     };
     var layers = [{ id: 'background', type: 'background', paint: {} }];
     if (opts.aerial && opts.aerial.tiles) {
@@ -196,6 +198,8 @@ var MSCNMapStyle = (function () {
       { id: 'gps-heading', type: 'fill', source: 'gps', filter: ['==', ['get', 'kind'], 'heading'], paint: { 'fill-opacity': 0.35 } },
       { id: 'route-points', type: 'circle', source: 'route-points',
         paint: { 'circle-radius': ['match', ['get', 'kind'], 'door', 7, 8], 'circle-stroke-width': 3, 'circle-pitch-alignment': 'viewport' } },
+      { id: 'photos', type: 'circle', source: 'photos', minzoom: 15.5,
+        paint: { 'circle-radius': 6, 'circle-stroke-width': 2, 'circle-pitch-alignment': 'viewport' } },
       { id: 'gps-dot', type: 'circle', source: 'gps', filter: ['==', ['get', 'kind'], 'dot'],
         paint: { 'circle-radius': 8, 'circle-stroke-width': 3, 'circle-pitch-alignment': 'viewport' } },
       { id: 'path-labels', type: 'symbol', source: 'campus-base', minzoom: 17, filter: ['all', isLayer('paths'), ['has', 'name'], ['!=', ['get', 'name'], '']],
