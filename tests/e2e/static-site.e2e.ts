@@ -1,10 +1,17 @@
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { expect, test, type Page, type Request } from '@playwright/test';
+import { precacheEntries, serviceWorkerSource } from '../../scripts/build/service-worker.mjs';
 
 // What the static deployment adds on top of the app behaviour (webapp.e2e.ts): sub-path-safe URLs, the 404
 // redirect for deep links, the data cache, official schedules by id, no Google and no map key anywhere, and
 // analytics that load only when configured. The site under test is the analytics-off build.
 
 const BASE_PATH = '/campus-nav/';
+const ROOT = join(__dirname, '..', '..');
 
 async function boot(page: Page, query = '') {
   await page.goto('./' + query);
@@ -83,13 +90,84 @@ test('a second visit uses the cached campus data when the published version is u
   await expect(page.locator('#stale-banner')).toBeHidden();
 });
 
-test('a new published version replaces the cached data', async ({ page }) => {
-  await boot(page);
-  await page.route('**/data/version.json*', (r) => r.fulfill({ json: { version: 'newer-build', builtAt: '', gitSha: '' } }));
-  const campus = page.waitForRequest((r) => r.url().includes('data/campus.json?v=newer-build'));
-  await boot(page);
-  await campus;
-  expect(await page.evaluate(() => localStorage.getItem('campusDataVersion'))).toBe('newer-build');
+// A deploy transition with the real service worker, on a server of this test's own (a copy of the e2e build) so the
+// test can publish a next deploy and drop the connection. page.route cannot see requests the worker answers.
+test.describe('deploy transition', () => {
+  test.use({ serviceWorkers: 'allow' });
+
+  test('an open old build keeps its own generation through a new deploy and a lost connection; Reload brings the new data', async ({ page }) => {
+    test.setTimeout(90_000);
+    const dir = mkdtempSync(join(tmpdir(), 'mscn-deploy-'));
+    cpSync(join(ROOT, 'build', 'e2e-site'), dir, { recursive: true });
+    // dev/serve.mjs has a top-level await (its CLI), so it cannot be a static import of a CommonJS-compiled spec
+    const { createStaticServer } = await import('../../dev/serve.mjs');
+    const serve = createStaticServer({ dist: dir, base: BASE_PATH }).listeners('request')[0] as (req: IncomingMessage, res: ServerResponse) => void;
+    let down = (_path: string) => false;
+    const server = createServer((req, res) => {
+      if (down(new URL(req.url || '/', 'http://x').pathname)) { req.socket.destroy(); return; }
+      serve(req, res);
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+    const site = `http://127.0.0.1:${(server.address() as AddressInfo).port}${BASE_PATH}`;
+    const stored = () => page.evaluate(() => ({
+      version: localStorage.getItem('campusDataVersion'),
+      dataVersion: JSON.parse(localStorage.getItem('campusData') || '{}').version,
+    }));
+    // the EP building name the running page is using
+    const shown = () => page.evaluate(() => (window as any).APP.by.buildings['bld-ep'].name);
+    try {
+      // first visit installs the worker; the reload is the first page it serves
+      await page.goto(site);
+      await expect(page.locator('#loading-screen')).toBeHidden();
+      await page.evaluate(async () => { await navigator.serviceWorker.ready; });
+      await page.reload();
+      await expect(page.locator('#loading-screen')).toBeHidden();
+      expect(await page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
+      const campusFile = join(dir, 'data', 'campus.json');
+      const campus = JSON.parse(readFileSync(campusFile, 'utf8'));
+      const v1 = String(campus.version);
+      expect(await stored()).toEqual({ version: v1, dataVersion: v1 });
+      const ep = campus.buildings.find((b: { id: string }) => b.id === 'bld-ep');
+      const oldName = String(ep.name);
+      const newName = oldName + ' (next deploy)';
+      expect(await shown()).toBe(oldName);
+
+      // the next deploy: a different campus body, its version, and the worker the build would emit for it
+      const v2 = 'next-' + v1;
+      ep.name = newName;
+      campus.version = v2;
+      for (const c of campus.config || []) if (c.key === 'dataVersion') c.value = v2;
+      writeFileSync(campusFile, JSON.stringify(campus));
+      writeFileSync(join(dir, 'data', 'version.json'), JSON.stringify({ version: v2, builtAt: '', gitSha: '' }));
+      writeFileSync(join(dir, 'sw.js'), serviceWorkerSource({ version: v2, entries: precacheEntries(dir) }));
+
+      // the connection drops after version.json: the old page stays whole and nothing is stored under the new version
+      down = (p) => p !== BASE_PATH + 'data/version.json';
+      await page.reload();
+      await expect(page.locator('#loading-screen')).toBeHidden();
+      expect(await shown()).toBe(oldName);
+      expect(await stored()).toEqual({ version: v1, dataVersion: v1 });
+      const asked = await page.evaluate((v) => fetch('data/campus.json?v=' + encodeURIComponent(v))
+        .then((r) => r.text().then((t) => 'answered ' + r.status + ' ' + t.slice(0, 40)), () => 'failed'), v2);
+      expect(asked, 'a request for the new version never gets the old precached payload').toBe('failed');
+
+      // back online: the browser finds the new worker, the page offers Reload, and Reload brings the new build
+      down = () => false;
+      await page.evaluate(async () => { const r = await navigator.serviceWorker.getRegistration(); if (r) await r.update(); });
+      await expect(page.locator('#update-banner')).toBeVisible({ timeout: 30_000 });
+      const reloaded = page.waitForEvent('load');
+      await page.locator('#update-reload').click();
+      await reloaded;
+      await expect(page.locator('#loading-screen')).toBeHidden();
+      expect(await shown()).toBe(newName);
+      expect(await stored()).toEqual({ version: v2, dataVersion: v2 });
+    } finally {
+      await page.close();
+      await new Promise((r) => server.close(r));
+      server.closeAllConnections();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 test('?sched=<id> opens the official schedule read-only; events add to my schedule and route', async ({ page }) => {

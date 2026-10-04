@@ -336,12 +336,17 @@ function loadCampusData(onReady) {
 function fetchFreshData(fallback, remoteVersion, onReady) {
   setLoadingStatus('Downloading campus data…');
   MSCNData.getCampus(remoteVersion, function (err, result) {
-    if (!err && MSCNData.looksLikeCampus(result)) {
+    var ok = !err && MSCNData.looksLikeCampus(result);
+    if (ok && MSCNData.isVersion(remoteVersion, result)) {
       var version = MSCNData.versionOf(remoteVersion, result);
       writeCachedData(result, version);
       onReady(result, version, false);
     } else if (fallback) {
+      /* failed, or a payload other than the advertised version: keep the saved copy (never relabel a payload) */
       onReady(fallback.data, fallback.version, true);
+    } else if (ok) {
+      /* no saved copy: show what came back under its own version, uncached, as not current */
+      onReady(result, MSCNData.versionOf(null, result), true);
     } else if (!err) {
       showFatal('The campus data came back empty. Please try again in a moment.');
     } else {

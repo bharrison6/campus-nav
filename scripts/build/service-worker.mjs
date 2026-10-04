@@ -7,16 +7,21 @@
 //
 // Not precached: sw.js itself, 404.html, CNAME, source maps, and the optional aerial tiles
 // (data/campus-map/aerial/**), which are cached as they are seen, cache-first, capped at AERIAL_MAX_TILES.
+// One generation per worker: a page this worker serves sees only this worker's build (page, version.json, campus
+// data, floor plans, map manifest, outdoor graph, georef), so new indoor data never meets an old outdoor graph.
 // Strategy in the worker:
 //   navigations                 the precached index.html (cache-first; a new sw.js is the update signal)
-//   data/version.json           network-first, cache as fallback (the app's own data check stays live)
+//   data/version.json           the precached copy: the page asks for exactly this worker's data version
 //   data/campus.json?v=X, floors/<id>.svg?v=X
-//                               precache when X is the data version this worker was built with; otherwise
-//                               network-first (a newer deploy's data), cache as fallback
+//                               precache when X is the data version this worker was built with (or no ?v);
+//                               any other X goes to the network only, never to this precache (which holds another
+//                               version), so an old payload can never answer for a new version
 //   data/campus-map/aerial/**   cache-first in its own capped cache
 //   everything else precached   cache-first; anything else same-origin passes through to the network
-// Updates: a changed build changes sw.js (BUILD below hashes the manifest); the new worker installs its precache and
-// waits; the page offers "Updated, reload", which posts {type: 'skipWaiting'}.
+// Updates: a changed build changes sw.js (BUILD below hashes the manifest; the browser checks sw.js on every
+// navigation); the new worker installs its precache and waits, the running page keeps this build; the page offers
+// "Updated, reload", which posts {type: 'skipWaiting'}; the new worker activates and every page it now controls
+// reloads into the new build (WebApp_Main controllerchange). The worker does not claim pages it did not serve.
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
@@ -67,7 +72,7 @@ self.addEventListener('activate', function (event) {
   event.waitUntil(caches.keys().then(function (keys) {
     return Promise.all(keys.filter(function (k) { return k.indexOf('mscn-precache-') === 0 && k !== PRECACHE; })
       .map(function (k) { return caches.delete(k); }));
-  }).then(function () { return self.clients.claim(); }));
+  }));
 });
 
 self.addEventListener('message', function (event) {
@@ -85,11 +90,6 @@ function cacheFirst(request) {
   return fromPrecache(request).then(function (hit) { return hit || fetch(request); });
 }
 
-function networkFirst(request) {
-  return fetch(request).then(function (res) { return res; }, function (err) {
-    return fromPrecache(request).then(function (hit) { if (hit) { return hit; } throw err; });
-  });
-}
 
 function trimAerial(cache) {
   return cache.keys().then(function (keys) {
@@ -123,11 +123,10 @@ self.addEventListener('fetch', function (event) {
     event.respondWith(fromPrecache(new Request(scopeUrl('index.html'))).then(function (hit) { return hit || fetch(req); }));
     return;
   }
-  if (path === 'data/version.json') { event.respondWith(networkFirst(req)); return; }
   if (path.indexOf('data/campus-map/aerial/') === 0) { event.respondWith(aerialTile(req)); return; }
   if (path === 'data/campus.json' || /^floors\\/[^/]+\\.svg$/.test(path)) {
     var v = url.searchParams.get('v');
-    event.respondWith(v && v !== DATA_VERSION ? networkFirst(req) : cacheFirst(req));
+    event.respondWith(v && v !== DATA_VERSION ? fetch(req) : cacheFirst(req));
     return;
   }
   event.respondWith(cacheFirst(req));
