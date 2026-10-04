@@ -318,6 +318,75 @@
       }
     }
 
+    /* Map editor and Doors & Hallways (v5) */
+    .map-wrap {
+      position: relative;
+      width: 100%;
+      height: 560px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      background: #e5e7eb;
+    }
+    .map-wrap.drawing .maplibregl-canvas { cursor: crosshair; }
+    .legend-swatch {
+      display: inline-block;
+      width: 18px;
+      height: 6px;
+      border-radius: 2px;
+      vertical-align: middle;
+      margin: 0 2px 0 8px;
+    }
+    .legend-dash { background-image: repeating-linear-gradient(90deg, transparent 0 5px, #fff 5px 8px); }
+    .legend-hatch {
+      height: 10px;
+      background: repeating-linear-gradient(45deg, rgba(220,38,38,0.45) 0 3px, rgba(255,255,255,0.6) 3px 6px);
+    }
+    .legend-dot {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      vertical-align: middle;
+      margin: 0 2px 0 8px;
+      border: 1px solid #fff;
+      box-shadow: 0 0 0 1px #9ca3af;
+    }
+    .access-buttons { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
+    .access-buttons .tool-btn {
+      padding: 6px 14px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: #fff;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .access-buttons .tool-btn.active { background: var(--navy); color: #fff; border-color: var(--navy); }
+    .refusal {
+      margin-top: 10px;
+      padding: 10px 14px;
+      border-radius: 6px;
+      background: #fef2f2;
+      color: var(--error);
+      border: 1px solid #fecaca;
+      font-size: 13px;
+    }
+    .refusal ul { margin: 6px 0 0 18px; }
+    .candidate-row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      padding: 6px 0;
+      border-bottom: 1px solid var(--light-gray);
+      font-size: 13px;
+      flex-wrap: wrap;
+    }
+    .candidate-row .cand-label { min-width: 140px; font-weight: 600; }
+    .candidate-row .cand-evidence { flex: 1; color: var(--text-light); min-width: 200px; }
+    .candidate-row .btn { padding: 4px 10px; font-size: 12px; }
+
+    .panel-title { font-size: 14px; margin-bottom: 4px; color: var(--navy); }
+
     /* Canvas editor styles */
     .editor-toolbar {
       display: flex;
@@ -635,6 +704,8 @@
         <button class="tab-btn" data-tab="floors" onclick="switchTab('floors')">Floor Plans</button>
         <button class="tab-btn" data-tab="rooms" onclick="switchTab('rooms')">Room Editor</button>
         <button class="tab-btn" data-tab="navgraph" onclick="switchTab('navgraph')">Nav Graph</button>
+        <button class="tab-btn" data-tab="mapedit" onclick="switchTab('mapedit')">Map Editor</button>
+        <button class="tab-btn" data-tab="access" onclick="switchTab('access')">Doors &amp; Halls</button>
         <button class="tab-btn" data-tab="settings" onclick="switchTab('settings')">Settings</button>
       </div>
 
@@ -1063,6 +1134,79 @@
         </div>
       </div>
 
+      <!-- ===================== MAP EDITOR TAB ===================== -->
+      <div id="tab-mapedit" class="tab-panel">
+        <div class="card">
+          <h2>Map Editor</h2>
+          <p style="color:var(--text-light);">
+            Outdoor paths, buildings and entrances on the campus map. Click a path to make it a main or alt path; draw
+            missing paths, buildings and entrances. Saves go to <code>data/overrides/pathAccess.json</code> and
+            <code>data/campus-map/overrides.geojson</code> and rebuild the map data (<code>npm run campus-map</code>).
+          </p>
+          <p class="field-help" style="margin-bottom:8px;">
+            <span class="legend-swatch" style="background:#0f766e;"></span> main path
+            <span class="legend-swatch legend-dash" style="background:#d97706;"></span> alt path (roads by default)
+            <span class="legend-swatch" style="background:#7c3aed;"></span> drawn here
+            &middot; entrances: <span class="legend-dot" style="background:#059669;"></span> main
+            <span class="legend-dot" style="background:#d97706;"></span> alt
+            <span class="legend-dot" style="background:#dc2626;"></span> emergency (never routed)
+            &middot; thick lines carry a class set by hand.
+          </p>
+          <div id="mapedit-toolbar" class="editor-toolbar">
+            <button class="tool-btn active" data-maptool="select" onclick="setMapTool('select')">Select</button>
+            <button class="tool-btn" data-maptool="path" onclick="setMapTool('path')">Draw path</button>
+            <button class="tool-btn" data-maptool="building" onclick="setMapTool('building')">Draw building</button>
+            <button class="tool-btn" data-maptool="entrance" onclick="setMapTool('entrance')">Place entrance</button>
+            <span style="flex:1;"></span>
+            <label class="checkbox-group" id="mapedit-aerial-wrap" style="display:none;font-size:13px;">
+              <input type="checkbox" id="mapedit-aerial" onchange="toggleMapAerial()"> Aerial (NAIP 2022)
+            </label>
+            <button class="btn btn-outline" onclick="refreshMapEditor(true)">Reload map data</button>
+          </div>
+          <div id="mapedit-map" class="map-wrap"></div>
+          <div id="mapedit-panel" class="editor-side-panel"></div>
+          <div id="mapedit-status" class="field-help" style="margin-top:8px;"></div>
+        </div>
+      </div>
+
+      <!-- ===================== DOORS & HALLS TAB ===================== -->
+      <div id="tab-access" class="tab-panel">
+        <div class="card">
+          <h2>Doors &amp; Hallways</h2>
+          <p style="color:var(--text-light);">
+            Click a door or an entrance to make it a main, alt (side) or emergency door. Click a room to make it a
+            hallway and set the hallway's class. Routes prefer main, use alt when they must, and never pass an
+            emergency door or hallway. A save that would leave a room or building with no route is refused.
+          </p>
+          <p class="field-help" style="margin-bottom:8px;">
+            Doors: <span class="legend-dot" style="background:#059669;"></span> main
+            <span class="legend-dot" style="background:#d97706;"></span> alt
+            <span class="legend-dot" style="background:#dc2626;"></span> emergency
+            (entrances are drawn larger, with a ring) &middot; hallways:
+            <span class="legend-swatch" style="background:rgba(13,148,136,0.35);"></span> main
+            <span class="legend-swatch" style="background:rgba(217,119,6,0.35);"></span> alt
+            <span class="legend-swatch legend-hatch"></span> emergency
+            &middot; <span class="legend-swatch" style="background:none;border:2px dashed #db2777;"></span> suggested hallway
+          </p>
+          <div class="editor-selector-bar">
+            <select id="access-building-select" onchange="onAccessBuildingChange()">
+              <option value="">Select building...</option>
+            </select>
+            <div id="access-floor-buttons" class="floor-buttons"></div>
+          </div>
+          <div id="access-canvas-wrap" class="canvas-wrap">
+            <canvas id="access-canvas"></canvas>
+          </div>
+          <div id="access-panel" class="editor-side-panel"></div>
+          <div id="access-count" class="field-help" style="margin-top:8px;"></div>
+        </div>
+        <div class="card">
+          <h2>Suggested hallways</h2>
+          <p class="field-help" id="access-candidates-source" style="margin-bottom:8px;"></p>
+          <div id="access-candidates"></div>
+        </div>
+      </div>
+
       <!-- ===================== SETTINGS TAB ===================== -->
       <div id="tab-settings" class="tab-panel">
         <div class="card">
@@ -1222,6 +1366,8 @@
       if (tabName === 'floors' && campusData) initFloorsTab();
       if (tabName === 'rooms' && campusData) initRoomsTab();
       if (tabName === 'navgraph' && campusData) initNavTab();
+      if (tabName === 'mapedit') initMapEditTab();
+      if (tabName === 'access' && campusData) initAccessTab();
       if (tabName === 'settings') loadAdminStatus();
     }
 
@@ -3337,8 +3483,8 @@
         ctx.arc(nd.x, nd.y, drawRadius, 0, 2 * Math.PI);
         ctx.stroke();
 
-        // Double ring for a primary entrance
-        if (normalizeNodeType(nd.type) === 'entrance' && toBool(nd.primary, false)) {
+        // Double ring for a main entrance
+        if (normalizeNodeType(nd.type) === 'entrance' && effectiveNodeAccess(nd) === 'main') {
           ctx.strokeStyle = color;
           ctx.lineWidth = 2 / scale;
           ctx.beginPath();
@@ -3392,12 +3538,10 @@
           '<input type="text" id="nav-edit-linkId" placeholder="e.g. it-stair-1">' +
           '<p class="field-help">Stairs and elevators on different floors that share a Link ID are the same shaft; cross-floor edges connect them.</p>' +
         '</div>' +
-        '<div class="form-group" id="nav-edit-primary-group">' +
-          '<div class="checkbox-group">' +
-            '<input type="checkbox" id="nav-edit-primary">' +
-            '<label for="nav-edit-primary">Primary entrance (visitors are routed to this door)</label>' +
-          '</div>' +
-          '<p class="field-help">Keep 2 to 4 per building, the doors people actually use. Saving reruns <code>npm run campus-map</code> so the outdoor walking graph joins this door.</p>' +
+        '<div class="form-group" id="nav-edit-access-group">' +
+          '<label for="nav-edit-access">Class</label>' +
+          '<select id="nav-edit-access"></select>' +
+          '<p class="field-help">Main doors are the ones people actually use (2 to 4 entrances per building); alt is a side door routes use only when it saves a lot; emergency is never routed through. An entrance change reruns <code>npm run campus-map</code> so the outdoor walking graph matches.</p>' +
         '</div>' +
         '<div class="btn-row">' +
           '<button class="btn btn-primary" onclick="saveNavNodeEdit()">Save</button>' +
@@ -3410,7 +3554,7 @@
       fillSelectOptions(document.getElementById('nav-edit-type'), NODE_TYPES, type);
       document.getElementById('nav-edit-roomId').value = node.roomId || '';
       document.getElementById('nav-edit-linkId').value = node.linkId || '';
-      document.getElementById('nav-edit-primary').checked = toBool(node.primary, false);
+      fillSelectOptions(document.getElementById('nav-edit-access'), ACCESS_LEVELS, effectiveNodeAccess(node));
       onNavEditTypeChange();
 
       panel.classList.add('visible');
@@ -3425,8 +3569,8 @@
       if (!typeEl || !linkEl) return;
       var vertical = typeEl.value === 'stair' || typeEl.value === 'elevator';
       linkEl.placeholder = vertical ? 'e.g. it-' + typeEl.value + '-1' : 'Only used by stairs and elevators';
-      var primaryGroup = document.getElementById('nav-edit-primary-group');
-      if (primaryGroup) primaryGroup.style.display = typeEl.value === 'entrance' ? '' : 'none';
+      var accessGroup = document.getElementById('nav-edit-access-group');
+      if (accessGroup) accessGroup.style.display = /^(entrance|door|waypoint)$/.test(typeEl.value) ? '' : 'none';
     }
 
     /**
@@ -3483,12 +3627,12 @@
         closeNavPanel();
         showMessage('Edge updated.', 'success');
       }, function(err) {
-        showMessage('Failed to update edge: ' + (err.message || String(err)), 'error');
+        editorFailure('navgraph-panel', 'Failed to update edge: ')(err);
       });
     }
 
     /**
-     * Save edits to the selected nav node (type, roomId, linkId, primary for entrances).
+     * Save edits to the selected nav node (type, roomId, linkId, access; primary follows access for entrances).
      */
     function saveNavNodeEdit() {
       if (!navSelectedNode) { showMessage('No node selected.', 'error'); return; }
@@ -3504,9 +3648,14 @@
         y: navSelectedNode.y,
         type: type,
         roomId: roomId,
-        linkId: linkId,
-        primary: type === 'entrance' && document.getElementById('nav-edit-primary').checked
+        linkId: linkId
       };
+      if (/^(entrance|door|waypoint)$/.test(type)) {
+        var access = document.getElementById('nav-edit-access').value;
+        // keep the stored class blank while it equals the automatic one, so the pipeline's choice still applies
+        if (navSelectedNode.access || access !== effectiveNodeAccess(navSelectedNode)) data.access = access;
+        if (type === 'entrance') data.primary = (data.access || effectiveNodeAccess(navSelectedNode)) === 'main';
+      }
 
       google.script.run
         .withSuccessHandler(function() {
@@ -3518,7 +3667,7 @@
           showMessage('Node updated.', 'success');
         })
         .withFailureHandler(function(err) {
-          showMessage('Failed to update node: ' + (err.message || String(err)), 'error');
+          editorFailure('navgraph-panel', 'Failed to update node: ')(err);
         })
         .updateNavNode(data);
     }
@@ -3568,7 +3717,7 @@
           showMessage('Node deleted' + (edgeCount > 0 ? ' (with ' + edgeCount + ' edge' + (edgeCount !== 1 ? 's' : '') + ')' : '') + '.', 'success');
         })
         .withFailureHandler(function(err) {
-          showMessage('Failed to delete node: ' + (err.message || String(err)), 'error');
+          editorFailure('navgraph-panel', 'Failed to delete node: ')(err);
         })
         .deleteNavNode({ id: navSelectedNode.id });
     }
@@ -3592,7 +3741,7 @@
           showMessage('Edge deleted.', 'success');
         })
         .withFailureHandler(function(err) {
-          showMessage('Failed to delete edge: ' + (err.message || String(err)), 'error');
+          editorFailure('navgraph-panel', 'Failed to delete edge: ')(err);
         })
         .deleteNavEdge({ id: navSelectedEdge.id });
     }
@@ -4793,6 +4942,1046 @@
         y: (clientY - rect.top - this.offsetY) / this.scale
       };
     };
+
+    /* ========================================================
+       SHARED (v5) — access classes and refused saves
+       ======================================================== */
+    var ACCESS_LEVELS = [
+      { value: 'main', label: 'Main' },
+      { value: 'alt', label: 'Alt (side)' },
+      { value: 'emergency', label: 'Emergency only' }
+    ];
+    var ACCESS_COLORS = { main: '#059669', alt: '#d97706', emergency: '#dc2626' };
+    var PATH_COLORS = { main: '#0f766e', alt: '#d97706' };
+
+    /** A node's class as routing reads it: its access, else main (an entrance without one: main if primary, else alt). */
+    function effectiveNodeAccess(node) {
+      if (node && node.access) return node.access;
+      if (node && normalizeNodeType(node.type) === 'entrance') return toBool(node.primary, false) ? 'main' : 'alt';
+      return 'main';
+    }
+
+    /** Buttons for main / alt / emergency (or the given levels); onclick calls fnName(value). */
+    function accessButtonsHtml(levels, current, fnName) {
+      var html = '<div class="access-buttons">';
+      for (var i = 0; i < levels.length; i++) {
+        html += '<button class="tool-btn' + (levels[i].value === current ? ' active' : '') + '" data-access="' + levels[i].value +
+          '" onclick="' + fnName + '(\'' + levels[i].value + '\')">' + escapeHtml(levels[i].label) + '</button>';
+      }
+      return html + '</div>';
+    }
+
+    /** The list a refused save names (err.refused from the server): what the change would cut off. */
+    function refusalHtml(err) {
+      if (!err || !err.refused) return '';
+      var items = [];
+      var rooms = err.refused.rooms || [];
+      var blds = err.refused.buildings || [];
+      for (var i = 0; i < rooms.length; i++) items.push('<li>Room ' + escapeHtml(rooms[i].label) + ' <span style="color:var(--text-light);">(' + escapeHtml(rooms[i].id) + ')</span></li>');
+      for (var j = 0; j < blds.length; j++) items.push('<li>Building ' + escapeHtml(blds[j].label) + '</li>');
+      return '<div class="refusal"><strong>Refused, nothing was saved.</strong> This change would leave these with no route:<ul>' +
+        items.join('') + '</ul></div>';
+    }
+
+    /** A failure handler that shows the message and, for a refused save, the list in the given panel. */
+    function editorFailure(panelId, prefix) {
+      return function(err) {
+        showMessage(prefix + ((err && err.message) || String(err)), 'error');
+        if (err && err.refused) {
+          var panel = document.getElementById(panelId);
+          var old = panel.querySelector('.refusal');
+          if (old) old.parentNode.removeChild(old);
+          panel.insertAdjacentHTML('beforeend', refusalHtml(err));
+          panel.classList.add('visible');
+        }
+      };
+    }
+
+    /* ========================================================
+       MAP EDITOR (v5) — MapLibre over the campus basemap
+       MapLibre is the project's own npm copy (served by the admin from
+       node_modules, no CDN); the basemap and aerial come from data/campus-map.
+       Drawing uses plain MapLibre click handlers (no drawing library): each
+       click adds a vertex to a draft line or polygon; Finish saves it. A drawn
+       path's ends snap (server side) to an entrance or path within 4 m.
+       ======================================================== */
+    var mapEd = {
+      ml: null, map: null, data: null, basemap: null, loading: false, tool: 'select',
+      draft: [], draftReplaces: '', draftName: '', selected: null, entrancePoint: null, pollTimer: null, lastRebuildAt: ''
+    };
+
+    function setMapStatus(text) {
+      var el = document.getElementById('mapedit-status');
+      if (el) el.textContent = text;
+    }
+
+    function fetchJson(url) {
+      return fetch(url).then(function(r) { return r.ok ? r.json() : null; }).catch(function() { return null; });
+    }
+
+    function loadMapBasemap() {
+      var base = '/__admin/campus-map/';
+      var names = ['buildings.geojson', 'layers/paths.geojson', 'layers/roads.geojson', 'layers/parking.geojson',
+        'layers/landuse.geojson', 'layers/water.geojson', 'aerial.json', 'manifest.json'];
+      return Promise.all(names.map(function(n) { return fetchJson(base + n); })).then(function(r) {
+        mapEd.basemap = { buildings: r[0], paths: r[1], roads: r[2], parking: r[3], landuse: r[4], water: r[5], aerial: r[6], manifest: r[7] };
+      });
+    }
+
+    function initMapEditTab() {
+      if (mapEd.map) { mapEd.map.resize(); return; }
+      if (mapEd.loading) return;
+      mapEd.loading = true;
+      setMapStatus('Loading MapLibre and the campus map...');
+      if (!document.getElementById('maplibre-css')) {
+        var link = document.createElement('link');
+        link.id = 'maplibre-css';
+        link.rel = 'stylesheet';
+        link.href = '/__admin/vendor/maplibre-gl.css';
+        document.head.appendChild(link);
+      }
+      import('/__admin/vendor/maplibre-gl.mjs').then(function(ml) {
+        mapEd.ml = ml;
+        return loadMapBasemap();
+      }).then(function() {
+        runServer('getMapEditorData', [], function(data) {
+          mapEd.data = data;
+          mapEd.loading = false;
+          createEditorMap();
+        }, function(err) {
+          mapEd.loading = false;
+          setMapStatus('Could not read the map editor data: ' + ((err && err.message) || String(err)));
+        });
+      }).catch(function(err) {
+        mapEd.loading = false;
+        setMapStatus('The map could not start (it needs WebGL): ' + ((err && err.message) || String(err)));
+      });
+    }
+
+    var EMPTY_FC = { type: 'FeatureCollection', features: [] };
+
+    /** Basemap paths and roads with their effective class: pathAccess.json, else the feature's access, else the auto rule. */
+    function mapPathFeatures() {
+      var set = {};
+      var pa = (mapEd.data && mapEd.data.pathAccess) || [];
+      for (var i = 0; i < pa.length; i++) set[pa[i].way] = pa[i].access;
+      var out = [];
+      function addFrom(fc, layer) {
+        var feats = (fc && fc.features) || [];
+        for (var k = 0; k < feats.length; k++) {
+          var p = feats[k].properties || {};
+          if (p.source === 'override') continue; // drawn paths are shown from overrides.geojson
+          var way = p.osmId || p.way || '';
+          var auto = layer === 'roads' ? 'alt' : 'main';
+          out.push({ type: 'Feature', geometry: feats[k].geometry, properties: {
+            _way: way, _layer: layer, _kind: p.kind || '', _name: p.name || '', _auto: auto,
+            _access: set[way] || p.access || auto, _set: !!set[way]
+          } });
+        }
+      }
+      addFrom(mapEd.basemap && mapEd.basemap.roads, 'roads');
+      addFrom(mapEd.basemap && mapEd.basemap.paths, 'paths');
+      return { type: 'FeatureCollection', features: out };
+    }
+
+    /** overrides.geojson features of one layer (the server gives every feature an id). */
+    function mapDrawn(layer) {
+      var feats = (mapEd.data && mapEd.data.geo && mapEd.data.geo.features) || [];
+      var out = [];
+      for (var i = 0; i < feats.length; i++) {
+        var p = feats[i].properties || {};
+        if (p.layer !== layer) continue;
+        var props = {};
+        for (var k in p) if (p.hasOwnProperty(k)) props[k] = p[k];
+        props._access = p.access || 'main';
+        out.push({ type: 'Feature', geometry: feats[i].geometry, properties: props });
+      }
+      return { type: 'FeatureCollection', features: out };
+    }
+
+    /** Every entrance: floor-plan entrances (navNodes) and drawn ones (overrides.geojson). */
+    function mapEntranceFeatures() {
+      var out = [];
+      var ents = (mapEd.data && mapEd.data.entrances) || [];
+      for (var i = 0; i < ents.length; i++) {
+        var e = ents[i];
+        out.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [e.lng, e.lat] }, properties: {
+          _id: e.id, _kind: 'floor', _access: e.access, _label: e.label, _building: e.buildingId, _explicit: !!e.explicit
+        } });
+      }
+      var drawn = mapDrawn('entrances').features;
+      for (var j = 0; j < drawn.length; j++) {
+        var p = drawn[j].properties;
+        out.push({ type: 'Feature', geometry: drawn[j].geometry, properties: {
+          _id: p.id, _kind: 'drawn', _access: p.access || 'main', _label: p.label || 'Entrance', _building: p.building || '', _explicit: true
+        } });
+      }
+      return { type: 'FeatureCollection', features: out };
+    }
+
+    function accessColorExpr(colors) {
+      return ['match', ['get', '_access'], 'alt', colors.alt, 'emergency', colors.emergency || colors.alt, colors.main];
+    }
+
+    function createEditorMap() {
+      var ml = mapEd.ml;
+      var b = mapEd.basemap || {};
+      var style = { version: 8, sources: {}, layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#f3f1ec' } }] };
+      if (b.aerial && b.aerial.tiles) {
+        style.sources.aerial = {
+          type: 'raster', tiles: [location.origin + '/__admin/campus-map/' + b.aerial.tiles], tileSize: b.aerial.tileSize || 256,
+          minzoom: b.aerial.minzoom || 15, maxzoom: b.aerial.maxzoom || 18, bounds: b.aerial.bounds, attribution: b.aerial.attribution || ''
+        };
+        style.layers.push({ id: 'aerial', type: 'raster', source: 'aerial', layout: { visibility: 'none' } });
+        document.getElementById('mapedit-aerial-wrap').style.display = '';
+      }
+      var srcs = {
+        landuse: b.landuse, parking: b.parking, water: b.water, buildings: b.buildings, paths: mapPathFeatures(),
+        dpaths: mapDrawn('paths'), dbuildings: mapDrawn('buildings'), entrances: mapEntranceFeatures(), draft: EMPTY_FC, sel: EMPTY_FC
+      };
+      for (var k in srcs) if (srcs.hasOwnProperty(k)) style.sources[k] = { type: 'geojson', data: srcs[k] || EMPTY_FC };
+      style.sources.buildings.attribution = '&copy; OpenStreetMap contributors';
+      var L = style.layers;
+      L.push({ id: 'landuse-l', type: 'fill', source: 'landuse', paint: { 'fill-color': '#dcebd5', 'fill-opacity': 0.6 } });
+      L.push({ id: 'parking-l', type: 'fill', source: 'parking', paint: { 'fill-color': '#e2e2e2', 'fill-opacity': 0.8 } });
+      L.push({ id: 'water-l', type: 'fill', source: 'water', filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': '#bcd7ef' } });
+      L.push({ id: 'bld-l', type: 'fill', source: 'buildings', paint: { 'fill-color': ['case', ['to-boolean', ['get', 'buildingId']], '#cfd6e3', '#d9d5cd'], 'fill-opacity': 0.85, 'fill-outline-color': '#8a8579' } });
+      L.push({ id: 'dbld-l', type: 'fill', source: 'dbuildings', paint: { 'fill-color': '#7c3aed', 'fill-opacity': 0.25 } });
+      L.push({ id: 'dbld-line', type: 'line', source: 'dbuildings', paint: { 'line-color': '#7c3aed', 'line-width': 2 } });
+      L.push({ id: 'path-l', type: 'line', source: 'paths', layout: { 'line-cap': 'round' }, paint: {
+        'line-color': accessColorExpr(PATH_COLORS), 'line-width': ['case', ['get', '_set'], 5, 2.5],
+        'line-opacity': ['case', ['==', ['get', '_layer'], 'roads'], 0.75, 1]
+      } });
+      L.push({ id: 'dpath-casing', type: 'line', source: 'dpaths', layout: { 'line-cap': 'round' }, paint: { 'line-color': '#7c3aed', 'line-width': 8 } });
+      L.push({ id: 'dpath-l', type: 'line', source: 'dpaths', layout: { 'line-cap': 'round' }, paint: { 'line-color': accessColorExpr(PATH_COLORS), 'line-width': 4 } });
+      L.push({ id: 'sel-line', type: 'line', source: 'sel', filter: ['!=', ['geometry-type'], 'Point'], paint: { 'line-color': '#FDB515', 'line-width': 7, 'line-opacity': 0.8 } });
+      L.push({ id: 'ent-l', type: 'circle', source: 'entrances', paint: {
+        'circle-radius': 7, 'circle-color': accessColorExpr(ACCESS_COLORS), 'circle-stroke-width': 2.5,
+        'circle-stroke-color': ['match', ['get', '_kind'], 'drawn', '#7c3aed', '#ffffff']
+      } });
+      L.push({ id: 'sel-point', type: 'circle', source: 'sel', filter: ['==', ['geometry-type'], 'Point'], paint: { 'circle-radius': 12, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-width': 3, 'circle-stroke-color': '#FDB515' } });
+      L.push({ id: 'draft-fill', type: 'fill', source: 'draft', filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': '#FDB515', 'fill-opacity': 0.25 } });
+      L.push({ id: 'draft-line', type: 'line', source: 'draft', filter: ['!=', ['geometry-type'], 'Point'], paint: { 'line-color': '#b45309', 'line-width': 3, 'line-dasharray': [2, 1] } });
+      L.push({ id: 'draft-pts', type: 'circle', source: 'draft', filter: ['==', ['geometry-type'], 'Point'], paint: { 'circle-radius': 5, 'circle-color': '#FDB515', 'circle-stroke-width': 2, 'circle-stroke-color': '#002145' } });
+
+      mapEd.map = new ml.Map({
+        container: 'mapedit-map', style: style, center: [-88.3233, 36.6138], zoom: 16.4, maxZoom: 21, doubleClickZoom: false,
+        attributionControl: { compact: true }
+      });
+      mapEd.map.addControl(new ml.NavigationControl({ showCompass: true }), 'top-right');
+      mapEd.map.addControl(new ml.ScaleControl({ unit: 'metric' }), 'bottom-left');
+      mapEd.map.on('click', onMapEditClick);
+      mapEd.map.on('load', function() {
+        window.__adminMapReady = true;
+        setMapStatus(mapStatusText());
+      });
+    }
+
+    function mapStatusText() {
+      var d = mapEd.data || {};
+      var r = d.mapRebuild && d.mapRebuild.last;
+      return 'Save check: ' + (d.connectivity || 'off') + '. ' +
+        (r ? 'Last map rebuild ' + (r.ok ? 'took ' + (r.ms / 1000).toFixed(1) + ' s' : 'FAILED: ' + r.error) + '.' : '');
+    }
+
+    function setMapSource(id, data) {
+      var src = mapEd.map && mapEd.map.getSource(id);
+      if (src) src.setData(data || EMPTY_FC);
+    }
+
+    /** Re-reads the editor data (and the basemap when asked) and redraws. */
+    function refreshMapEditor(withBasemap, callback) {
+      if (!mapEd.map) { initMapEditTab(); return; }
+      var next = withBasemap ? loadMapBasemap() : Promise.resolve();
+      next.then(function() {
+        runServer('getMapEditorData', [], function(data) {
+          mapEd.data = data;
+          var b = mapEd.basemap || {};
+          if (withBasemap) setMapSource('buildings', b.buildings);
+          setMapSource('paths', mapPathFeatures());
+          setMapSource('dpaths', mapDrawn('paths'));
+          setMapSource('dbuildings', mapDrawn('buildings'));
+          setMapSource('entrances', mapEntranceFeatures());
+          setMapStatus(mapStatusText());
+          if (typeof callback === 'function') callback();
+        });
+      });
+    }
+
+    function toggleMapAerial() {
+      if (!mapEd.map || !mapEd.map.getLayer('aerial')) return;
+      mapEd.map.setLayoutProperty('aerial', 'visibility', document.getElementById('mapedit-aerial').checked ? 'visible' : 'none');
+    }
+
+    function setMapTool(tool) {
+      mapEd.tool = tool;
+      var btns = document.getElementById('mapedit-toolbar').querySelectorAll('.tool-btn');
+      for (var i = 0; i < btns.length; i++) btns[i].classList.toggle('active', btns[i].getAttribute('data-maptool') === tool);
+      document.getElementById('mapedit-map').classList.toggle('drawing', tool !== 'select');
+      mapEd.draft = [];
+      mapEd.entrancePoint = null;
+      if (tool !== 'building') { mapEd.draftReplaces = ''; mapEd.draftName = ''; }
+      setMapSource('sel', EMPTY_FC);
+      updateMapDraft();
+      if (tool === 'path' || tool === 'building') renderDraftPanel();
+      else if (tool === 'entrance') showMapPanel('<h3 class="panel-title">Place an entrance</h3><p class="field-help">Click the map at the door of a building without floor plans (buildings with floor plans get their doors in the Doors &amp; Hallways tab).</p>');
+      else closeMapPanel();
+    }
+
+    function showMapPanel(html) {
+      var p = document.getElementById('mapedit-panel');
+      p.innerHTML = html;
+      p.classList.add('visible');
+    }
+    function closeMapPanel() {
+      var p = document.getElementById('mapedit-panel');
+      p.classList.remove('visible');
+      p.innerHTML = '';
+      mapEd.selected = null;
+      setMapSource('sel', EMPTY_FC);
+    }
+
+    function round6(v) { return Math.round(v * 1e6) / 1e6; }
+
+    function onMapEditClick(e) {
+      var ll = [round6(e.lngLat.lng), round6(e.lngLat.lat)];
+      if (mapEd.tool === 'path' || mapEd.tool === 'building') {
+        mapEd.draft.push(ll);
+        updateMapDraft();
+        renderDraftPanel();
+        return;
+      }
+      if (mapEd.tool === 'entrance') { placeEntranceAt(e.point, ll); return; }
+      var pick = pickMapFeature(e.point);
+      if (!pick) { closeMapPanel(); return; }
+      selectMapFeature(pick);
+    }
+
+    function pickMapFeature(pt) {
+      var box = [[pt.x - 6, pt.y - 6], [pt.x + 6, pt.y + 6]];
+      var order = ['ent-l', 'dpath-l', 'path-l', 'dbld-l', 'bld-l'];
+      for (var i = 0; i < order.length; i++) {
+        var found = mapEd.map.queryRenderedFeatures(box, { layers: [order[i]] });
+        if (found.length) return { layer: order[i], feature: found[0] };
+      }
+      return null;
+    }
+
+    function updateMapDraft() {
+      var feats = [];
+      var d = mapEd.draft;
+      for (var i = 0; i < d.length; i++) feats.push({ type: 'Feature', geometry: { type: 'Point', coordinates: d[i] }, properties: {} });
+      if (mapEd.tool === 'path' && d.length > 1) feats.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: d }, properties: {} });
+      if (mapEd.tool === 'building' && d.length > 2) feats.push({ type: 'Feature', geometry: { type: 'Polygon', coordinates: [d.concat([d[0]])] }, properties: {} });
+      if (mapEd.tool === 'building' && d.length === 2) feats.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: d }, properties: {} });
+      if (mapEd.entrancePoint) feats.push({ type: 'Feature', geometry: { type: 'Point', coordinates: mapEd.entrancePoint }, properties: {} });
+      setMapSource('draft', { type: 'FeatureCollection', features: feats });
+    }
+
+    function campusBuildingOptions(selectedId, withoutIndoorOnly) {
+      var list = (mapEd.data && mapEd.data.buildings) || [];
+      var html = '<option value="">(not linked to a campus building)</option>';
+      for (var i = 0; i < list.length; i++) {
+        if (withoutIndoorOnly && list[i].hasIndoor) continue;
+        html += '<option value="' + escapeHtml(list[i].id) + '"' + (list[i].id === selectedId ? ' selected' : '') + '>' +
+          escapeHtml((list[i].code ? list[i].code + ' · ' : '') + (list[i].name || list[i].id)) + '</option>';
+      }
+      return html;
+    }
+    function findMapBuilding(id) {
+      var list = (mapEd.data && mapEd.data.buildings) || [];
+      for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i];
+      return null;
+    }
+
+    function renderDraftPanel() {
+      var n = mapEd.draft.length;
+      if (mapEd.tool === 'path') {
+        showMapPanel(
+          '<h3 class="panel-title">New path</h3>' +
+          '<p class="field-help">Click along the path; ' + n + ' point' + (n === 1 ? '' : 's') + ' so far. Its ends join the nearest entrance or path within 4 m.</p>' +
+          '<div class="form-row">' +
+            '<div class="form-group"><label for="mapedit-path-access">Class</label><select id="mapedit-path-access"><option value="main">Main</option><option value="alt">Alt</option></select></div>' +
+            '<div class="form-group"><label for="mapedit-path-kind">Kind</label><select id="mapedit-path-kind"><option value="footway">Sidewalk or walkway</option><option value="steps">Steps</option><option value="crossing">Crossing</option><option value="pedestrian">Plaza</option></select></div>' +
+          '</div>' +
+          '<div class="form-group"><label for="mapedit-path-name">Name (optional)</label><input type="text" id="mapedit-path-name" maxlength="120"></div>' +
+          '<div class="btn-row">' +
+            '<button class="btn btn-primary" id="mapedit-finish" onclick="finishMapPath()"' + (n < 2 ? ' disabled' : '') + '>Save path</button>' +
+            '<button class="btn btn-outline" onclick="undoMapPoint()">Undo point</button>' +
+            '<button class="btn btn-outline" onclick="setMapTool(\'select\')">Cancel</button>' +
+          '</div>');
+        restoreDraftFields(['mapedit-path-access', 'mapedit-path-kind', 'mapedit-path-name']);
+      } else if (mapEd.tool === 'building') {
+        showMapPanel(
+          '<h3 class="panel-title">' + (mapEd.draftReplaces ? 'Redraw ' + escapeHtml(mapEd.draftReplaces) : 'New building') + '</h3>' +
+          '<p class="field-help">Click the corners of the footprint; ' + n + ' corner' + (n === 1 ? '' : 's') + ' so far.' +
+            (mapEd.draftReplaces ? ' The saved footprint replaces the OpenStreetMap building.' : '') + '</p>' +
+          '<div class="form-row">' +
+            '<div class="form-group"><label for="mapedit-bld-name">Name</label><input type="text" id="mapedit-bld-name" maxlength="120"></div>' +
+            '<div class="form-group"><label for="mapedit-bld-code">Short code</label><input type="text" id="mapedit-bld-code" maxlength="12" placeholder="e.g. NHP"></div>' +
+          '</div>' +
+          '<div class="form-row">' +
+            '<div class="form-group"><label for="mapedit-bld-levels">Levels</label><input type="number" id="mapedit-bld-levels" min="1" max="40" step="1"></div>' +
+            '<div class="form-group"><label for="mapedit-bld-height">Height (m)</label><input type="number" id="mapedit-bld-height" min="2" max="200" step="0.5"></div>' +
+          '</div>' +
+          '<div class="form-group"><label for="mapedit-bld-link">Campus building</label><select id="mapedit-bld-link">' + campusBuildingOptions('', false) + '</select>' +
+            '<p class="field-help">Link it to a building record (Buildings tab) so search and entrances find it.</p></div>' +
+          '<div class="btn-row">' +
+            '<button class="btn btn-primary" id="mapedit-finish" onclick="finishMapBuilding()"' + (n < 3 ? ' disabled' : '') + '>Save building</button>' +
+            '<button class="btn btn-outline" onclick="undoMapPoint()">Undo corner</button>' +
+            '<button class="btn btn-outline" onclick="setMapTool(\'select\')">Cancel</button>' +
+          '</div>');
+        if (mapEd.draftName && !mapEd.draftFields) document.getElementById('mapedit-bld-name').value = mapEd.draftName;
+        restoreDraftFields(['mapedit-bld-name', 'mapedit-bld-code', 'mapedit-bld-levels', 'mapedit-bld-height', 'mapedit-bld-link']);
+      }
+    }
+
+    /** Keeps what was typed in the draft form while the panel is redrawn after each click. */
+    function restoreDraftFields(ids) {
+      var saved = mapEd.draftFields || {};
+      for (var i = 0; i < ids.length; i++) {
+        var el = document.getElementById(ids[i]);
+        if (!el) continue;
+        if (saved.hasOwnProperty(ids[i])) el.value = saved[ids[i]];
+        el.onchange = el.oninput = (function(id) {
+          return function() {
+            mapEd.draftFields = mapEd.draftFields || {};
+            mapEd.draftFields[id] = document.getElementById(id).value;
+          };
+        })(ids[i]);
+      }
+    }
+
+    function undoMapPoint() {
+      mapEd.draft.pop();
+      updateMapDraft();
+      renderDraftPanel();
+    }
+
+    function fieldValue(id) {
+      var el = document.getElementById(id);
+      return el ? String(el.value || '').trim() : '';
+    }
+
+    function afterMapSave(message) {
+      mapEd.draftFields = null;
+      showMessage(message, 'success');
+      setMapTool('select');
+      refreshMapEditor(false);
+      watchMapRebuild();
+    }
+
+    function finishMapPath() {
+      if (mapEd.draft.length < 2) return;
+      var data = { coordinates: mapEd.draft.slice(), access: fieldValue('mapedit-path-access') || 'main', kind: fieldValue('mapedit-path-kind') || 'footway', name: fieldValue('mapedit-path-name') };
+      runServer('saveMapPath', [data], function(res) {
+        var snaps = (res && res.snaps) || [];
+        var joined = snaps.map(function(s) { return s.end + ' joined ' + s.to + ' (' + s.meters + ' m)'; }).join(', ');
+        afterMapSave('Path saved' + (joined ? ': ' + joined : ' (its ends join nothing within 4 m; the map build tries again at 6 m)') + '. Rebuilding the map data...');
+      }, editorFailure('mapedit-panel', 'Path not saved: '));
+    }
+
+    function finishMapBuilding() {
+      if (mapEd.draft.length < 3) return;
+      var data = {
+        ring: mapEd.draft.slice(), name: fieldValue('mapedit-bld-name'), code: fieldValue('mapedit-bld-code'),
+        levels: fieldValue('mapedit-bld-levels'), height: fieldValue('mapedit-bld-height'), buildingId: fieldValue('mapedit-bld-link'),
+        replaces: mapEd.draftReplaces
+      };
+      if (!data.name) { showMessage('Give the building a name.', 'error'); return; }
+      runServer('saveMapBuilding', [data], function() {
+        afterMapSave('Building saved. Rebuilding the map data...');
+      }, editorFailure('mapedit-panel', 'Building not saved: '));
+    }
+
+    /** Place entrance: the building under the click must have no floor plans. */
+    function placeEntranceAt(pt, ll) {
+      var box = [[pt.x - 3, pt.y - 3], [pt.x + 3, pt.y + 3]];
+      var hit = mapEd.map.queryRenderedFeatures(box, { layers: ['dbld-l', 'bld-l'] });
+      var bid = '';
+      var name = '';
+      if (hit.length) {
+        bid = hit[0].properties.buildingId || '';
+        name = hit[0].properties.name || '';
+      }
+      var rec = bid ? findMapBuilding(bid) : null;
+      if (rec && rec.hasIndoor) {
+        showMessage((rec.name || bid) + ' has floor plans: set its doors in the Doors & Hallways tab.', 'error');
+        return;
+      }
+      mapEd.entrancePoint = ll;
+      updateMapDraft();
+      showMapPanel(
+        '<h3 class="panel-title">New entrance' + (name ? ' of ' + escapeHtml(name) : '') + '</h3>' +
+        '<p class="field-help">At ' + ll[1].toFixed(6) + ', ' + ll[0].toFixed(6) + '. The map build joins it to the nearest path.</p>' +
+        '<div class="form-group"><label for="mapedit-ent-building">Building</label><select id="mapedit-ent-building">' + campusBuildingOptions(bid, true) + '</select></div>' +
+        '<div class="form-row">' +
+          '<div class="form-group"><label for="mapedit-ent-access">Class</label><select id="mapedit-ent-access"><option value="main">Main</option><option value="alt">Alt (side door)</option><option value="emergency">Emergency only</option></select></div>' +
+          '<div class="form-group"><label for="mapedit-ent-label">Label</label><input type="text" id="mapedit-ent-label" maxlength="120" placeholder="e.g. North entrance"></div>' +
+        '</div>' +
+        '<div class="btn-row"><button class="btn btn-primary" onclick="saveMapEntranceForm()">Save entrance</button>' +
+        '<button class="btn btn-outline" onclick="setMapTool(\'select\')">Cancel</button></div>');
+    }
+
+    function saveMapEntranceForm() {
+      var building = fieldValue('mapedit-ent-building');
+      if (!building) { showMessage('Choose the building this entrance belongs to.', 'error'); return; }
+      var data = { building: building, lngLat: mapEd.entrancePoint, access: fieldValue('mapedit-ent-access') || 'main', label: fieldValue('mapedit-ent-label') };
+      runServer('saveMapEntrance', [data], function() {
+        afterMapSave('Entrance saved. Rebuilding the map data...');
+      }, editorFailure('mapedit-panel', 'Entrance not saved: '));
+    }
+
+    function highlightMapFeature(f) {
+      setMapSource('sel', { type: 'FeatureCollection', features: [{ type: 'Feature', geometry: f.geometry, properties: {} }] });
+    }
+
+    function selectMapFeature(pick) {
+      var f = pick.feature;
+      var p = f.properties || {};
+      mapEd.selected = { layer: pick.layer, props: p, geometry: f.geometry };
+      highlightMapFeature(f);
+      if (pick.layer === 'ent-l') {
+        var b = findMapBuilding(p._building);
+        showMapPanel(
+          '<h3 class="panel-title">' + escapeHtml(p._label || p._id) + '</h3>' +
+          '<p class="field-help">' + escapeHtml(b ? b.name : (p._building || '')) + ' &middot; ' + escapeHtml(p._id) +
+            (p._kind === 'floor' ? ' &middot; a floor-plan entrance (saved as its nav node\'s class)' : ' &middot; drawn here') +
+            (p._explicit ? '' : ' &middot; class not set by hand yet (shown: the automatic one)') + '</p>' +
+          accessButtonsHtml(ACCESS_LEVELS, p._access, 'setSelectedEntranceAccess') +
+          (p._kind === 'drawn' ? '<div class="btn-row"><button class="btn btn-danger" onclick="deleteSelectedMapFeature()">Delete entrance</button></div>' : ''));
+      } else if (pick.layer === 'path-l') {
+        showMapPanel(
+          '<h3 class="panel-title">' + escapeHtml(p._name || (p._kind ? p._kind : 'Path')) + '</h3>' +
+          '<p class="field-help">' + escapeHtml(p._way || '(no id)') + ' &middot; ' + escapeHtml(p._kind || '') + ' (' + escapeHtml(p._layer) + ') &middot; ' +
+            (p._set ? 'class set by hand' : 'automatic class: ' + escapeHtml(p._auto)) + '</p>' +
+          accessButtonsHtml([{ value: 'main', label: 'Main' }, { value: 'alt', label: 'Alt' }, { value: 'auto', label: 'Automatic' }], p._set ? p._access : 'auto', 'setSelectedPathAccess'));
+      } else if (pick.layer === 'dpath-l') {
+        showMapPanel(
+          '<h3 class="panel-title">' + escapeHtml(p.name || 'Drawn path') + '</h3>' +
+          '<p class="field-help">' + escapeHtml(p.id) + ' &middot; ' + escapeHtml(p.kind || 'footway') + ' &middot; drawn in overrides.geojson</p>' +
+          accessButtonsHtml([{ value: 'main', label: 'Main' }, { value: 'alt', label: 'Alt' }], p.access || 'main', 'setSelectedPathAccess') +
+          '<div class="form-group"><label for="mapedit-sel-name">Name</label><input type="text" id="mapedit-sel-name" maxlength="120"></div>' +
+          '<div class="btn-row"><button class="btn btn-primary" onclick="saveSelectedFeature()">Save name</button>' +
+          '<button class="btn btn-danger" onclick="deleteSelectedMapFeature()">Delete path</button></div>');
+        document.getElementById('mapedit-sel-name').value = p.name || '';
+      } else if (pick.layer === 'dbld-l') {
+        showMapPanel(
+          '<h3 class="panel-title">' + escapeHtml(p.name || 'Drawn building') + '</h3>' +
+          '<p class="field-help">' + escapeHtml(p.id) + (p.replaces ? ' &middot; replaces ' + escapeHtml(p.replaces) : ' &middot; drawn here') + '</p>' +
+          '<div class="form-row">' +
+            '<div class="form-group"><label for="mapedit-sel-name">Name</label><input type="text" id="mapedit-sel-name" maxlength="120"></div>' +
+            '<div class="form-group"><label for="mapedit-sel-code">Short code</label><input type="text" id="mapedit-sel-code" maxlength="12"></div>' +
+          '</div><div class="form-row">' +
+            '<div class="form-group"><label for="mapedit-sel-levels">Levels</label><input type="number" id="mapedit-sel-levels" min="1" max="40"></div>' +
+            '<div class="form-group"><label for="mapedit-sel-height">Height (m)</label><input type="number" id="mapedit-sel-height" min="2" max="200" step="0.5"></div>' +
+          '</div>' +
+          '<div class="form-group"><label for="mapedit-sel-link">Campus building</label><select id="mapedit-sel-link">' + campusBuildingOptions(p.buildingId || '', false) + '</select></div>' +
+          '<div class="btn-row"><button class="btn btn-primary" onclick="saveSelectedFeature()">Save</button>' +
+          '<button class="btn btn-danger" onclick="deleteSelectedMapFeature()">Delete building</button></div>');
+        document.getElementById('mapedit-sel-name').value = p.name || '';
+        document.getElementById('mapedit-sel-code').value = p.code || '';
+        document.getElementById('mapedit-sel-levels').value = p.levels || '';
+        document.getElementById('mapedit-sel-height').value = p.height || '';
+      } else if (pick.layer === 'bld-l') {
+        var rec = p.buildingId ? findMapBuilding(p.buildingId) : null;
+        showMapPanel(
+          '<h3 class="panel-title">' + escapeHtml(p.name || 'Building') + '</h3>' +
+          '<p class="field-help">' + escapeHtml(p.osmId || '') + (rec ? ' &middot; campus building ' + escapeHtml(rec.code || rec.id) + (rec.hasIndoor ? ' (floor plans: doors in Doors &amp; Hallways; levels and height in the Buildings tab)' : '') : '') +
+            ' &middot; ' + escapeHtml(String(p.levels || '?')) + ' levels, ' + escapeHtml(String(p.height || '?')) + ' m</p>' +
+          '<div class="btn-row">' +
+            '<button class="btn btn-outline" onclick="redrawSelectedBuilding()">Redraw footprint</button>' +
+            '<button class="btn btn-outline" onclick="copySelectedBuilding()">Edit name, levels, height (copies it into the overrides)</button>' +
+          '</div>');
+      }
+    }
+
+    function setSelectedEntranceAccess(access) {
+      var s = mapEd.selected;
+      if (!s) return;
+      var p = s.props;
+      var done = function() { showMessage('Entrance ' + (p._label || p._id) + ' is now ' + access + '. Rebuilding the map data...', 'success'); refreshMapEditor(false); refreshCampusData(); watchMapRebuild(); closeMapPanel(); };
+      if (p._kind === 'floor') {
+        runServer('updateNavNode', [{ id: p._id, access: access, primary: access === 'main' }], done, editorFailure('mapedit-panel', 'Not saved: '));
+      } else {
+        runServer('updateMapFeature', [{ id: p._id, changes: { access: access } }], done, editorFailure('mapedit-panel', 'Not saved: '));
+      }
+    }
+
+    function setSelectedPathAccess(access) {
+      var s = mapEd.selected;
+      if (!s) return;
+      var way = s.layer === 'dpath-l' ? s.props.id : s.props._way;
+      if (!way) { showMessage('This path has no id to save a class for.', 'error'); return; }
+      runServer('setPathAccess', [{ way: way, access: access }], function(res) {
+        showMessage('Path ' + way + ': ' + (access === 'auto' ? 'automatic class' : access) + ' (saved to ' + res.file + '). Rebuilding the map data...', 'success');
+        closeMapPanel();
+        refreshMapEditor(false);
+        watchMapRebuild();
+      }, editorFailure('mapedit-panel', 'Not saved: '));
+    }
+
+    function saveSelectedFeature() {
+      var s = mapEd.selected;
+      if (!s) return;
+      var changes = { name: fieldValue('mapedit-sel-name') };
+      if (s.layer === 'dbld-l') {
+        changes.code = fieldValue('mapedit-sel-code');
+        changes.levels = fieldValue('mapedit-sel-levels');
+        changes.height = fieldValue('mapedit-sel-height');
+        changes.buildingId = fieldValue('mapedit-sel-link');
+      }
+      runServer('updateMapFeature', [{ id: s.props.id, changes: changes }], function() {
+        afterMapSave('Saved. Rebuilding the map data...');
+      }, editorFailure('mapedit-panel', 'Not saved: '));
+    }
+
+    function deleteSelectedMapFeature() {
+      var s = mapEd.selected;
+      if (!s) return;
+      var id = s.props.id || s.props._id;
+      if (!confirm('Delete ' + id + ' from overrides.geojson?')) return;
+      runServer('deleteMapFeature', [{ id: id }], function() {
+        afterMapSave('Deleted ' + id + '. Rebuilding the map data...');
+      }, editorFailure('mapedit-panel', 'Not deleted: '));
+    }
+
+    /** The OSM footprint the selected building comes from (its full ring, not the rendered tile piece). */
+    function selectedBuildingRing() {
+      var s = mapEd.selected;
+      var feats = (mapEd.basemap && mapEd.basemap.buildings && mapEd.basemap.buildings.features) || [];
+      for (var i = 0; i < feats.length; i++) {
+        var p = feats[i].properties || {};
+        if (p.osmId === s.props.osmId && (p.name || '') === (s.props.name || '')) return feats[i].geometry.coordinates[0];
+      }
+      return s.geometry && s.geometry.coordinates ? s.geometry.coordinates[0] : null;
+    }
+
+    function redrawSelectedBuilding() {
+      var s = mapEd.selected;
+      if (!s) return;
+      var osm = /^(way|relation)\//.test(s.props.osmId || '') ? s.props.osmId : '';
+      var name = s.props.name || '';
+      setMapTool('building');
+      mapEd.draftReplaces = osm;
+      mapEd.draftName = name;
+      mapEd.draftFields = { 'mapedit-bld-name': name, 'mapedit-bld-link': s.props.buildingId || '' };
+      renderDraftPanel();
+    }
+
+    function copySelectedBuilding() {
+      var s = mapEd.selected;
+      if (!s) return;
+      var ring = selectedBuildingRing();
+      var osm = /^(way|relation)\//.test(s.props.osmId || '') ? s.props.osmId : '';
+      if (!ring || !osm) { showMessage('This footprint has no OpenStreetMap id to replace; redraw it instead.', 'error'); return; }
+      setMapTool('building');
+      mapEd.draft = ring.slice(0, ring.length - 1);
+      mapEd.draftReplaces = osm;
+      mapEd.draftFields = {
+        'mapedit-bld-name': s.props.name || '', 'mapedit-bld-levels': s.props.levels || '', 'mapedit-bld-height': s.props.height || '',
+        'mapedit-bld-link': s.props.buildingId || ''
+      };
+      updateMapDraft();
+      renderDraftPanel();
+    }
+
+    /** Polls the map rebuild after a save; when it settles, reports its duration and reloads the basemap. */
+    function watchMapRebuild() {
+      clearTimeout(mapEd.pollTimer);
+      var tick = function() {
+        runServer('getAdminStatus', [], function(st) {
+          var r = st && st.mapRebuild;
+          if (r && (r.running || r.pending)) {
+            setMapStatus('Rebuilding the map data (npm run campus-map)...');
+            mapEd.pollTimer = setTimeout(tick, 1500);
+            return;
+          }
+          var last = r && r.last;
+          if (last && last.at !== mapEd.lastRebuildAt) {
+            mapEd.lastRebuildAt = last.at;
+            if (last.ok) showMessage('Map data rebuilt in ' + (last.ms / 1000).toFixed(1) + ' s.', 'success');
+            else showMessage('The map rebuild failed: ' + last.error, 'error');
+            if (mapEd.map) refreshMapEditor(true);
+            refreshCampusData();
+          }
+          if (mapEd.data) mapEd.data.mapRebuild = r;
+          setMapStatus(mapStatusText());
+        }, function() {});
+      };
+      mapEd.pollTimer = setTimeout(tick, 600);
+    }
+
+    /* ========================================================
+       DOORS & HALLWAYS (v5) — door, entrance and hallway classes
+       on the floor plan; hallway suggestions from the data lane
+       ======================================================== */
+    var accessEd = { building: '', floor: null, canvas: null, selected: null, candidates: [], hatch: null };
+
+    function initAccessTab() {
+      if (!campusData) return;
+      var sel = document.getElementById('access-building-select');
+      var withFloors = {};
+      var floors = campusData.floors || [];
+      for (var i = 0; i < floors.length; i++) withFloors[floors[i].buildingId] = true;
+      sel.innerHTML = '<option value="">Select building...</option>';
+      var buildings = campusData.buildings || [];
+      for (var j = 0; j < buildings.length; j++) {
+        if (!withFloors[buildings[j].id]) continue;
+        var opt = document.createElement('option');
+        opt.value = buildings[j].id;
+        opt.textContent = buildings[j].name || buildings[j].id;
+        sel.appendChild(opt);
+      }
+      if (accessEd.building) sel.value = accessEd.building;
+      if (!sel.value && sel.options.length > 1) sel.value = sel.options[1].value;
+      onAccessBuildingChange(accessEd.floor && accessEd.floor.id);
+      loadCorridorCandidates();
+    }
+
+    function onAccessBuildingChange(keepFloorId) {
+      var buildingId = document.getElementById('access-building-select').value;
+      accessEd.building = buildingId;
+      var div = document.getElementById('access-floor-buttons');
+      div.innerHTML = '';
+      var floors = ((campusData && campusData.floors) || []).filter(function(f) { return f.buildingId === buildingId; });
+      floors.sort(function(a, b) { return (a.level || 0) - (b.level || 0); });
+      for (var i = 0; i < floors.length; i++) {
+        var btn = document.createElement('button');
+        btn.className = 'floor-btn';
+        btn.textContent = floors[i].label || ('Floor ' + floors[i].level);
+        btn.setAttribute('data-floor-id', floors[i].id);
+        btn.onclick = (function(id) { return function() { selectAccessFloor(id); }; })(floors[i].id);
+        div.appendChild(btn);
+      }
+      var keep = typeof keepFloorId === 'string' && floors.some(function(f) { return f.id === keepFloorId; }) ? keepFloorId : (floors[0] && floors[0].id);
+      if (keep) selectAccessFloor(keep);
+    }
+
+    function selectAccessFloor(floorId) {
+      accessEd.floor = findFloor(floorId);
+      var btns = document.getElementById('access-floor-buttons').querySelectorAll('.floor-btn');
+      for (var i = 0; i < btns.length; i++) btns[i].classList.toggle('active', btns[i].getAttribute('data-floor-id') === floorId);
+      closeAccessPanel();
+      if (!accessEd.canvas) accessEd.canvas = new AdminCanvasController('access-canvas', { onTap: onAccessTap, onRender: renderAccessOverlay });
+      accessEd.canvas.loadFloor(accessEd.floor);
+      updateAccessCount();
+    }
+
+    function accessFloorRooms() {
+      var fid = accessEd.floor && accessEd.floor.id;
+      return ((campusData && campusData.rooms) || []).filter(function(r) { return r.floorId === fid && Array.isArray(r.polygon) && r.polygon.length > 2; });
+    }
+    function accessFloorDoors() {
+      var fid = accessEd.floor && accessEd.floor.id;
+      return ((campusData && campusData.navNodes) || []).filter(function(n) {
+        var t = normalizeNodeType(n.type);
+        return n.floorId === fid && (t === 'door' || t === 'entrance');
+      });
+    }
+    function undecidedCandidates() {
+      var out = {};
+      for (var i = 0; i < accessEd.candidates.length; i++) if (!accessEd.candidates[i].decision) out[accessEd.candidates[i].roomId] = accessEd.candidates[i];
+      return out;
+    }
+
+    function hatchPattern(ctx) {
+      if (!accessEd.hatch) {
+        var c = document.createElement('canvas');
+        c.width = c.height = 8;
+        var g = c.getContext('2d');
+        g.fillStyle = 'rgba(255,255,255,0.5)';
+        g.fillRect(0, 0, 8, 8);
+        g.strokeStyle = 'rgba(220,38,38,0.6)';
+        g.lineWidth = 2;
+        g.beginPath(); g.moveTo(0, 8); g.lineTo(8, 0); g.stroke();
+        accessEd.hatch = c;
+      }
+      return ctx.createPattern(accessEd.hatch, 'repeat');
+    }
+
+    function tracePolygon(ctx, poly) {
+      ctx.beginPath();
+      ctx.moveTo(poly[0][0], poly[0][1]);
+      for (var i = 1; i < poly.length; i++) ctx.lineTo(poly[i][0], poly[i][1]);
+      ctx.closePath();
+    }
+
+    function renderAccessOverlay(ctx, scale) {
+      var rooms = accessFloorRooms();
+      var cands = undecidedCandidates();
+      var fills = { main: 'rgba(13,148,136,0.30)', alt: 'rgba(217,119,6,0.32)' };
+      for (var i = 0; i < rooms.length; i++) {
+        var r = rooms[i];
+        tracePolygon(ctx, r.polygon);
+        if (normalizeRoomType(r.type) === 'corridor') {
+          var acc = r.access || 'main';
+          ctx.fillStyle = acc === 'emergency' ? hatchPattern(ctx) : fills[acc] || fills.main;
+          ctx.fill();
+          ctx.strokeStyle = acc === 'emergency' ? '#dc2626' : (acc === 'alt' ? '#b45309' : '#0f766e');
+          ctx.lineWidth = 1.5 / scale;
+          ctx.stroke();
+        } else {
+          ctx.fillStyle = 'rgba(0,33,69,0.04)';
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(0,33,69,0.18)';
+          ctx.lineWidth = 1 / scale;
+          ctx.stroke();
+        }
+        if (cands[r.id]) {
+          ctx.save();
+          ctx.setLineDash([8 / scale, 5 / scale]);
+          ctx.strokeStyle = '#db2777';
+          ctx.lineWidth = 3 / scale;
+          tracePolygon(ctx, r.polygon);
+          ctx.stroke();
+          ctx.restore();
+        }
+        if (accessEd.selected && accessEd.selected.kind === 'room' && accessEd.selected.id === r.id) {
+          ctx.strokeStyle = '#FDB515';
+          ctx.lineWidth = 4 / scale;
+          tracePolygon(ctx, r.polygon);
+          ctx.stroke();
+        }
+      }
+      var doors = accessFloorDoors();
+      for (var d = 0; d < doors.length; d++) {
+        var n = doors[d];
+        var ent = normalizeNodeType(n.type) === 'entrance';
+        var a = effectiveNodeAccess(n);
+        var rad = (ent ? 8 : 5) / scale;
+        ctx.fillStyle = ACCESS_COLORS[a] || ACCESS_COLORS.main;
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, rad, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 1.5 / scale;
+        ctx.stroke();
+        if (ent) {
+          ctx.strokeStyle = ACCESS_COLORS[a] || ACCESS_COLORS.main;
+          ctx.lineWidth = 2 / scale;
+          ctx.beginPath();
+          ctx.arc(n.x, n.y, rad + 4 / scale, 0, 2 * Math.PI);
+          ctx.stroke();
+        }
+        if (a === 'emergency') {
+          var k = rad * 0.6;
+          ctx.strokeStyle = '#fff';
+          ctx.lineWidth = 1.8 / scale;
+          ctx.beginPath();
+          ctx.moveTo(n.x - k, n.y - k); ctx.lineTo(n.x + k, n.y + k);
+          ctx.moveTo(n.x + k, n.y - k); ctx.lineTo(n.x - k, n.y + k);
+          ctx.stroke();
+        }
+        if (accessEd.selected && accessEd.selected.kind === 'node' && accessEd.selected.id === n.id) {
+          ctx.strokeStyle = '#FDB515';
+          ctx.lineWidth = 3 / scale;
+          ctx.beginPath();
+          ctx.arc(n.x, n.y, rad + 8 / scale, 0, 2 * Math.PI);
+          ctx.stroke();
+        }
+      }
+    }
+
+    function polygonArea(poly) {
+      var a = 0;
+      for (var i = 0, j = poly.length - 1; i < poly.length; j = i++) a += (poly[j][0] + poly[i][0]) * (poly[j][1] - poly[i][1]);
+      return Math.abs(a / 2);
+    }
+
+    function onAccessTap(x, y) {
+      var scale = accessEd.canvas ? accessEd.canvas.scale : 1;
+      var doors = accessFloorDoors();
+      var best = null;
+      for (var i = 0; i < doors.length; i++) {
+        var dd = Math.sqrt(Math.pow(doors[i].x - x, 2) + Math.pow(doors[i].y - y, 2));
+        if (dd <= 14 / scale && (!best || dd < best.d)) best = { n: doors[i], d: dd };
+      }
+      if (best) { selectAccessNode(best.n.id); return; }
+      var rooms = accessFloorRooms();
+      var hit = null;
+      for (var j = 0; j < rooms.length; j++) {
+        if (!isPointInPolygon(x, y, rooms[j].polygon)) continue;
+        if (!hit || polygonArea(rooms[j].polygon) < polygonArea(hit.polygon)) hit = rooms[j];
+      }
+      if (hit) { selectAccessRoom(hit.id); return; }
+      closeAccessPanel();
+    }
+
+    function closeAccessPanel() {
+      accessEd.selected = null;
+      var p = document.getElementById('access-panel');
+      p.classList.remove('visible');
+      p.innerHTML = '';
+      if (accessEd.canvas) accessEd.canvas.render();
+    }
+
+    function selectAccessNode(id) {
+      var n = findById(campusData.navNodes, id);
+      if (!n) return;
+      accessEd.selected = { kind: 'node', id: id };
+      var ent = normalizeNodeType(n.type) === 'entrance';
+      var room = n.roomId ? findById(campusData.rooms, n.roomId) : null;
+      var p = document.getElementById('access-panel');
+      p.innerHTML =
+        '<h3 class="panel-title">' + (ent ? 'Entrance' : 'Door') + ' ' + escapeHtml(n.id) + '</h3>' +
+        '<p class="field-help">' + (room ? 'Room ' + escapeHtml(room.label || room.number) + ' &middot; ' : '') +
+          (n.access ? 'class set: ' + escapeHtml(n.access) : 'automatic class: ' + escapeHtml(effectiveNodeAccess(n))) + '</p>' +
+        accessButtonsHtml(ACCESS_LEVELS, effectiveNodeAccess(n), 'setAccessNodeClass') +
+        '<p class="field-help">Main: routes use it. Alt: a side door, used when it saves a lot or when nothing main connects. ' +
+          'Emergency: shown, never routed through.' + (ent ? ' An entrance change reruns the map build.' : '') + '</p>';
+      p.classList.add('visible');
+      accessEd.canvas.render();
+    }
+
+    function setAccessNodeClass(access) {
+      var s = accessEd.selected;
+      if (!s || s.kind !== 'node') return;
+      var n = findById(campusData.navNodes, s.id);
+      var data = { id: s.id, access: access };
+      if (n && normalizeNodeType(n.type) === 'entrance') data.primary = access === 'main';
+      runServer('updateNavNode', [data], function() {
+        showMessage((n && normalizeNodeType(n.type) === 'entrance' ? 'Entrance ' : 'Door ') + s.id + ' is now ' + access + '.', 'success');
+        refreshCampusData(function() { selectAccessNode(s.id); updateAccessCount(); });
+        if (n && normalizeNodeType(n.type) === 'entrance') watchMapRebuild();
+      }, editorFailure('access-panel', 'Not saved: '));
+    }
+
+    function candidateFor(roomId) {
+      for (var i = 0; i < accessEd.candidates.length; i++) if (accessEd.candidates[i].roomId === roomId) return accessEd.candidates[i];
+      return null;
+    }
+
+    function evidenceText(ev) {
+      if (!ev) return '';
+      if (Array.isArray(ev)) return ev.map(function(x) { return typeof x === 'string' ? x : JSON.stringify(x); }).join('; ');
+      if (typeof ev === 'object') return Object.keys(ev).map(function(k) { return k + ': ' + (typeof ev[k] === 'object' ? JSON.stringify(ev[k]) : ev[k]); }).join('; ');
+      return String(ev);
+    }
+
+    function selectAccessRoom(id) {
+      var r = findById(campusData.rooms, id);
+      if (!r) return;
+      accessEd.selected = { kind: 'room', id: id, hallway: normalizeRoomType(r.type) === 'corridor', access: r.access || 'main' };
+      renderAccessRoomPanel();
+    }
+
+    function renderAccessRoomPanel() {
+      var s = accessEd.selected;
+      var r = findById(campusData.rooms, s.id);
+      var cand = candidateFor(s.id);
+      var p = document.getElementById('access-panel');
+      p.innerHTML =
+        '<h3 class="panel-title">Room ' + escapeHtml(r.label || r.number || r.id) + '</h3>' +
+        '<p class="field-help">' + escapeHtml(r.id) + ' &middot; type ' + escapeHtml(normalizeRoomType(r.type)) + '</p>' +
+        (cand ? '<p class="field-help" style="color:#db2777;">Suggested hallway' + (cand.confidence !== undefined ? ' (confidence ' + escapeHtml(String(cand.confidence)) + ')' : '') +
+          ': ' + escapeHtml(evidenceText(cand.evidence)) + (cand.decision ? ' &middot; ' + escapeHtml(cand.decision) : '') + '</p>' : '') +
+        '<div class="checkbox-group"><input type="checkbox" id="access-room-hallway"' + (s.hallway ? ' checked' : '') + ' onchange="onAccessHallwayToggle()">' +
+          '<label for="access-room-hallway">Hallway (a corridor routes pass through)</label></div>' +
+        (s.hallway ? accessButtonsHtml(ACCESS_LEVELS, s.access, 'setAccessRoomClass') : '') +
+        '<div class="btn-row"><button class="btn btn-primary" onclick="saveAccessRoom()">Save</button>' +
+          (cand && cand.decision !== 'rejected' && !s.hallway ? '<button class="btn btn-outline" onclick="reviewCandidate(\'' + escapeHtml(r.id) + '\', \'rejected\')">Not a hallway (reject suggestion)</button>' : '') +
+          '<button class="btn btn-outline" onclick="closeAccessPanel()">Close</button></div>';
+      p.classList.add('visible');
+      accessEd.canvas.render();
+    }
+
+    function onAccessHallwayToggle() {
+      accessEd.selected.hallway = document.getElementById('access-room-hallway').checked;
+      renderAccessRoomPanel();
+    }
+    function setAccessRoomClass(access) {
+      accessEd.selected.access = access;
+      renderAccessRoomPanel();
+    }
+
+    function saveAccessRoom() {
+      var s = accessEd.selected;
+      var r = findById(campusData.rooms, s.id);
+      var wasHall = normalizeRoomType(r.type) === 'corridor';
+      var data = { id: s.id, type: s.hallway ? 'corridor' : (wasHall ? 'other' : r.type), access: s.hallway ? s.access : '' };
+      var cand = candidateFor(s.id);
+      var after = function() {
+        showMessage('Room ' + (r.label || r.number || r.id) + (s.hallway ? ' is a hallway, class ' + s.access + '.' : ' is not a hallway.'), 'success');
+        refreshCampusData(function() { selectAccessRoom(s.id); updateAccessCount(); });
+      };
+      if (cand && s.hallway && cand.decision !== 'accepted') {
+        runServer('setCorridorReview', [{ roomId: s.id, decision: 'accepted', access: s.access }], function(res) {
+          accessEd.candidates = res.candidates || [];
+          renderCandidates();
+          after();
+        }, editorFailure('access-panel', 'Not saved: '));
+        return;
+      }
+      runServer('updateRoom', [data], after, editorFailure('access-panel', 'Not saved: '));
+    }
+
+    function updateAccessCount() {
+      var doors = accessFloorDoors();
+      var counts = { main: 0, alt: 0, emergency: 0 };
+      for (var i = 0; i < doors.length; i++) counts[effectiveNodeAccess(doors[i])]++;
+      var halls = accessFloorRooms().filter(function(r) { return normalizeRoomType(r.type) === 'corridor'; }).length;
+      document.getElementById('access-count').textContent = doors.length + ' doors and entrances on this floor (' + counts.main + ' main, ' + counts.alt +
+        ' alt, ' + counts.emergency + ' emergency); ' + halls + ' hallways.';
+    }
+
+    function loadCorridorCandidates() {
+      runServer('getCorridorReview', [], function(res) {
+        accessEd.candidates = (res && res.candidates) || [];
+        document.getElementById('access-candidates-source').textContent = res && res.source
+          ? 'From ' + res.source + ' (the data lane\'s hallway detection). Accept makes the room a main hallway; reject keeps it a room. Decisions are saved to data/overrides.'
+          : 'No suggestions yet: data/review/corridor-candidates.json is written by the floor-plan pipeline.';
+        renderCandidates();
+        if (accessEd.canvas) accessEd.canvas.render();
+      }, function() {});
+    }
+
+    function renderCandidates() {
+      var div = document.getElementById('access-candidates');
+      if (!accessEd.candidates.length) { div.innerHTML = ''; return; }
+      var html = '';
+      for (var i = 0; i < accessEd.candidates.length; i++) {
+        var c = accessEd.candidates[i];
+        var floor = findFloor(c.floorId);
+        var b = floor ? findBuilding(floor.buildingId) : null;
+        var id = escapeHtml(c.roomId);
+        html += '<div class="candidate-row"><span class="cand-label">' + escapeHtml((b && b.code ? b.code + ' ' : '') + c.label) + '</span>' +
+          '<span>' + escapeHtml(floor ? (floor.label || floor.id) : c.floorId) + '</span>' +
+          (c.confidence !== undefined ? '<span>' + escapeHtml(String(c.confidence)) + '</span>' : '') +
+          '<span class="cand-evidence">' + escapeHtml(evidenceText(c.evidence)) + '</span>' +
+          (c.decision ? '<span class="tag ' + (c.decision === 'accepted' ? 'tag-ok' : 'tag-muted') + '">' + escapeHtml(c.decision) + '</span>' : '') +
+          '<button class="btn btn-outline" onclick="showCandidate(\'' + id + '\')">Show</button>' +
+          (c.decision ? (c.decision === 'rejected' ? '<button class="btn btn-outline" onclick="reviewCandidate(\'' + id + '\', \'\')">Undo</button>' : '') :
+            '<button class="btn btn-primary" onclick="reviewCandidate(\'' + id + '\', \'accepted\')">Accept</button>' +
+            '<button class="btn btn-outline" onclick="reviewCandidate(\'' + id + '\', \'rejected\')">Reject</button>') +
+          '</div>';
+      }
+      div.innerHTML = html;
+    }
+
+    function showCandidate(roomId) {
+      var r = findById(campusData.rooms, roomId);
+      if (!r) { showMessage('Room ' + roomId + ' is not in the data.', 'error'); return; }
+      var floor = findFloor(r.floorId);
+      if (!floor) return;
+      document.getElementById('access-building-select').value = floor.buildingId;
+      onAccessBuildingChange(floor.id);
+      selectAccessRoom(roomId);
+      document.getElementById('access-canvas-wrap').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    function reviewCandidate(roomId, decision) {
+      runServer('setCorridorReview', [{ roomId: roomId, decision: decision, access: 'main' }], function(res) {
+        accessEd.candidates = (res && res.candidates) || [];
+        renderCandidates();
+        showMessage(decision === 'accepted' ? 'Accepted: the room is a main hallway.' : decision === 'rejected' ? 'Rejected: the room stays a room.' : 'Suggestion reopened.', 'success');
+        refreshCampusData(function() {
+          if (accessEd.selected && accessEd.selected.kind === 'room' && accessEd.selected.id === roomId) selectAccessRoom(roomId);
+          else if (accessEd.canvas) accessEd.canvas.render();
+          updateAccessCount();
+        });
+      }, editorFailure('access-panel', 'Not saved: '));
+    }
 
     /* ========================================================
        BOOT — local admin: no sign-in, load the data straight away

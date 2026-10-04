@@ -25,6 +25,9 @@
 //   MSCN_SITE_URL      the public site QR codes link to (https, default https://bharrison6.github.io/campus-nav/,
 //                      or build.config.json "siteUrl" when that file sets one)
 //   MSCN_OVERRIDES_DIR where edits are saved (default data/overrides; tests point it elsewhere)
+//   MSCN_CAMPUS_MAP_DIR the campus-map directory the Map tab reads and whose overrides.geojson it writes (default
+//                      data/campus-map; a copy elsewhere keeps a trial run off the committed files)
+//   MSCN_REVIEW_DIR    where corridor-candidates.json is read (default data/review)
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -132,7 +135,8 @@ export function outdoorGraphInMemory(overridesGeo, overridesDir) {
 
 /**
  * @param {Function|null} [o.rebuildMap] runs the campus-map build after a map-relevant save (returns a promise);
- *   default: npm run campus-map when the overrides are the repository's own (it reads data/overrides), else none
+ *   default: npm run campus-map when the overrides and the campus-map directory are the repository's own (it reads
+ *   data/overrides and data/campus-map/overrides.geojson), else none
  * @param {string} [o.campusMapDir]  basemap, outdoor graph and overrides.geojson (default data/campus-map)
  * @param {string} [o.reviewDir]     corridor-candidates.json (default data/review)
  * @param {{check: Function, source: string}|null} [o.connectivity]  the save check (default: the shared check, else
@@ -147,7 +151,7 @@ export function createAdmin({
   const open = () => openCampus({ gsDir, overridesDir, extraCode });
   let campus = open();
   const rebuild = rebuildMap !== undefined ? rebuildMap
-    : (path.resolve(overridesDir) === path.resolve(OVERRIDES_DIR) && !gsDir ? () => runCampusMap() : null);
+    : (path.resolve(overridesDir) === path.resolve(OVERRIDES_DIR) && path.resolve(campusMapDir) === path.resolve(CAMPUS_MAP_DIR) && !gsDir ? () => runCampusMap() : null);
   const map = { running: false, pending: false, last: null, idle: Promise.resolve() };
   const geoPath = path.join(campusMapDir, 'overrides.geojson');
   const pathAccessPath = path.join(overridesDir, 'pathAccess.json');
@@ -482,7 +486,9 @@ if (isMain) {
   const i = process.argv.indexOf('--port');
   const port = Number(i > -1 ? process.argv[i + 1] : process.env.PORT || DEFAULT_PORT);
   const overridesDir = process.env.MSCN_OVERRIDES_DIR ? path.resolve(process.env.MSCN_OVERRIDES_DIR) : OVERRIDES_DIR;
-  const admin = createAdmin({ overridesDir });
+  const campusMapDir = process.env.MSCN_CAMPUS_MAP_DIR ? path.resolve(process.env.MSCN_CAMPUS_MAP_DIR) : CAMPUS_MAP_DIR;
+  const reviewDir = process.env.MSCN_REVIEW_DIR ? path.resolve(process.env.MSCN_REVIEW_DIR) : REVIEW_DIR;
+  const admin = createAdmin({ overridesDir, campusMapDir, reviewDir });
   admin.server.listen(port, '127.0.0.1', () => {
     console.log(`[admin] MSCN local admin on http://localhost:${port}/`);
     console.log(`[admin] edits are saved to ${overridesDir}; QR codes link to ${admin.siteUrl}`);
