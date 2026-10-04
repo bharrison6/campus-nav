@@ -2,7 +2,7 @@
 // draw a path) and Doors & Halls (a refused save, a door set to emergency, a room made a hallway), in Chrome with
 // SwiftShader for MapLibre's WebGL. The admin runs over a copy of the data (tests/admin/serve-admin-copy.mjs), so the
 // committed files are never written.
-//   npx playwright test -c tests/admin        (PW_CHANNEL=chrome to use the installed Chrome)
+//   npm run test:admin        (PW_CHANNEL=chrome to use the installed Chrome)
 import { defineConfig, devices } from '@playwright/test';
 
 const PORT = Number(process.env.MSCN_ADMIN_E2E_PORT || 8791);

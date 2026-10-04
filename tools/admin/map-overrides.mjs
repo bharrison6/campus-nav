@@ -6,7 +6,7 @@
 //     paths      LineString { layer: "paths", id, kind, access: "main" | "alt", name?, source: "override" }
 //     buildings  Polygon    { layer: "buildings", id, name, code?, building, levels?, height?, buildingId?, replaces?,
 //                             source: "override" }   (replaces: the OSM way it supersedes, as the existing layer does)
-//     entrances  Point      { layer: "entrances", id, building, access: "main" | "alt" | "emergency", label,
+//     entrances  Point      { layer: "entrances", id (entrance-<building>-<n>, the outdoor node id), building, access, label,
 //                             source: "override" }   (buildings without floor plans)
 //   Features written by hand before v5 carry no id; they are addressed as override/<1-based index>, the name the
 //   campus-map build gives them.
@@ -192,11 +192,29 @@ export function addBuilding(geo, o, now) {
   return { geo: { ...geo, features: [...(geo.features || []), feature] }, id };
 }
 
+/**
+ * The id of a new entrance of a building: "entrance-<building>-<n>", the outdoor node id the campus-map build gives a
+ * drawn entrance (drawnEntrances), past every number the building's entrances already use (by id or by file position).
+ */
+export function newEntranceId(geo, building) {
+  const feats = ((geo && geo.features) || []).filter((f) => f.properties && f.properties.layer === 'entrances' && f.properties.building === building);
+  const taken = new Set(((geo && geo.features) || []).map(featureId));
+  const stem = `entrance-${building}-`;
+  let n = feats.length;
+  for (const f of feats) {
+    const id = String(f.properties.id || '');
+    if (id.startsWith(stem) && /^\d+$/.test(id.slice(stem.length))) n = Math.max(n, Number(id.slice(stem.length)));
+  }
+  while (taken.has(stem + (n + 1))) n++;
+  return stem + (n + 1);
+}
+
 /** Adds an entrance point of a building without floor plans. o: { building, lngLat, access, label }. */
-export function addEntrance(geo, o, now) {
+export function addEntrance(geo, o) {
   const building = text(o && o.building, 'building', 60);
   if (!building) throw new Error('entrance: the building it belongs to is required');
-  const id = newFeatureId(geo, 'entrances', now);
+  if (!/^[A-Za-z0-9_.-]+$/.test(building)) throw new Error('entrance: a building id such as bld-nursing expected');
+  const id = newEntranceId(geo, building);
   const props = clean({ layer: 'entrances', id, building, access: oneOf((o && o.access) || 'main', DOOR_ACCESS, 'access'), label: text(o.label, 'label') || 'Entrance', source: 'override' });
   const feature = { type: 'Feature', properties: props, geometry: { type: 'Point', coordinates: lngLat(o.lngLat, 'entrance position') } };
   return { geo: { ...geo, features: [...(geo.features || []), feature] }, id };

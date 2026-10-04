@@ -9,6 +9,7 @@
     "test:e2e": "playwright test -c tests/e2e/playwright.config.ts",
     "test:e2e:headed": "playwright test -c tests/e2e/playwright.config.ts --headed",
     "test:smoke": "playwright test -c tests/smoke/playwright.config.ts",
+    "test:admin": "playwright test -c tests/admin/playwright.config.ts",
     "build": "node scripts/build/build-site.mjs",
     "preview": "node dev/serve.mjs --build",
     "serve": "node dev/serve.mjs",

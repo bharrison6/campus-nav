@@ -502,7 +502,8 @@ var MSCNPath = (function () {
    * the campus data is not mutated) and the two graphs join there. Other outdoor nodes are added with outdoor: true.
    * Adds graph.outdoorEdges ([{id, from, to, a: [lng, lat], b, accessible, kind, distance, access}], for snapping a
    * position; access is the edge's own class, raised to its ends' class: an edge to an emergency door reads emergency)
-   * and graph.entrances ({buildingId: [joined entrance ids]}).
+   * and graph.entrances ({buildingId: [joined entrance ids, and the entrances drawn on the map for a building without
+   * floor plans (outdoor nodes with buildingId)]}).
    */
   function addOutdoorGraph(graph, outdoor) {
     graph.outdoorEdges = [];
@@ -535,6 +536,11 @@ var MSCNPath = (function () {
           label: o.label || '', buildingId: o.buildingId || null, access: o.access
         };
         graph.adj[o.id] = [];
+        /* an entrance drawn on the map for a building without floor plans (overrides.geojson layer entrances) */
+        if (o.type === 'entrance' && o.buildingId) {
+          if (!graph.entrances[o.buildingId]) { graph.entrances[o.buildingId] = []; }
+          graph.entrances[o.buildingId].push(o.id);
+        }
       }
     }
     /* v5: every joined entrance stays joined; findPath prices them by class (main, alt at the alt factor, emergency
@@ -549,7 +555,8 @@ var MSCNPath = (function () {
       if (!mains.length) { continue; }
       var inside = indoorReach(graph, mains);
       for (j = 0; j < list.length; j++) {
-        if (accessOf(graph.nodes[list[j]]) === 'alt' && !inside[list[j]]) { graph.nodes[list[j]].soleDoor = true; }
+        var d = graph.nodes[list[j]];
+        if (accessOf(d) === 'alt' && !d.outdoor && !inside[list[j]]) { d.soleDoor = true; }
       }
     }
     var oe = (outdoor && outdoor.edges) || [];

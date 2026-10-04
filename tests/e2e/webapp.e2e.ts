@@ -49,7 +49,7 @@ test('tabs render and switch', async ({ page }) => {
   await expect(page.locator('#viewer [data-mscn-room]')).not.toHaveCount(0);
 });
 
-test('without WebGL 2 the Map tab is a building list with "Directions to campus" to a primary door', async ({ page }) => {
+test('without WebGL 2 the Map tab is a building list with "Directions to campus" to a main door', async ({ page }) => {
   await page.addInitScript(() => { delete (window as any).WebGL2RenderingContext; });
   await boot(page);
   await expect(page.locator('#map-notice')).toHaveAttribute('data-reason', 'nowebgl');
@@ -152,18 +152,18 @@ test('without a start, routes begin at the building entrance', async ({ page }) 
   await page.getByRole('button', { name: 'Navigate here' }).click();
   await expect(page.locator('#route-panel')).toContainText('From the building entrance');
   await expect(activeRoute(page)).toHaveCount(1);
-  // the automatic start is one of IT's primary doors (the common ones), not the side door nearest the room
+  // the automatic start is one of IT's main doors (the common ones), not the side door nearest the room
   const r = await page.evaluate(() => {
     const route = (window as any).NAV.route;
     const g = (window as any).APP.graph;
     const first = route.steps[0].nodeIds[0];
-    return { last: route.steps[route.steps.length - 1].title, first, primary: !g.hasOutdoor || g.nodes[first].primary === true };
+    return { last: route.steps[route.steps.length - 1].title, first, main: !g.hasOutdoor || (window as any).MSCNPath.accessOf(g.nodes[first]) === 'main' };
   });
   expect(r.last).toBe('Arrive at IT 143');
-  expect(r.primary, r.first).toBe(true);
+  expect(r.main, r.first).toBe(true);
 });
 
-test('EP 1322 (exterior door only): reachable from outside; from it, out its own door and back in by a primary door', async ({ page }) => {
+test('EP 1322 (exterior door only): reachable from outside; from it, out its own door and back in by a main door', async ({ page }) => {
   await boot(page);
   await searchAndOpen(page, 'EP 1322', 'EP 1322');
   await page.getByRole('button', { name: 'Navigate here' }).click();

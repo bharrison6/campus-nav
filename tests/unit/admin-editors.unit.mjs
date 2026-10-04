@@ -15,6 +15,9 @@ import {
 import { CONNECTIVITY, cutOffs, prepareForCheck } from '../../tools/admin/connectivity-gate.mjs';
 import { checkConnectivity } from '../../scripts/data/connectivity.mjs';
 import { buildExport } from '../../scripts/data/export-campus-data.mjs';
+import { loadInputs } from '../../scripts/campus-map/inputs.mjs';
+import { buildCampusMap } from '../../scripts/campus-map/build.mjs';
+import { loadInclude } from './load-include.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(here, '..', '..');
@@ -107,6 +110,13 @@ test('an entrance point carries building, access and label; edits keep to the la
   const r = addEntrance(geo, { building: 'bld-nursing', lngLat: [-88.33, 36.61], access: 'emergency', label: 'North door' });
   assert.deepEqual(r.geo.features[1].properties, { layer: 'entrances', id: r.id, building: 'bld-nursing', access: 'emergency', label: 'North door', source: 'override' });
   assert.deepEqual(r.geo.features[1].geometry, { type: 'Point', coordinates: [-88.33, 36.61] });
+  // its id is the outdoor node id the campus-map build gives it, numbered past the building's other entrances
+  assert.equal(r.id, 'entrance-bld-nursing-1');
+  const handWritten = { type: 'Feature', properties: { layer: 'entrances', building: 'bld-nursing', access: 'main' }, geometry: { type: 'Point', coordinates: [-88.331, 36.61] } };
+  const r2 = addEntrance({ ...r.geo, features: [...r.geo.features, handWritten] }, { building: 'bld-nursing', lngLat: [-88.332, 36.61] });
+  assert.equal(r2.id, 'entrance-bld-nursing-3', 'the hand-written one is entrance-bld-nursing-2 by its file position');
+  assert.equal(addEntrance(r.geo, { building: 'bld-other', lngLat: [-88.332, 36.61] }).id, 'entrance-bld-other-1');
+  assert.throws(() => addEntrance(r.geo, { building: 'bld x', lngLat: [-88.332, 36.61] }), /building id/);
   assert.equal(featureId(r.geo.features[0], 0), 'override/1', 'a hand-written feature is addressed by its index');
   const u = updateFeature(r.geo, r.id, { access: 'main', label: 'Main door', kind: 'ignored' });
   assert.equal(u.after.access, 'main');
@@ -237,6 +247,48 @@ test('the admin\'s save check is the shared one: it passes on the real data and 
   const cut = checkConnectivity({ ...pub, navNodes: pub.navNodes.map((x) => (x.id === 'ep-1-n0365' ? { ...x, access: 'emergency' } : x)) }, g);
   assert.deepEqual(cut.unreachableRooms, ['room-ep-1-1322']);
   assert.ok(!fs.existsSync(path.join(REPO, 'tools', 'admin', 'connectivity-standin.mjs')), 'the stand-in is gone');
+});
+
+test('map editor round trip: a drawn building, its entrances and a path to them, written by the admin with ids, come out of the map build and the export, and the app routes to the drawn main entrance', () => {
+  const { admin, overridesDir, campusMapDir } = editor();
+  const W = [-88.323918, 36.613827]; // the west wall of the nursing building's lot (not in OpenStreetMap)
+  const b = admin.call('saveMapBuilding', [{ ring: [[-88.323918, 36.613647], [-88.323478, 36.613647], [-88.323478, 36.614007], [-88.323918, 36.614007]], name: 'School of Nursing and Health Professions', code: 'NURS', levels: 3, buildingId: 'bld-nursing' }]);
+  const main = admin.call('saveMapEntrance', [{ building: 'bld-nursing', lngLat: W, access: 'main', label: 'West entrance' }]);
+  admin.call('saveMapEntrance', [{ building: 'bld-nursing', lngLat: [-88.323478, 36.613827], access: 'emergency', label: 'East exit' }]);
+  // a walk from the west entrance to the nearest path node: both ends snap (the entrance, a graph vertex)
+  const graph0 = readJson(path.join(campusMapDir, 'outdoor-graph.json'));
+  const near = graph0.nodes.filter((x) => x.type !== 'entrance').reduce((best, x) => (Math.hypot(x.lng - W[0], x.lat - W[1]) < Math.hypot(best.lng - W[0], best.lat - W[1]) ? x : best));
+  const p = admin.call('saveMapPath', [{ coordinates: [W, [near.lng, near.lat]], access: 'main', name: 'Nursing west walk' }]);
+  assert.deepEqual(p.snaps.map((s) => s.end), ['start', 'end']);
+  const geo = readJson(path.join(campusMapDir, 'overrides.geojson'));
+  const mine = geo.features.slice(-4);
+  assert.deepEqual(mine.map((f) => f.properties.layer), ['buildings', 'entrances', 'entrances', 'paths']);
+  assert.ok(geo.features.every((f, i) => i < geo.features.length - 4 || /^((building|path)-[0-9a-z]+|entrance-bld-nursing-[12])$/.test(f.properties.id)), 'every new feature has an id');
+  assert.deepEqual([b.id, main.id, p.id], [mine[0].properties.id, mine[1].properties.id, mine[3].properties.id]);
+
+  // the campus-map build (what npm run campus-map does with these files, in memory)
+  const out = buildCampusMap({ ...loadInputs({ overridesDir }), overridesGeo: geo });
+  const fp = out.buildings.find((f) => f.properties.buildingId === 'bld-nursing');
+  assert.ok(fp && fp.properties.name === 'School of Nursing and Health Professions', 'the drawn footprint is the nursing building');
+  const ent = out.graph.nodes.find((x) => x.id === 'entrance-bld-nursing-1');
+  assert.deepEqual([ent.type, ent.access, ent.buildingId, ent.label], ['entrance', 'main', 'bld-nursing', 'West entrance']);
+  assert.ok(!out.graph.nodes.some((x) => x.id === 'entrance-bld-nursing-2'), 'the emergency exit is not on the paths');
+  const walk = out.graph.edges.filter((e) => e.way === p.id);
+  assert.ok(walk.length >= 1 && walk.every((e) => e.access === 'main'), 'the drawn path is in the graph, way = its feature id');
+  assert.ok(out.layers.paths.some((f) => f.properties.way === p.id), 'and on the basemap paths layer');
+
+  // the export lists the drawn entrances as the building's
+  const campus = buildExport({ overridesDir, campusMapDir }).campus;
+  const nb = campus.buildings.find((x) => x.id === 'bld-nursing');
+  assert.deepEqual(nb.entrances.map((e) => [e.nodeId, e.access, e.label]), [['entrance-bld-nursing-1', 'main', 'West entrance'], ['entrance-bld-nursing-2', 'emergency', 'East exit']]);
+
+  // the app: the drawn main entrance is the building's door, and a route from IT 141 ends there
+  const P = loadInclude('WebApp_Pathfinding.html', 'MSCNPath');
+  const g = P.addOutdoorGraph(P.buildGraph(campus, {}), out.graph);
+  assert.deepEqual(Array.from(P.mainEntrances(g, 'bld-nursing')), ['entrance-bld-nursing-1']);
+  const r = P.findPath(g, P.nodesForRoom(g, 'room-it-1-0141'), P.mainEntrances(g, 'bld-nursing'));
+  assert.ok(r, 'routed');
+  assert.equal(r.nodeIds[r.nodeIds.length - 1], 'entrance-bld-nursing-1');
 });
 
 test('hallway suggestions: listed from data/review, accept makes the room a hallway (checked), reject is remembered', () => {

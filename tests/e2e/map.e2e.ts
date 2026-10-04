@@ -430,7 +430,7 @@ test.describe('route Start', () => {
     expect(await page.evaluate(() => (window as any).NAV.start)).toBeNull();
   });
 
-  test('search "Engineering" as the start: the route leaves by an EP primary door', async ({ page }) => {
+  test('search "Engineering" as the start: the route leaves by an EP main door', async ({ page }) => {
     await boot(page);
     await mapReady(page);
     await search(page, 'IT 241', 'IT 241');
@@ -441,9 +441,9 @@ test.describe('route Start', () => {
     const first = await page.evaluate(() => {
       const g = (window as any).APP.graph;
       const n = g.nodes[(window as any).NAV.route.steps[0].nodeIds[0]];
-      return { type: n.type, primary: n.primary, building: (window as any).MSCNPath.buildingOfNode(g, n.id) };
+      return { type: n.type, access: (window as any).MSCNPath.accessOf(n), building: (window as any).MSCNPath.buildingOfNode(g, n.id) };
     });
-    expect(first).toEqual({ type: 'entrance', primary: true, building: 'bld-ep' });
+    expect(first).toEqual({ type: 'entrance', access: 'main', building: 'bld-ep' });
   });
 
   test('a ?loc= start shows in the field as the current start, with a clear control', async ({ page }) => {
