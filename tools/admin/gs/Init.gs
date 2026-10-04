@@ -60,6 +60,10 @@ function initSystem() {
  * Data contract v2. Every lane reads these shapes. v4 additions (columns appended, so older rows stay valid):
  * Buildings.levels / Buildings.height (extrusion on the campus map; seeded by the campus-map build, overridable) and
  * NavNodes.primary (an entrance visitors are routed to; seeded by the primary-entrance heuristic, overridable).
+ * v5 additions: Rooms.access and NavNodes.access ("main" | "alt" | "emergency", blank reads as "main"): the class of
+ * a corridor, a door, an entrance or a waypoint (routes prefer main, may use alt, never use emergency). access
+ * replaces NavNodes.primary (primary true reads as main); the column stays until every reader has moved.
+ *  - appended: columns added after the generated seed's format; a seed row without them is padded with blanks.
  *  - text:  columns forced to plain-text format so Sheets keeps "0141" as "0141".
  *  - json:  columns stored as JSON strings and parsed on read.
  *  - bools: boolean columns with the default used when a cell is blank.
@@ -82,16 +86,18 @@ function getSheetDefinitions_() {
     },
     {
       name: 'Rooms',
-      headers: ['id', 'floorId', 'number', 'label', 'type', 'polygon', 'centerX', 'centerY', 'searchable'],
-      text: ['id', 'floorId', 'number', 'label', 'type'],
+      headers: ['id', 'floorId', 'number', 'label', 'type', 'polygon', 'centerX', 'centerY', 'searchable', 'access'],
+      text: ['id', 'floorId', 'number', 'label', 'type', 'access'],
       json: ['polygon'],
-      bools: { searchable: true }
+      bools: { searchable: true },
+      appended: ['access']
     },
     {
       name: 'NavNodes',
-      headers: ['id', 'floorId', 'x', 'y', 'type', 'roomId', 'linkId', 'primary'],
-      text: ['id', 'floorId', 'type', 'roomId', 'linkId'],
-      bools: { primary: false }
+      headers: ['id', 'floorId', 'x', 'y', 'type', 'roomId', 'linkId', 'primary', 'access'],
+      text: ['id', 'floorId', 'type', 'roomId', 'linkId', 'access'],
+      bools: { primary: false },
+      appended: ['access']
     },
     {
       name: 'NavEdges',

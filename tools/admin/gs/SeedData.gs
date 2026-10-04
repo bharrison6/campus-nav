@@ -158,11 +158,11 @@ function getNavNodesSeedRows_() {
   var ids = typeof getGeneratedPrimaryEntrances === 'function' ? (getGeneratedPrimaryEntrances() || []) : [];
   var primary = {};
   for (var p = 0; p < ids.length; p++) primary[ids[p]] = true;
-  var width = getSheetDefinition_('NavNodes').headers.length;
+  var at = getSheetDefinition_('NavNodes').headers.indexOf('primary');
   var out = [];
   for (var i = 0; i < rows.length; i++) {
     var r = rows[i];
-    out.push(r.length === width - 1 ? r.concat([primary[r[0]] === true]) : r);
+    out.push(r.length === at ? r.concat([primary[r[0]] === true]) : r);
   }
   return out;
 }
@@ -234,13 +234,20 @@ function seedAllCampusData(ss) {
   return result;
 }
 
-/** Throws when a dataset's rows do not match its tab's v2 header width. */
+/**
+ * Throws when a dataset's rows do not match its tab's v2 header width. A row that lacks only the tab's appended
+ * columns (def.appended, newer than the generated seed's format) is padded with blanks in place.
+ */
 function validateSeedRows_(name, rows) {
   var def = getSheetDefinition_(name);
   var width = def.headers.length;
+  var short = width - (def.appended ? def.appended.length : 0);
   var seen = {};
   for (var r = 0; r < rows.length; r++) {
     var row = rows[r];
+    if (row && row.length >= short && row.length < width) {
+      while (row.length < width) row.push('');
+    }
     if (!row || row.length !== width) {
       throw new Error('Seed ' + name + ' row ' + (r + 1) + ' has ' + (row ? row.length : 0) +
         ' columns; contract v2 expects ' + width + ' (' + def.headers.join(', ') + ').');
