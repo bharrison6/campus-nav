@@ -188,7 +188,7 @@ function getSeedDatasets_() {
  */
 function seedAllCampusData(ss) {
   if (!ss || typeof ss.getSheetByName !== 'function') {
-    throw new Error('seedAllCampusData needs the backing spreadsheet; call ?action=init instead.');
+    throw new Error('seedAllCampusData needs the backing spreadsheet; call initSystem() instead.');
   }
   var datasets = getSeedDatasets_();
   for (var v = 0; v < datasets.length; v++) {

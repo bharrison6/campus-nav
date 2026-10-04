@@ -181,7 +181,7 @@ function getMapsApiKey_(configObjects) {
 function getSpreadsheet_() {
   var sheetId = PropertiesService.getScriptProperties().getProperty('SHEET_ID');
   if (!sheetId) {
-    throw new Error('System not initialized. Call ?action=init first.');
+    throw new Error('System not initialized. Call initSystem() first.');
   }
   return SpreadsheetApp.openById(sheetId);
 }

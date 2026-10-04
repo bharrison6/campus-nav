@@ -18,26 +18,26 @@ function fixtureDir(files) {
   return dir;
 }
 
-test('renderPage inlines nested includes, maps printing scriptlets, strips comments', () => {
+test('renderPage inlines nested includes and strips comments', () => {
   const dir = fixtureDir({
-    Page: '<head><?!= include(\'Styles\') ?></head><body><!-- note --><?= ScriptApp.getService().getUrl(); ?>|<?!= include("Part") ?></body>',
+    Page: '<head><?!= include(\'Styles\') ?></head><body><!-- note --><?!= include("Part") ?></body>',
     Styles: '<style>a{}</style>',
     Part: '<p>part</p><?!= include(\'Leaf\') ?>',
     Leaf: '<i>leaf</i>',
   });
-  const html = renderPage(dir, 'Page', { scriptlets: { 'ScriptApp.getService().getUrl()': 'https://x.example/exec' } });
-  assert.equal(html, '<head><style>a{}</style></head><body>https://x.example/exec|<p>part</p><i>leaf</i></body>');
+  assert.equal(renderPage(dir, 'Page'), '<head><style>a{}</style></head><body><p>part</p><i>leaf</i></body>');
 });
 
-test('renderPage refuses leftover scriptlets, cycles, missing and unsafe includes; blank mode blanks', () => {
+test('renderPage refuses leftover scriptlets, cycles, missing and unsafe includes', () => {
   const dir = fixtureDir({
     Code: '<p><? var x = 1; ?></p>',
+    Print: '<p><?= ScriptApp.getService().getUrl(); ?></p>',
     A: '<?!= include(\'B\') ?>',
     B: '<?!= include(\'A\') ?>',
     Missing: '<?!= include(\'Nope\') ?>',
   });
   assert.throws(() => renderPage(dir, 'Code'), /unhandled scriptlet in Code/);
-  assert.equal(renderPage(dir, 'Code', { onUnhandled: 'blank' }), '<p></p>');
+  assert.throws(() => renderPage(dir, 'Print'), /unhandled scriptlet in Print/);
   assert.throws(() => renderPage(dir, 'A'), /include cycle: A -> B -> A/);
   assert.throws(() => renderPage(dir, 'Missing'), /include not found: Nope/);
   assert.throws(() => renderPage(dir, '../Code'), /invalid include name/);

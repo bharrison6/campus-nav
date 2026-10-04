@@ -41,7 +41,6 @@ const BUILDINGS = 89;
 
 // google.script.run returns JSON-shaped values; compare in that shape.
 const js = (v) => (v === undefined ? v : JSON.parse(JSON.stringify(v)));
-const doGetJson = (R, parameter) => JSON.parse(R.ctx.doGet({ parameter }).text);
 
 // ---------------------------------------------------------------------------------------------
 // Part 1: synthetic seed
@@ -52,15 +51,12 @@ const g = new Proxy(R.ctx, {
   get: (o, k) => (typeof o[k] === 'function' ? (...a) => js(o[k](...a)) : o[k]),
 });
 
-test('ping route; uninitialized data calls name ?action=init', () => {
-  assert.deepEqual(doGetJson(R, { action: 'ping' }), { ok: true, data: 'pong' });
-  const out = doGetJson(R, { action: 'getAllCampusData' });
-  assert.equal(out.ok, false);
-  assert.match(out.error, /init/);
+test('uninitialized data calls name initSystem', () => {
+  assert.throws(() => R.ctx.getAllCampusData(), /initSystem\(\)/);
 });
 
 test('initSystem creates and seeds; idempotent; no PIN or settings any more', () => {
-  const init = doGetJson(R, { action: 'init' }).data;
+  const init = g.initSystem();
   assert.equal(init.created, true);
   assert.deepEqual(init.seeded, { Buildings: BUILDINGS, Floors: 2, Rooms: 3, NavNodes: 3, NavEdges: 2 });
   assert.equal(init.counts.Config, 1);
@@ -154,12 +150,10 @@ test('CRUD: floors, buildings, entrances, nav nodes/edges (updateNavEdge as the 
   assert.equal(typeof q.createdDate, 'string');
 });
 
-test('getFloorPlanSvg errors clearly; include() validates', () => {
+test('getFloorPlanSvg errors clearly', () => {
   assert.throws(() => g.getFloorPlanSvg('floor-it-9'), /FP_floor_it_9 not found for floor floor-it-9/);
   assert.throws(() => g.getFloorPlanSvg('../x'), /floorId is required/);
-  assert.equal(doGetJson(R, { action: 'getFloorPlanSvg', floorId: 'floor-it-9' }).ok, false);
   assert.ok(g.getFloorPlanSvg('floor-it-3').includes('<svg'));
-  assert.throws(() => g.include('../x'), /invalid/);
 });
 
 test('seed validation rejects wrong-width generated rows before writing', () => {

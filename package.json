@@ -10,7 +10,7 @@
     "test:e2e:headed": "playwright test -c tests/e2e/playwright.config.ts --headed",
     "test:smoke": "playwright test -c playwright.config.ts",
     "build": "node scripts/build/build-site.mjs",
-    "preview": "node dev/serve.mjs --dist dist --base /campus-nav/ --build",
+    "preview": "node dev/serve.mjs --build",
     "serve": "node dev/serve.mjs",
     "pipeline": "node scripts/floorplan-pipeline/run.mjs --out data/floorplans",
     "export:data": "node scripts/data/export-campus-data.mjs --out build/data",

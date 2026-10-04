@@ -1,18 +1,18 @@
-// Guards every served page file (src/web/WebApp*.html, and Admin.html wherever the admin lives): client JS stays
+// Guards every served page file (src/web/WebApp*.html and tools/admin/Admin.html): client JS stays
 // ES5 syntax (no let/const, arrow functions, template literals, classes, spread, async) so older phones keep
 // working, includes carry no template scriptlets, and no Google Maps key literal ever lands in a page.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import vm from 'node:vm';
-import { ROOT, SRC, GAS_SRC, scriptBodies } from './load-include.mjs';
+import { ROOT, SRC, scriptBodies } from './load-include.mjs';
 
-const ADMIN = [join(ROOT, 'tools', 'admin', 'Admin.html'), GAS_SRC && join(GAS_SRC, 'Admin.html')].find((p) => p && existsSync(p));
-const paths = readdirSync(SRC).filter((f) => /^WebApp.*\.html$/.test(f)).map((f) => join(SRC, f)).concat(ADMIN ? [ADMIN] : []);
+const ADMIN = join(ROOT, 'tools', 'admin', 'Admin.html');
+const paths = readdirSync(SRC).filter((f) => /^WebApp.*\.html$/.test(f)).map((f) => join(SRC, f)).concat([ADMIN]);
 const files = paths.map((p) => basename(p));
 const pathOf = Object.fromEntries(paths.map((p) => [basename(p), p]));
-const shells = ['WebApp.html', 'Admin.html']; // page templates: the only files that may hold scriptlets
+const shells = ['WebApp.html']; // the page template: the only file that may hold (include) scriptlets
 
 // Blank out comments, strings and regex literals well enough to scan the remaining code tokens.
 function codeOnly(js) {

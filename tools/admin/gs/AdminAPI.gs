@@ -52,7 +52,7 @@ function incrementDataVersion_(ss) {
 
 function tab_(ss, name) {
   var sheet = ss.getSheetByName(name);
-  if (!sheet) throw new Error('Sheet tab missing: ' + name + '. Run ?action=init.');
+  if (!sheet) throw new Error('Sheet tab missing: ' + name + '. Run initSystem().');
   return { sheet: sheet, def: getSheetDefinition_(name) };
 }
 

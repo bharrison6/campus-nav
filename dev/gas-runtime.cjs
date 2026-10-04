@@ -13,10 +13,10 @@
 // Models what the backend relies on: SpreadsheetApp (tabs, ranges, getValues/setValues with the
 // Sheets coercion of numeric and boolean strings unless the column is plain text '@', the
 // 50,000-character cell limit, row bounds), PropertiesService, CacheService, LockService, Utilities
-// (digest, uuid, blob bytes), HtmlService (project HTML files; templates record title and meta tags)
-// and ContentService. Started as lane B's mock (2026-10-03). Since v3 (static site) the .gs files are no
-// longer deployed anywhere: this runtime is their only engine, used by the build-time export
-// (scripts/data/export-campus-data.mjs), the local admin (tools/admin/server.mjs) and tests/unit.
+// (digest, uuid, blob bytes) and HtmlService (project HTML files: the floor-plan assets). Started as
+// lane B's mock (2026-10-03). Since v3 (static site) the .gs files are no longer deployed anywhere: this
+// runtime is their only engine, used by the build-time export (scripts/data/export-campus-data.mjs), the
+// local admin (tools/admin/server.mjs) and tests/unit.
 'use strict';
 const fs = require('fs');
 const path = require('path');
@@ -133,16 +133,6 @@ function makeRuntime(srcDir, extraCode, opts) {
     throw new Error('No HTML file named ' + name + ' was found.');
   }
 
-  function htmlOutput(file) {
-    const out = {
-      file, title: '', metaTags: {}, xFrameOptionsMode: null,
-      setTitle(t) { out.title = t; return out; },
-      addMetaTag(name, content) { out.metaTags[name] = content; return out; },
-      setXFrameOptionsMode(m) { out.xFrameOptionsMode = m; return out; },
-    };
-    return out;
-  }
-
   let theSS = null;
   const ctx = {
     console,
@@ -173,13 +163,7 @@ function makeRuntime(srcDir, extraCode, opts) {
       base64Encode: (b) => Buffer.from(b).toString('base64'),
     },
     HtmlService: {
-      XFrameOptionsMode: { ALLOWALL: 'ALLOWALL' },
       createHtmlOutputFromFile: (name) => { const c = readHtml(name); return { getContent: () => c }; },
-      createTemplateFromFile: (name) => { readHtml(name); return { evaluate: () => htmlOutput(name) }; },
-    },
-    ContentService: {
-      MimeType: { JSON: 'json' },
-      createTextOutput: (s) => ({ text: s, setMimeType() { return this; } }),
     },
   };
   vm.createContext(ctx);

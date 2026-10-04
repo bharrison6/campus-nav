@@ -2,8 +2,8 @@
 //   tests/unit/fixtures/campus-data.json  (shaped like getAllCampusData output)
 //   tests/unit/fixtures/svg/FP_<floor>.svg (shaped like getFloorPlanSvg output)
 // Small, deterministic, hand-checkable, and it carries room use text ("Robotics Lab") that the
-// real CAD drawings lack, so search-by-label-words stays tested. The dev harness and the e2e
-// suite use the real pipeline output instead (dev/serve.mjs runs the .gs files on SeedFloorData.gs).
+// real CAD drawings lack, so search-by-label-words stays tested. The built site and the e2e
+// suite use the real pipeline output instead (the export runs the .gs files on SeedFloorData.gs).
 //
 // Coordinates follow the contract: DWG units (inches), floor extents start at (0,0), +y down.
 // Run: node tests/unit/fixtures/build-fixtures.mjs

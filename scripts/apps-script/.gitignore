@@ -1,2 +1,0 @@
-# clasp project file: holds the script id (treat as secret). Each machine runs clasp create/clone to get its own.
-.clasp.json
