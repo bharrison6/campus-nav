@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { svgBearingWith, svgToLngLatWith } from '../../src/shared/georef.mjs';
 import { drawnEntrances } from '../campus-map/build.mjs';
+import { validateOverridesGeo } from '../campus-map/validate-geo.mjs';
 
 const COMPASS = ['North', 'Northeast', 'East', 'Southeast', 'South', 'Southwest', 'West', 'Northwest'];
 const R6 = (v) => Math.round(v * 1e6) / 1e6;
@@ -27,7 +28,7 @@ const ORDER = { main: 0, alt: 1, emergency: 2 };
 export function readDrawnEntrances(campusMapDir) {
   const p = campusMapDir && path.join(campusMapDir, 'overrides.geojson');
   if (!p || !fs.existsSync(p)) return [];
-  return drawnEntrances(JSON.parse(fs.readFileSync(p, 'utf8')).features || []).entrances;
+  return drawnEntrances(validateOverridesGeo(JSON.parse(fs.readFileSync(p, 'utf8')), p).features).entrances;
 }
 
 /** Reads every data/georef/*.json record: { buildingId -> record }. A missing directory is no records. */

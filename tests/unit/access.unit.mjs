@@ -182,8 +182,8 @@ const NURSING = [
   },
   { type: 'Feature', properties: { layer: 'entrances', building: 'bld-nursing', access: 'main', label: 'West entrance' }, geometry: { type: 'Point', coordinates: [-88.323918, 36.613827] } },
   { type: 'Feature', properties: { layer: 'entrances', building: 'bld-nursing', access: 'emergency', label: 'East exit' }, geometry: { type: 'Point', coordinates: [-88.323478, 36.613827] } },
-  { type: 'Feature', properties: { layer: 'entrances', access: 'alt' }, geometry: { type: 'Point', coordinates: [-88.3235, 36.6139] } },
 ];
+const NO_BUILDING = { type: 'Feature', properties: { layer: 'entrances', access: 'alt' }, geometry: { type: 'Point', coordinates: [-88.3235, 36.6139] } };
 
 test('drawn building and entrances (the nursing building): footprint matched, main entrance joined, emergency exit not', () => {
   const { out, features } = combined();
@@ -191,7 +191,11 @@ test('drawn building and entrances (the nursing building): footprint matched, ma
     ['entrance-bld-nursing-1', 'main', 'West entrance'],
     ['entrance-bld-nursing-2', 'emergency', 'East exit'],
   ]);
-  assert.deepEqual(drawnEntrances(features).rejected, [{ feature: features.length, why: 'no building id' }]);
+  assert.deepEqual(drawnEntrances([...features, NO_BUILDING]).rejected, [{ feature: features.length + 1, why: 'no building id' }]);
+  // the build and the export refuse such a file outright, naming the feature (Codex review v5, finding 6)
+  const bad = { type: 'FeatureCollection', features: [...features, NO_BUILDING] };
+  assert.throws(() => buildCampusMap({ ...combined().inputs, overridesGeo: bad }), new RegExp(`feature override/${features.length + 1}: an entrance names its building`));
+  assert.throws(() => buildExport({ campusMapDir: dir({ 'overrides.geojson': bad }) }), /overrides\.geojson feature override\/\d+: an entrance names its building/);
   const fp = out.buildings.find((f) => f.properties.buildingId === 'bld-nursing');
   assert.ok(fp, 'the drawn footprint is the nursing building');
   assert.deepEqual([fp.properties.name, fp.properties.levels, fp.properties.height, fp.properties.source], ['School of Nursing and Health Professions', 3, 10.5, 'override']);

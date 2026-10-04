@@ -13,10 +13,12 @@
 //   Doors & halls    door and entrance classes (navNodes access), room type and hallway class (rooms type, access),
 //                    the data lane's hallway suggestions (data/review/corridor-candidates.json) accepted or rejected
 //                    (data/overrides/corridorReview.json)
-// Save check: before a save that touches rooms, nav nodes, nav edges or floors (or one that removes an outdoor
-// path or entrance, or makes an entrance emergency), the effective data is built and checkConnectivity run on it
-// (tools/admin/connectivity-gate.mjs); a save that cuts off a room or a building is refused, nothing is written, and
-// the reply lists what it would cut off.
+// Save check: before every save that can change a route (rooms, nav nodes, nav edges, floors, buildings, path
+// classes, drawn paths, buildings and entrances, footprint replacements and deletions), the complete public data it
+// would publish (campus and outdoor graph from the same proposed overrides) is built and checkConnectivity run on it
+// (tools/admin/connectivity-gate.mjs); a save after which any searchable room or building with entrances has no route
+// is refused, nothing is written, and the reply lists what would be unreachable. Map overrides are validated
+// (scripts/campus-map/validate-geo.mjs) before they are checked or written.
 //
 //   npm run admin                       http://localhost:8790/
 //   node tools/admin/server.mjs [--port 8790]
@@ -29,19 +31,19 @@
 //                      data/campus-map; a copy elsewhere keeps a trial run off the committed files)
 //   MSCN_REVIEW_DIR    where corridor-candidates.json is read (default data/review)
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
-import { OVERRIDES_DIR, REPO, describeReport, openCampus, writeOverrides } from '../../scripts/data/campus-engine.mjs';
+import { OVERRIDES_DIR, REPO, describeReport, openCampus, writeFileAtomic } from '../../scripts/data/campus-engine.mjs';
 import { COLLECTIONS, canonical } from '../../scripts/data/overrides.mjs';
 import { buildExport } from '../../scripts/data/export-campus-data.mjs';
+import { validateOverridesGeo } from '../../scripts/campus-map/validate-geo.mjs';
 import {
-  DOOR_ACCESS, addBuilding, addEntrance, addPath, deleteFeature, featureId, formatGeo, formatPathAccess, geoEditIsAdditive,
+  DOOR_ACCESS, addBuilding, addEntrance, addPath, deleteFeature, featureId, formatGeo, formatPathAccess,
   setPathAccess, updateFeature, validatePathAccess,
 } from './map-overrides.mjs';
-import { CONNECTIVITY, cutOffs, describeCutOffs, refusal, runCheck } from './connectivity-gate.mjs';
+import { CONNECTIVITY, describeUnreachable, mapBuildInMemory, proposedPublicData, refusal, runCheck } from './connectivity-gate.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_PORT = 8790;
@@ -66,9 +68,6 @@ const MAPLIBRE_FILES = ['maplibre-gl.mjs', 'maplibre-gl-shared.mjs', 'maplibre-g
 /** Campus-map files the admin map may read, relative to CAMPUS_MAP_DIR. */
 const CAMPUS_MAP_FILE = /^(buildings\.geojson|manifest\.json|aerial\.json|layers\/[a-z]+\.geojson|aerial\/\d{1,2}\/\d{1,7}\/\d{1,7}\.(jpg|png))$/;
 const TYPES = { '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.geojson': 'application/json', '.jpg': 'image/jpeg', '.png': 'image/png' };
-
-// The campus-map build, for the save check's in-memory outdoor graph (loaded ahead: saves are synchronous).
-const [{ loadInputs: loadMapInputs }, { buildCampusMap }] = await Promise.all([import('../../scripts/campus-map/inputs.mjs'), import('../../scripts/campus-map/build.mjs')]);
 
 /** The site address for QR codes: MSCN_SITE_URL, else build.config.json siteUrl, else the planned Pages URL. */
 export function resolveSiteUrl(env = process.env) {
@@ -112,23 +111,11 @@ const shown = (p) => (path.relative(REPO, p).startsWith('..') ? p : path.relativ
 
 /** Reads a JSON file, or dflt when it does not exist. */
 const readJson = (p, dflt) => (fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf8')) : dflt);
-/** Writes a file through a temporary sibling, so a reader never sees half of it. */
-function writeAtomic(p, text) {
-  fs.mkdirSync(path.dirname(p), { recursive: true });
-  const tmp = `${p}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, text);
-  fs.renameSync(tmp, p);
-}
-const GATED = ['rooms', 'navNodes', 'navEdges', 'floors'];
+/** Writes a file through a temporary sibling, so a reader never sees half of it (the engine's own helper). */
+const writeAtomic = writeFileAtomic;
+/** The collections a route depends on: a write that changes one of them is checked (config, photos, QR codes are not). */
+const GATED = ['rooms', 'navNodes', 'navEdges', 'floors', 'buildings'];
 const truthy = (v) => v === true || String(v).toLowerCase() === 'true';
-
-/**
- * The outdoor graph the campus-map build gives with these map overrides, built in memory (about 10 s): the save
- * check uses it for a map edit that can cut something off.
- */
-export function outdoorGraphInMemory(overridesGeo, overridesDir) {
-  return buildCampusMap({ ...loadMapInputs({ overridesDir }), overridesGeo }).graph;
-}
 
 /**
  * @param {Function|null} [o.rebuildMap] runs the campus-map build after a map-relevant save (returns a promise);
@@ -138,12 +125,12 @@ export function outdoorGraphInMemory(overridesGeo, overridesDir) {
  * @param {string} [o.reviewDir]     corridor-candidates.json (default data/review)
  * @param {{check: Function, source: string}|null} [o.connectivity]  the save check (default: the shared check,
  *   scripts/data/connectivity.mjs); null turns the check off
- * @param {Function} [o.outdoorGraphFor]  (overridesGeo, overridesDir) -> outdoor graph, for map edits that can cut
- *   something off (default: the campus-map build in memory)
+ * @param {Function} [o.mapBuild]  ({overridesDir, overrides, geo, pathAccess}) -> {graph, files}: the campus-map
+ *   build the save check runs on the proposed inputs (default: the build in memory, cached by its inputs)
  */
 export function createAdmin({
   overridesDir = OVERRIDES_DIR, gsDir, extraCode, env = process.env, log = console.log, rebuildMap,
-  campusMapDir = CAMPUS_MAP_DIR, reviewDir = REVIEW_DIR, connectivity = CONNECTIVITY, outdoorGraphFor = outdoorGraphInMemory,
+  campusMapDir = CAMPUS_MAP_DIR, reviewDir = REVIEW_DIR, connectivity = CONNECTIVITY, mapBuild = mapBuildInMemory,
 } = {}) {
   const open = () => openCampus({ gsDir, overridesDir, extraCode });
   let campus = open();
@@ -197,32 +184,28 @@ export function createAdmin({
 
   // ---- the save check ----
   const outdoorGraph = () => readJson(path.join(campusMapDir, 'outdoor-graph.json'), { nodes: [], edges: [] });
-  /** The published campus for a set of overrides (a temporary directory holds them for the exporter). */
-  function exportWith(overrides) {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'acc-mscn-gate-'));
-    try {
-      writeOverrides(tmp, overrides);
-      return buildExport({ gsDir, overridesDir: tmp, extraCode }).campus;
-    } finally {
-      fs.rmSync(tmp, { recursive: true, force: true });
-    }
-  }
   /** The check on the data as saved now (cached until the next change). */
   function checkSaved() {
     if (!checked) {
-      const c = buildExport({ gsDir, overridesDir, extraCode }).campus;
+      const c = buildExport({ gsDir, overridesDir, extraCode, campusMapDir }).campus;
       checked = { campus: c, result: connectivity ? runCheck(connectivity.check, c, outdoorGraph()) : null };
     }
     return checked;
   }
-  /** Throws a refusal when the proposed campus or graph cuts off something reachable now. */
-  function gate(what, { campus: proposedCampus, graph: proposedGraph } = {}) {
+  /**
+   * Throws a refusal unless the complete public data the save would publish passes the check: the proposed overrides,
+   * map overrides and path classes (each defaults to what is saved now) through the campus-map build and the export.
+   */
+  function gate(what, { overrides, geo, pathAccess } = {}) {
     if (!connectivity) return;
-    const now = checkSaved();
-    const result = runCheck(connectivity.check, proposedCampus || now.campus, proposedGraph || outdoorGraph());
-    const cut = cutOffs(now.result, result, now.campus);
-    if (cut.rooms.length || cut.buildings.length) {
-      const err = refusal(describeCutOffs(cut, now.campus), what);
+    const t0 = Date.now();
+    const proposed = proposedPublicData({
+      overrides: overrides || campus.diff(), geo: geo || readGeo(), pathAccess: pathAccess || readPathAccess(), gsDir, extraCode, mapBuild,
+    });
+    const result = runCheck(connectivity.check, proposed.campus, proposed.graph);
+    log(`[admin] save check (${what}): ${result.ok ? 'ok' : 'refused'} in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+    if (!result.ok) {
+      const err = refusal(describeUnreachable(result, proposed.campus), what);
       log(`[admin] ${err.message}`);
       throw err;
     }
@@ -231,7 +214,10 @@ export function createAdmin({
   // ---- map editor files ----
   const readGeo = () => readJson(geoPath, { type: 'FeatureCollection', features: [] });
   const readPathAccess = () => validatePathAccess(readJson(pathAccessPath, []));
-  function writeGeo(geo, why) {
+  /** Validates the proposed map overrides, checks the public data they give, then writes them. */
+  function saveGeo(geo, why) {
+    validateOverridesGeo(geo);
+    gate(why, { geo });
     writeAtomic(geoPath, formatGeo(geo));
     log(`[admin] ${why}: saved ${shown(geoPath)}`);
     checked = null;
@@ -254,12 +240,6 @@ export function createAdmin({
     for (const n of outdoorGraph().nodes || []) if (n.type === 'entrance') entrances.push({ id: n.id, lngLat: [n.lng, n.lat] });
     return { lines, entrances };
   }
-  /** A map edit that can cut something off is checked on the outdoor graph those overrides give. */
-  function gateGeo(what, op, before, after, geo) {
-    if (!connectivity || geoEditIsAdditive(op, before, after)) return;
-    gate(what, { graph: outdoorGraphFor(geo, overridesDir) });
-  }
-
   /** The Map tab's data: overrides, path classes, every entrance with its class, buildings, aerial presence. */
   function mapEditorData() {
     const pub = checkSaved().campus;
@@ -337,10 +317,11 @@ export function createAdmin({
       const geo = readGeo();
       const drawn = (geo.features || []).some((f, k) => featureId(f, k) === way && (f.properties || {}).layer === 'paths');
       if (drawn) { // a drawn path keeps its class on its feature
-        writeGeo(updateFeature(geo, way, { access: !access || access === 'auto' ? 'main' : access }).geo, `path ${way} ${access}`);
+        saveGeo(updateFeature(geo, way, { access: !access || access === 'auto' ? 'main' : access }).geo, `path ${way} ${access}`);
         return { way, access, file: shown(geoPath) };
       }
       const list = setPathAccess(readPathAccess(), way, access);
+      gate(`path ${way} ${access}`, { pathAccess: list });
       writeAtomic(pathAccessPath, formatPathAccess(list));
       log(`[admin] path ${way} ${access}: saved ${shown(pathAccessPath)}`);
       rebuildCampusMap(`path ${way} ${access}`);
@@ -349,31 +330,29 @@ export function createAdmin({
     if (fn === 'saveMapPath') {
       const geo = readGeo();
       const r = addPath(geo, a, snapTargets(geo));
-      writeGeo(r.geo, `new path ${r.id}`);
+      saveGeo(r.geo, `new path ${r.id}`);
       return { id: r.id, snaps: r.snaps };
     }
     if (fn === 'saveMapBuilding') {
       const r = addBuilding(readGeo(), a);
-      writeGeo(r.geo, `new building ${r.id}`);
+      saveGeo(r.geo, `new building ${r.id}`);
       return { id: r.id };
     }
     if (fn === 'saveMapEntrance') {
       const r = addEntrance(readGeo(), a);
-      writeGeo(r.geo, `new entrance ${r.id}`);
+      saveGeo(r.geo, `new entrance ${r.id}`);
       return { id: r.id };
     }
     if (fn === 'updateMapFeature') {
       const { id, changes } = a || {};
       const r = updateFeature(readGeo(), id, changes);
-      gateGeo(`changing ${id}`, 'update', r.before, r.after, r.geo);
-      writeGeo(r.geo, `edit ${id}`);
+      saveGeo(r.geo, `changing ${id}`);
       return { id };
     }
     if (fn === 'deleteMapFeature') {
       const { id } = a || {};
       const r = deleteFeature(readGeo(), id);
-      gateGeo(`deleting ${id}`, 'delete', r.removed.properties, null, r.geo);
-      writeGeo(r.geo, `delete ${id}`);
+      saveGeo(r.geo, `deleting ${id}`);
       return { id };
     }
     if (READ_FNS.includes(fn)) return campus.gas.run(fn, args);
@@ -384,7 +363,7 @@ export function createAdmin({
       const beforeGated = gatedData(beforeData);
       try {
         value = campus.gas.run(fn, args);
-        if (connectivity && gatedData(campus.gas.run('getAllCampusData', [])) !== beforeGated) gate(describeWrite(fn, a), { campus: exportWith(campus.diff()) });
+        if (connectivity && gatedData(campus.gas.run('getAllCampusData', [])) !== beforeGated) gate(describeWrite(fn, a), { overrides: campus.diff() });
       } catch (e) {
         campus = open(); // a write that failed half-way (or was refused) must not linger in memory and ride along with the next save
         throw e;

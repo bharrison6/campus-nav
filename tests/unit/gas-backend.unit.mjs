@@ -112,11 +112,11 @@ test('a Maps key held as a Script Property (as the local admin sets from MSCN_MA
   assert.ok(!g.getAllCampusData().config.some((c) => c.key === 'mapsApiKey'));
 });
 test('CRUD: rooms merge on update and keep text numbers', () => {
-  const { id } = g.saveRoom({ floorId: 'floor-it-1', number: '0150', label: '150', polygon: [[1, 2], [3, 4]], centerX: 0, centerY: 0 });
+  const { id } = g.saveRoom({ floorId: 'floor-it-1', number: '0150', label: '150', polygon: [[1, 2], [3, 4], [1, 4]], centerX: 0, centerY: 0 });
   g.updateRoom({ id, label: '150 Lab' });
   const r = g.getAllCampusData().rooms.find((x) => x.id === id);
   assert.deepEqual([r.number, r.label, r.centerX, r.searchable], ['0150', '150 Lab', 0, true]);
-  assert.deepEqual(r.polygon, [[1, 2], [3, 4]]);
+  assert.deepEqual(r.polygon, [[1, 2], [3, 4], [1, 4]]);
   g.updateRoom({ id, searchable: false });
   assert.equal(g.getAllCampusData().rooms.find((x) => x.id === id).searchable, false);
   assert.deepEqual(g.deleteRoom({ id }), { deleted: true });

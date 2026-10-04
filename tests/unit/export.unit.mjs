@@ -157,7 +157,7 @@ test('overrides apply at export, change the version, and orphans and refusals ar
       { id: 'room-it-1-9999', label: 'gone' },
       { id: 'room-ep-1-1322', _delete: true },
     ],
-    qrLocations: [{ id: 'qrloc-test', _new: true, buildingId: 'bld-it', floorId: 'floor-it-1', nodeId: 'it-1-n1', description: 'Lobby', permanent: true }],
+    qrLocations: [{ id: 'qrloc-test', _new: true, buildingId: 'bld-it', floorId: 'floor-it-1', nodeId: 'it-1-n0490', description: 'Lobby', permanent: true }],
     buildings: [{ id: 'bld-it', photoUrl: 'https://example.org/it.jpg' }],
     config: [{ key: 'mapsApiKey', _new: true, value: 'test-only-maps-key' }],
   });
@@ -185,4 +185,18 @@ test('a malformed overrides file stops the export with the file named', () => {
   const bad = dir();
   fs.writeFileSync(path.join(bad, 'rooms.json'), '{ not json');
   assert.throws(() => buildExport({ overridesDir: bad }), /rooms\.json/);
+});
+
+test('a persisted override with a bad class, number, polygon or id stops the export with its file, index and id (review v5, finding 5)', () => {
+  const cases = [
+    [{ navNodes: [{ id: 'ep-1-n0365', access: 'bogus' }] }, /navNodes\.json\[0\] \(ep-1-n0365\): access must be main, alt or emergency \(got "bogus"\)/],
+    [{ navNodes: [{ id: 'ep-1-n0365', x: 'not-a-number' }] }, /navNodes\.json\[0\] \(ep-1-n0365\): x must be a number/],
+    [{ rooms: [{ id: 'room-ep-1-1322', access: 'alt' }, { id: 'room-it-1-0141', polygon: 'not-json' }] }, /rooms\.json\[1\] \(room-it-1-0141\): polygon must be JSON/],
+    [{ rooms: [{ id: 'room-it-1-0141', polygon: [[0, 0], [1, 1]] }] }, /rooms\.json\[0\] \(room-it-1-0141\): polygon must be a list of at least three/],
+    [{ navEdges: [{ id: 'edge-x', _new: true, fromNodeId: 'ep-1-n0365', toNodeId: 'no-such-node' }] }, /navEdges\.json\[0\] \(edge-x\): toNodeId names no NavNodes record: no-such-node/],
+    [{ buildings: [{ id: 'bld-it', lat: 136 }] }, /buildings\.json\[0\] \(bld-it\): lat must be from -90 to 90/],
+  ];
+  for (const [files, re] of cases) assert.throws(() => buildExport({ overridesDir: dir(files) }), re);
+  // the committed overrides pass the same rules
+  assert.doesNotThrow(() => buildExport());
 });

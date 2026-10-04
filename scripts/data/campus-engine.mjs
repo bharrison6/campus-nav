@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { COLLECTIONS, applyOverrides, diffOverrides, formatOverrides, orphanRecords, validateOverrides } from './overrides.mjs';
+import { COLLECTIONS, applyOverrides, diffOverrides, formatOverrides, keyOf, orphanRecords, validateOverrides } from './overrides.mjs';
 
 const require = createRequire(import.meta.url);
 const { makeRuntime, GS_DIR } = require('../../dev/gas-runtime.cjs');
@@ -37,7 +37,23 @@ export function readOverrides(dir = OVERRIDES_DIR) {
   return out;
 }
 
-/** Writes every collection file whose content changed; returns the paths written. */
+/**
+ * Writes a file through a temporary sibling and a rename, so a reader (or the next admin start, after an interrupted
+ * write) never sees half of it. Shared by writeOverrides and the local admin's own files.
+ */
+export function writeFileAtomic(p, text) {
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  const tmp = `${p}.${process.pid}.tmp`;
+  try {
+    fs.writeFileSync(tmp, text);
+    fs.renameSync(tmp, p);
+  } catch (e) {
+    fs.rmSync(tmp, { force: true });
+    throw e;
+  }
+}
+
+/** Writes every collection file whose content changed (each atomically); returns the paths written. */
 export function writeOverrides(dir, overrides) {
   fs.mkdirSync(dir, { recursive: true });
   const written = [];
@@ -45,7 +61,7 @@ export function writeOverrides(dir, overrides) {
     const p = path.join(dir, `${c}.json`);
     const text = formatOverrides(overrides[c] || []);
     if (fs.existsSync(p) && fs.readFileSync(p, 'utf8') === text) continue;
-    fs.writeFileSync(p, text);
+    writeFileAtomic(p, text);
     written.push(p);
   }
   return written;
@@ -79,6 +95,26 @@ function writeTabs(gas, data) {
 }
 
 /**
+ * Every override record that sets fields is checked with the backend's own record rules (AdminAPI.gs recordProblem_:
+ * access classes, numbers and coordinates, room polygons, and the ids it names, against the merged data), so a
+ * malformed hand edit fails here with its file, index and id instead of breaking the export or the app later.
+ */
+function checkOverrideRecords(gas, overrides, merged, dir) {
+  const ids = {};
+  for (const [c, tab] of Object.entries(COLLECTIONS)) ids[tab] = new Set((merged[c] || []).map((r) => String(r[keyOf(c)])));
+  const exists = (tab, id) => !!ids[tab] && ids[tab].has(String(id));
+  for (const [c, records] of Object.entries(overrides)) {
+    const tab = COLLECTIONS[c];
+    records.forEach((r, i) => {
+      if (r._delete) return;
+      const applied = ids[tab].has(String(r[keyOf(c)]));
+      const why = gas.ctx.recordProblem_(tab, r, applied ? exists : undefined);
+      if (why) throw new Error(`${path.join(dir, `${c}.json`)}[${i}] (${r[keyOf(c)]}): ${why}`);
+    });
+  }
+}
+
+/**
  * Opens the campus: runtime, seeded base, overrides applied.
  * @param {Object} [o]
  * @param {string} [o.gsDir]         backend folder (default tools/admin/gs)
@@ -94,6 +130,7 @@ export function openCampus({ gsDir, overridesDir = OVERRIDES_DIR, extraCode, pro
   const base = readTabs(gas);
   const overrides = readOverrides(overridesDir);
   const { data, report } = applyOverrides(base, overrides, headers);
+  checkOverrideRecords(gas, overrides, data, overridesDir);
   writeTabs(gas, data);
   const keep = orphanRecords(overrides, report);
   return {

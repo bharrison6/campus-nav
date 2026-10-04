@@ -9,10 +9,11 @@ import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { createAdmin } from '../../tools/admin/server.mjs';
 import {
-  addBuilding, addEntrance, addPath, autoPathAccess, deleteFeature, featureId, formatGeo, geoEditIsAdditive, setPathAccess, snapPoint,
+  addBuilding, addEntrance, addPath, autoPathAccess, deleteFeature, featureId, formatGeo, setPathAccess, snapPoint,
   updateFeature,
 } from '../../tools/admin/map-overrides.mjs';
-import { CONNECTIVITY, cutOffs, prepareForCheck } from '../../tools/admin/connectivity-gate.mjs';
+import { CONNECTIVITY, prepareForCheck, proposedPublicData } from '../../tools/admin/connectivity-gate.mjs';
+import { validateOverridesGeo } from '../../scripts/campus-map/validate-geo.mjs';
 import { checkConnectivity } from '../../scripts/data/connectivity.mjs';
 import { buildExport } from '../../scripts/data/export-campus-data.mjs';
 import { loadInputs } from '../../scripts/campus-map/inputs.mjs';
@@ -90,6 +91,12 @@ test('a drawn path snaps its ends to an entrance, a vertex or a segment within 4
 
 test('a drawn building closes its ring and keeps name, code, levels, height; a redraw of an OSM building writes replaces', () => {
   const geo = { type: 'FeatureCollection', features: [] };
+  // a footprint needs three distinct corners and an area: repeated points and a straight line are refused, a redraw too
+  const same = [[-88, 36], [-88, 36], [-88, 36], [-88, 36]];
+  assert.throws(() => addBuilding(geo, { ring: same, name: 'x' }), /building: at least three distinct corners expected, got 1/);
+  assert.throws(() => addBuilding(geo, { ring: same, name: 'x', replaces: 'way/1232965496' }), /three distinct corners/);
+  assert.throws(() => addBuilding(geo, { ring: [[-88.33, 36.61], [-88.32, 36.61], [-88.31, 36.61]], name: 'x' }), /building: its corners enclose no area/);
+  assert.throws(() => addBuilding(geo, { ring: [[-88.33, 36.61], [-88.33, 36.61], [-88.329, 36.611], [-88.33, 36.61]], name: 'x' }), /three distinct corners/);
   const r = addBuilding(geo, { ring: [[-88.33, 36.61], [-88.329, 36.61], [-88.329, 36.611]], name: 'School of Nursing and Health Professions', code: 'NHP', levels: '3', height: 14 });
   const f = r.geo.features[0];
   assert.deepEqual(f.properties, {
@@ -126,10 +133,23 @@ test('an entrance point carries building, access and label; edits keep to the la
   assert.throws(() => updateFeature(u.geo, 'override/1', { access: 'emergency' }), /main, alt/, 'paths have no emergency class');
   assert.equal(deleteFeature(u.geo, r.id).geo.features.length, 1);
   assert.throws(() => deleteFeature(u.geo, 'entrance-none'), /no feature/);
-  assert.equal(geoEditIsAdditive('update', { layer: 'entrances', access: 'main' }, { layer: 'entrances', access: 'emergency' }), false);
-  assert.equal(geoEditIsAdditive('update', { layer: 'paths', access: 'main' }, { layer: 'paths', access: 'alt' }), true);
-  assert.equal(geoEditIsAdditive('delete', { layer: 'paths' }), false);
-  assert.equal(geoEditIsAdditive('add'), true);
+});
+
+test('overrides.geojson is validated as a whole: collection, layers, geometries and positions, naming the feature', () => {
+  const ok = readJson(path.join(MAP_DIR, 'overrides.geojson'));
+  assert.equal(validateOverridesGeo(ok), ok, 'the committed file passes');
+  const bld = (ring, id = 'building-x') => ({ type: 'Feature', properties: { layer: 'buildings', id, name: 'x' }, geometry: { type: 'Polygon', coordinates: [ring] } });
+  const fc = (...features) => ({ type: 'FeatureCollection', features });
+  assert.throws(() => validateOverridesGeo({ type: 'Feature' }), /a GeoJSON FeatureCollection expected/);
+  assert.throws(() => validateOverridesGeo({ type: 'FeatureCollection' }), /"features" must be an array/);
+  assert.throws(() => validateOverridesGeo(fc(bld([[-88, 36], [-88, 36], [-88, 36], [-88, 36]]))), /feature building-x: at least three distinct corners expected/);
+  assert.throws(() => validateOverridesGeo(fc(bld([[-88, 36], [-87.999, 36], [-87.998, 36], [-88, 36]]))), /feature building-x: its corners enclose no area/);
+  assert.throws(() => validateOverridesGeo(fc({ type: 'Feature', properties: { layer: 'entrances', building: 'b' }, geometry: { type: 'Point' } })), /feature override\/1: a position is not \[lng, lat\] numbers/);
+  assert.throws(() => validateOverridesGeo(fc({ type: 'Feature', properties: { layer: 'paths', id: 'path-a' }, geometry: { type: 'LineString', coordinates: [[-88, 36], [-88, 36]] } })), /feature path-a: a path needs at least two distinct positions/);
+  assert.throws(() => validateOverridesGeo(fc({ type: 'Feature', properties: { layer: 'paths', id: 'path-b' }, geometry: { type: 'Polygon', coordinates: [] } })), /feature path-b: a path is a LineString/);
+  assert.throws(() => validateOverridesGeo(fc({ type: 'Feature', properties: { layer: 'labels' }, geometry: { type: 'Point', coordinates: [0, 0] } })), /feature override\/1: layer: one of buildings, paths, entrances/);
+  assert.throws(() => validateOverridesGeo(fc(bld([[-88, 36], [-87.999, 36], [-87.999, 36.001]]), bld([[-88, 36], [-87.999, 36], [-87.999, 36.001]]))), /feature building-x: the id is used by another feature/);
+  assert.throws(() => validateOverridesGeo(fc({ type: 'Feature', properties: { layer: 'entrances', building: 'b' }, geometry: { type: 'Point', coordinates: [200, 36] } })), /not a longitude and latitude/);
 });
 
 // ---------------------------------------------------------------- the server writes them
@@ -210,25 +230,69 @@ test('save check: removing the only door to EP 1322 is refused with what it cuts
   }
 });
 
-test('save check on the map: deleting an outdoor link that cuts a building off is refused; adding never runs the slow check', () => {
-  let builds = 0;
-  const realGraph = readJson(path.join(MAP_DIR, 'outdoor-graph.json'));
-  // stands in for the campus-map build: the graph those overrides give no longer joins EP 1322's door to the paths
-  const cut = { ...realGraph, edges: realGraph.edges.filter((x) => x.from !== 'ep-1-n0365' && x.to !== 'ep-1-n0365') };
-  const { admin, campusMapDir } = editor({ outdoorGraphFor: () => { builds++; return cut; } });
+const REAL_GRAPH = readJson(path.join(MAP_DIR, 'outdoor-graph.json'));
+/** EP 1322's door no longer joined to the paths (what deleting its only link would give). */
+const CUT_GRAPH = { ...REAL_GRAPH, edges: REAL_GRAPH.edges.filter((x) => x.from !== 'ep-1-n0365' && x.to !== 'ep-1-n0365') };
+const refusedFor = (fn) => { try { fn(); } catch (e) { return e; } return null; };
+
+test('save check on the map: every map save is checked on the complete proposed data; a delete that cuts EP 1322 off is refused', () => {
+  const builds = [];
+  // stands in for the campus-map build: EP 1322's door stays joined while the drawn west door is in the overrides
+  const mapBuild = ({ geo, pathAccess }) => {
+    builds.push({ geo, pathAccess });
+    return { graph: geo.features.some((f) => f.properties.id === 'entrance-bld-ep-1') ? REAL_GRAPH : CUT_GRAPH, files: {} };
+  };
+  const { admin, campusMapDir, overridesDir } = editor({ mapBuild });
   const e = admin.call('saveMapEntrance', [{ building: 'bld-ep', lngLat: [-88.3253, 36.6121], access: 'main', label: 'West door' }]);
-  assert.equal(builds, 0, 'an addition cannot cut anything off');
+  assert.equal(e.id, 'entrance-bld-ep-1');
+  assert.equal(builds.length, 1, 'an addition is checked too');
   admin.call('updateMapFeature', [{ id: e.id, changes: { label: 'West side door' } }]);
-  assert.equal(builds, 0);
-  assert.throws(() => admin.call('deleteMapFeature', [{ id: e.id }]), (x) => x.refused && x.refused.rooms.some((r) => r.id === 'room-ep-1-1322'));
-  assert.equal(builds, 1);
+  assert.equal(builds.length, 2, 'and an edit');
+  admin.call('setPathAccess', [{ way: 'way/108852560', access: 'alt' }]);
+  assert.equal(builds.length, 3, 'and a path class');
+  assert.deepEqual(builds[2].pathAccess, [{ way: 'way/108852560', access: 'alt' }], 'checked with the proposed path classes');
+  const err = refusedFor(() => admin.call('deleteMapFeature', [{ id: e.id }]));
+  assert.ok(err && err.refused && err.refused.rooms.some((r) => r.id === 'room-ep-1-1322'), String(err));
+  assert.equal(builds.length, 4);
+  assert.ok(!builds[3].geo.features.some((f) => f.properties.id === e.id), 'the check ran on the proposed file, without the door');
   assert.ok(readJson(path.join(campusMapDir, 'overrides.geojson')).features.some((f) => f.properties.id === e.id), 'the refused delete wrote nothing');
+  assert.deepEqual(readJson(path.join(overridesDir, 'pathAccess.json')), [{ way: 'way/108852560', access: 'alt' }]);
 });
 
-test('the gate counts only new cut-offs; entrance classes reach the outdoor graph', () => {
-  const before = { unreachableRooms: ['r-old'], unreachableBuildings: [] };
-  const afterR = { unreachableRooms: ['r-old', 'r-cut', 'r-new'], unreachableBuildings: ['b1'] };
-  assert.deepEqual(cutOffs(before, afterR, { rooms: [{ id: 'r-old' }, { id: 'r-cut' }], buildings: [{ id: 'b1' }] }), { rooms: ['r-cut'], buildings: ['b1'] });
+test('strict: a save is refused whenever the data it would publish fails the check, a new unwired room included; QR codes are not checked', () => {
+  const { admin, overridesDir } = editor();
+  // a searchable room with no nav node: before v5 review fixes it was saved, as a new record that "cut off" nothing
+  const err = refusedFor(() => admin.call('saveRoom', [{ id: 'room-it-1-9999', floorId: 'floor-it-1', number: '9999', label: 'Unwired', searchable: true }]));
+  assert.ok(err, 'refused');
+  assert.deepEqual(err.refused, { rooms: [{ id: 'room-it-1-9999', label: 'IT Unwired' }], buildings: [] });
+  assert.ok(!fs.existsSync(path.join(overridesDir, 'rooms.json')) || readJson(path.join(overridesDir, 'rooms.json')).length === 0, 'nothing written');
+  assert.ok(!admin.call('getAllCampusData', []).rooms.some((r) => r.id === 'room-it-1-9999'), 'nor kept in memory');
+  // not searchable, it needs no route: saved
+  admin.call('saveRoom', [{ id: 'room-it-1-9998', floorId: 'floor-it-1', number: '9998', label: 'Closet', searchable: false }]);
+  assert.ok(readJson(path.join(overridesDir, 'rooms.json')).some((r) => r.id === 'room-it-1-9998'));
+
+  // with a published graph that already leaves EP 1322 out, any routing save is refused, even one unrelated to it
+  const broken = editor({ mapBuild: () => ({ graph: CUT_GRAPH, files: {} }) });
+  assert.throws(() => broken.admin.call('updateRoom', [{ id: 'room-it-1-0141', label: 'IT 141 renamed' }]), /Refused: updateRoom room-it-1-0141 would leave 1 room\(s\): EP 1322 with no route/);
+  // a QR code location cannot change a route: not checked
+  broken.admin.call('saveQrLocation', [{ buildingId: 'bld-it', floorId: 'floor-it-1', nodeId: 'it-1-n0490', description: 'Lobby' }]);
+});
+
+test('the gate checks the campus and graph of the same proposed overrides: the exporter sees the drawn entrances the map build sees', () => {
+  const geo = readJson(path.join(MAP_DIR, 'overrides.geojson'));
+  const nursing = addEntrance(addBuilding(geo, { ring: [[-88.323918, 36.613647], [-88.323478, 36.613647], [-88.323478, 36.614007], [-88.323918, 36.614007]], name: 'Nursing', buildingId: 'bld-nursing' }).geo,
+    { building: 'bld-nursing', lngLat: [-88.323918, 36.613827], access: 'main', label: 'West entrance' });
+  const seen = [];
+  const p = proposedPublicData({ overrides: {}, geo: nursing.geo, pathAccess: [], mapBuild: (i) => { seen.push(i); return { graph: REAL_GRAPH, files: {} }; } });
+  assert.deepEqual(p.campus.buildings.find((b) => b.id === 'bld-nursing').entrances.map((x) => x.nodeId), ['entrance-bld-nursing-1'], 'membership from the proposed file');
+  assert.equal(seen[0].geo, nursing.geo, 'the map build got the same file');
+  // given to another building, the entrance is that building's in the proposed campus
+  const moved = updateFeature(nursing.geo, 'entrance-bld-nursing-1', { building: 'bld-it' }).geo;
+  const q = proposedPublicData({ overrides: {}, geo: moved, pathAccess: [], mapBuild: () => ({ graph: REAL_GRAPH, files: {} }) });
+  assert.ok(!(q.campus.buildings.find((b) => b.id === 'bld-nursing').entrances || []).some((x) => x.nodeId === 'entrance-bld-nursing-1'));
+});
+
+test('prepareForCheck: entrance classes reach the outdoor graph', () => {
   const campus = {
     rooms: [{ id: 'h', floorId: 'f', type: 'corridor', access: 'emergency', polygon: [[0, 0], [10, 0], [10, 10], [0, 10]] }],
     navNodes: [{ id: 'w1', floorId: 'f', type: 'waypoint', x: 5, y: 5 }, { id: 'w2', floorId: 'f', type: 'waypoint', x: 50, y: 5 }, { id: 'e', floorId: 'f', type: 'entrance', x: 0, y: 0, access: 'alt' }],
@@ -289,6 +353,15 @@ test('map editor round trip: a drawn building, its entrances and a path to them,
   const r = P.findPath(g, P.nodesForRoom(g, 'room-it-1-0141'), P.mainEntrances(g, 'bld-nursing'));
   assert.ok(r, 'routed');
   assert.equal(r.nodeIds[r.nodeIds.length - 1], 'entrance-bld-nursing-1');
+
+  // giving the main entrance to another building leaves the nursing building only its emergency exit: refused, checked
+  // on the campus and graph built from the same proposed file (Codex review v5, finding 4)
+  const err = refusedFor(() => admin.call('updateMapFeature', [{ id: main.id, changes: { building: 'bld-it' } }]));
+  assert.ok(err, 'refused');
+  assert.deepEqual(err.refused.buildings, [{ id: 'bld-nursing', label: 'School of Nursing and Health Professions' }]);
+  assert.equal(readJson(path.join(campusMapDir, 'overrides.geojson')).features.find((f) => f.properties.id === main.id).properties.building, 'bld-nursing', 'nothing written');
+  // a redraw over a degenerate ring never reaches the file
+  assert.throws(() => admin.call('saveMapBuilding', [{ ring: [[-88.33, 36.61], [-88.33, 36.61], [-88.33, 36.61], [-88.33, 36.61]], name: 'Flat' }]), /three distinct corners/);
 });
 
 test('hallway suggestions: listed from data/review, accept makes the room a hallway (checked), reject is remembered', () => {

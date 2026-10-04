@@ -152,6 +152,7 @@ function createRecord_(ss, tabName, data, prefix, required, forced) {
   if (forced) {
     for (var k in forced) if (forced.hasOwnProperty(k)) obj[k] = forced[k];
   }
+  validateRecord_(ss, tabName, obj, obj.id);
   appendRows_(t.sheet, t.def, [objectToRow_(t.def, obj, null)]);
   return { id: obj.id };
 }
@@ -162,6 +163,7 @@ function updateRecord_(ss, tabName, data, label) {
   var t = tab_(ss, tabName);
   var rowIndex = findRowById_(t.sheet, data.id);
   if (rowIndex === -1) throw new Error(label + ' not found: ' + data.id);
+  validateRecord_(ss, tabName, data, data.id);
   var existing = t.sheet.getRange(rowIndex, 1, 1, t.def.headers.length).getValues()[0];
   var row = objectToRow_(t.def, data, existing);
   row[0] = existing[0];
@@ -191,11 +193,108 @@ function createBatch_(ss, tabName, items, prefix, forced) {
     if (forced) {
       for (var k in forced) if (forced.hasOwnProperty(k)) obj[k] = forced[k];
     }
+    validateRecord_(ss, tabName, obj, '[' + i + '] ' + obj.id);
     ids.push(String(obj.id));
     rows.push(objectToRow_(t.def, obj, null));
   }
   appendRows_(t.sheet, t.def, rows);
   return { count: ids.length, ids: ids };
+}
+
+// ============================================================================
+// Record validation (Codex review v5, finding 5): every create, update and batch row, and every record of
+// data/overrides when the local engine reads it (scripts/data/campus-engine.mjs), goes through recordProblem_.
+// ============================================================================
+
+var ACCESS_CLASSES_ = ['main', 'alt', 'emergency'];
+
+/** Numeric columns per tab, with their range when they have one. */
+var NUMBER_FIELDS_ = {
+  Buildings: { lat: [-90, 90], lng: [-180, 180], levels: [0, 200], height: [0, 1000] },
+  Floors: { level: null, widthPx: [0, Infinity], heightPx: [0, Infinity], metersPerPixel: [0, Infinity] },
+  Rooms: { centerX: null, centerY: null },
+  NavNodes: { x: null, y: null },
+  NavEdges: { distance: [0, Infinity] },
+  Photos: { x: null, y: null, lat: [-90, 90], lng: [-180, 180], heading: [-360, 360] }
+};
+
+/** Columns that name a record of another tab: tab -> {field: referenced tab}. */
+var REFERENCE_FIELDS_ = {
+  Floors: { buildingId: 'Buildings' },
+  Rooms: { floorId: 'Floors' },
+  NavNodes: { floorId: 'Floors', roomId: 'Rooms' },
+  NavEdges: { fromNodeId: 'NavNodes', toNodeId: 'NavNodes' },
+  Photos: { buildingId: 'Buildings', floorId: 'Floors' },
+  QRLocations: { buildingId: 'Buildings', floorId: 'Floors', nodeId: 'NavNodes' }
+};
+
+function isBlank_(v) { return v === undefined || v === null || v === ''; }
+
+/** A number or a numeric string (a sheet cell), else NaN. */
+function numberOf_(v) {
+  if (typeof v === 'number') return v;
+  if (typeof v === 'string' && /\S/.test(v)) return Number(v);
+  return NaN;
+}
+
+/** Why a room polygon is not a list of at least three [x, y] number pairs, or ''. */
+function polygonProblem_(v) {
+  var p = v;
+  if (typeof v === 'string') {
+    try { p = JSON.parse(v); } catch (e) { return 'polygon must be JSON: a list of [x, y] points'; }
+  }
+  if (Object.prototype.toString.call(p) !== '[object Array]' || p.length < 3) return 'polygon must be a list of at least three [x, y] points';
+  for (var i = 0; i < p.length; i++) {
+    var q = p[i];
+    if (Object.prototype.toString.call(q) !== '[object Array]' || q.length < 2 || typeof q[0] !== 'number' || typeof q[1] !== 'number' ||
+        !isFinite(q[0]) || !isFinite(q[1])) {
+      return 'polygon point ' + (i + 1) + ' must be [x, y] numbers';
+    }
+  }
+  return '';
+}
+
+/**
+ * Why a record (the fields it sets) is not valid for a tab, or '' when it is. Only the fields present are checked, so
+ * an update that sets one field is checked on that field.
+ * @param {string} tabName
+ * @param {Object} obj
+ * @param {Function} [exists] (tabName, id) -> boolean: checks the ids the record names (omitted: not checked)
+ */
+function recordProblem_(tabName, obj, exists) {
+  if (!obj || typeof obj !== 'object') return 'a record object is required';
+  if ((tabName === 'Rooms' || tabName === 'NavNodes') && !isBlank_(obj.access) && ACCESS_CLASSES_.indexOf(obj.access) === -1) {
+    return 'access must be main, alt or emergency (got ' + JSON.stringify(obj.access) + ')';
+  }
+  var nums = NUMBER_FIELDS_[tabName] || {};
+  for (var f in nums) {
+    if (!nums.hasOwnProperty(f) || isBlank_(obj[f])) continue;
+    var n = numberOf_(obj[f]);
+    if (!isFinite(n)) return f + ' must be a number (got ' + JSON.stringify(obj[f]) + ')';
+    var r = nums[f];
+    if (r && (n < r[0] || n > r[1])) return f + ' must be from ' + r[0] + ' to ' + r[1] + ' (got ' + n + ')';
+  }
+  if (tabName === 'Rooms' && !isBlank_(obj.polygon)) {
+    var why = polygonProblem_(obj.polygon);
+    if (why) return why;
+  }
+  if (tabName === 'NavEdges' && !isBlank_(obj.fromNodeId) && String(obj.fromNodeId) === String(obj.toNodeId)) {
+    return 'an edge must join two different nodes';
+  }
+  if (exists) {
+    var refs = REFERENCE_FIELDS_[tabName] || {};
+    for (var k in refs) {
+      if (!refs.hasOwnProperty(k) || isBlank_(obj[k])) continue;
+      if (!exists(refs[k], String(obj[k]))) return k + ' names no ' + refs[k] + ' record: ' + obj[k];
+    }
+  }
+  return '';
+}
+
+/** Throws a precise error when a record is not valid ("NavNodes ep-1-n0365: access must be ..."). */
+function validateRecord_(ss, tabName, obj, where) {
+  var why = recordProblem_(tabName, obj, function (t, id) { return findRowById_(tab_(ss, t).sheet, id) !== -1; });
+  if (why) throw new Error(tabName + ' ' + (where || (obj && obj.id) || 'record') + ': ' + why);
 }
 
 function shallowCopy_(o) {

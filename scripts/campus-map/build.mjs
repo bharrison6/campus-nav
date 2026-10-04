@@ -17,6 +17,7 @@ import { boundaryResiduals, fitOutline, unionOutline } from './georef-fit.mjs';
 import { ACCESS, addOsmWays, addOverridePaths, applyPathAccess, connectEntrance, overrideFeatureId, OutdoorGraph, pathAccess, pruneFragments } from './outdoor-graph.mjs';
 import { choosePrimary, scoreEntrances, withEntrances } from '../floorplan-pipeline/stages/primary-entrances.mjs';
 import { overrideAccess } from '../data/overrides.mjs';
+import { validateOverridesGeo } from './validate-geo.mjs';
 
 export { withEntrances };
 import { svgBearingWith, svgToLngLatWith } from '../../src/shared/georef.mjs';
@@ -144,6 +145,7 @@ export function effectiveDoors(json, floorId, entrances, doorsById) {
  * @param {Object} [i.previousGraph]    the committed outdoor-graph.json: unchanged nodes and edges keep their ids
  */
 export function buildCampusMap({ extract, overridesGeo, seeded, buildingOverrides = [], navNodeOverrides = [], pathAccessOverrides = [], floors, pipelineReport, entrances, previousGraph = null }) {
+  if (overridesGeo) validateOverridesGeo(overridesGeo);
   const osm = indexOsm(fromExtract(extract));
   const ovFeatures = (overridesGeo && overridesGeo.features) || [];
   const report = { buildings: {}, georef: {}, entrances: {}, graph: {}, overrides: {}, access: {} };

@@ -9,6 +9,7 @@ import http from 'node:http';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 import { READ_FNS, SERVER_FNS, createAdmin, isWriteFn, mapInputsOf, resolveSiteUrl } from '../../tools/admin/server.mjs';
+import { writeFileAtomic, writeOverrides } from '../../scripts/data/campus-engine.mjs';
 import { buildExport } from '../../scripts/data/export-campus-data.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -61,7 +62,7 @@ test('writes land in data/overrides as the difference from the seed and pipeline
   assert.deepEqual(readOv(dir, 'rooms'), [{ id: 'room-it-1-0141', label: 'Dean of Engineering' }]);
   for (const c of ['buildings', 'floors', 'navNodes', 'navEdges', 'photos', 'qrLocations', 'config']) assert.deepEqual(readOv(dir, c), [], c);
 
-  const qr = admin.call('saveQrLocation', [{ buildingId: 'bld-it', floorId: 'floor-it-1', nodeId: 'it-1-n1', description: 'Main lobby', permanent: true }]);
+  const qr = admin.call('saveQrLocation', [{ buildingId: 'bld-it', floorId: 'floor-it-1', nodeId: 'it-1-n0490', description: 'Main lobby', permanent: true }]);
   const q = readOv(dir, 'qrLocations');
   assert.equal(q.length, 1);
   assert.equal(q[0].id, qr.id);
@@ -210,3 +211,52 @@ test('HTTP: the page and the shim are served; calls run; other hosts, other orig
     await new Promise((r) => admin.server.close(r));
   }
 });
+
+test('backend writes validate access, numbers, polygons and referenced ids before they change anything (review v5, finding 5)', () => {
+  const dir = freshDir();
+  const admin = createAdmin({ overridesDir: dir, log: quiet });
+  const node = () => admin.call('getAllCampusData', []).navNodes.find((x) => x.id === 'ep-1-n0365');
+  const before = node();
+  const bad = [
+    ['updateNavNode', { id: 'ep-1-n0365', access: 'bogus' }, /NavNodes ep-1-n0365: access must be main, alt or emergency \(got "bogus"\)/],
+    ['updateNavNode', { id: 'ep-1-n0365', x: 'not-a-number' }, /NavNodes ep-1-n0365: x must be a number/],
+    ['updateNavNode', { id: 'ep-1-n0365', floorId: 'floor-none' }, /floorId names no Floors record: floor-none/],
+    ['updateRoom', { id: 'room-ep-1-1322', polygon: 'not-json' }, /Rooms room-ep-1-1322: polygon must be JSON/],
+    ['updateRoom', { id: 'room-ep-1-1322', access: 'Main' }, /access must be main, alt or emergency/],
+    ['saveNavEdge', { fromNodeId: 'ep-1-n0365', toNodeId: 'nope' }, /toNodeId names no NavNodes record: nope/],
+    ['saveNavEdge', { fromNodeId: 'ep-1-n0365', toNodeId: 'ep-1-n0365' }, /an edge must join two different nodes/],
+    ['saveBatchNavNodes', { floorId: 'floor-ep-1', nodes: [{ x: 1, y: 2 }, { x: 'q', y: 2 }] }, /NavNodes \[1\] nav-\d+: x must be a number/],
+    ['updateBuilding', { id: 'bld-it', lng: 500 }, /lng must be from -180 to 180/],
+  ];
+  for (const [fn, arg, re] of bad) assert.throws(() => admin.call(fn, [arg]), re, fn);
+  assert.deepEqual(node(), before, 'nothing changed in memory');
+  assert.ok(!fs.existsSync(path.join(dir, 'navNodes.json')) || JSON.parse(fs.readFileSync(path.join(dir, 'navNodes.json'), 'utf8')).length === 0, 'nor on disk');
+  assert.equal(admin.call('getAllCampusData', []).navNodes.filter((x) => x.floorId === 'floor-ep-1' && x.x === 1 && x.y === 2).length, 0, 'a batch with one bad row adds none');
+  // a numeric string from a form field and a blank (clears) are fine
+  admin.call('updateNavNode', [{ id: 'ep-1-n0365', access: 'main', x: String(before.x) }]);
+  assert.equal(node().access, 'main');
+});
+
+test('override files are written through a temporary sibling and a rename (review v5, finding 8)', () => {
+  const dir = freshDir();
+  const calls = [];
+  const realWrite = fs.writeFileSync;
+  const realRename = fs.renameSync;
+  fs.writeFileSync = (p, ...rest) => { calls.push(['write', path.basename(String(p))]); return realWrite(p, ...rest); };
+  fs.renameSync = (a, b) => { calls.push(['rename', path.basename(String(a)), path.basename(String(b))]); return realRename(a, b); };
+  try {
+    writeOverrides(dir, { rooms: [{ id: 'room-it-1-0141', label: 'x' }] });
+  } finally {
+    fs.writeFileSync = realWrite;
+    fs.renameSync = realRename;
+  }
+  const rooms = calls.filter((c) => c.some((x) => String(x).startsWith('rooms.json')));
+  assert.equal(rooms.length, 2, JSON.stringify(calls));
+  assert.match(rooms[0][1], /^rooms\.json\.\d+\.tmp$/, 'written to a sibling first');
+  assert.deepEqual(rooms[1].slice(2), ['rooms.json'], 'then renamed over the file');
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'rooms.json'), 'utf8')), [{ id: 'room-it-1-0141', label: 'x' }]);
+  assert.deepEqual(fs.readdirSync(dir).filter((f) => f.endsWith('.tmp')), [], 'no temporary file left');
+  // the admin's own files use the same helper
+  assert.equal(typeof writeFileAtomic, 'function');
+});
+

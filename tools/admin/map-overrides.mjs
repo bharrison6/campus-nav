@@ -14,10 +14,13 @@
 // A drawn path's two ends snap to the nearest entrance, path vertex or path segment within SNAP_METERS, so it joins
 // the walking network (the campus-map build snaps again, at 3 m to a vertex and 6 m to an edge).
 
+import { ACCESS_CLASSES } from '../../scripts/data/overrides.mjs';
+import { GEO_LAYERS, geoFeatureId, ringProblem } from '../../scripts/campus-map/validate-geo.mjs';
+
 export const PATH_ACCESS = ['main', 'alt'];
-export const DOOR_ACCESS = ['main', 'alt', 'emergency'];
+export const DOOR_ACCESS = ACCESS_CLASSES;
 export const SNAP_METERS = 4;
-export const GEO_LAYERS = ['buildings', 'paths', 'entrances'];
+export { GEO_LAYERS };
 
 /** The access a path has when nobody set one (contract 3): roads are alt, everything walkable is main. */
 export function autoPathAccess(layer, kind) {
@@ -25,9 +28,7 @@ export function autoPathAccess(layer, kind) {
 }
 
 /** The id a feature is addressed by: properties.id, else override/<1-based index>. */
-export function featureId(f, i) {
-  return (f && f.properties && f.properties.id) || `override/${i + 1}`;
-}
+export const featureId = geoFeatureId;
 
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 const text = (v, field, max = 120) => {
@@ -176,7 +177,8 @@ export function addBuilding(geo, o, now) {
   const ring = raw.map((p, i) => lngLat(p, `building corner ${i + 1}`));
   const first = ring[0], last = ring[ring.length - 1];
   if (first[0] !== last[0] || first[1] !== last[1]) ring.push([first[0], first[1]]);
-  if (ring.length < 4) throw new Error('building: at least three distinct corners expected');
+  const why = ringProblem(ring);
+  if (why) throw new Error(`building: ${why}`);
   const name = text(o.name, 'name');
   if (!name) throw new Error('building: a name is required');
   const replaces = o.replaces ? text(o.replaces, 'replaces', 40) : '';
@@ -255,16 +257,4 @@ export function deleteFeature(geo, id) {
   const features = geo.features.slice();
   const [removed] = features.splice(i, 1);
   return { geo: { ...geo, features }, removed };
-}
-
-/**
- * Whether a change to overrides.geojson can only add walking connections (no connectivity check needed): new
- * features, renames, path class changes (alt stays routable) and entrance changes that do not make one emergency.
- * Deleting a path or an entrance, or making an entrance emergency, can cut something off.
- */
-export function geoEditIsAdditive(op, before, after) {
-  if (op === 'add') return true;
-  if (op === 'delete') return !before || before.layer === 'buildings';
-  if (op === 'update') return !(before && before.layer === 'entrances' && after && after.access === 'emergency' && before.access !== 'emergency');
-  return false;
 }
