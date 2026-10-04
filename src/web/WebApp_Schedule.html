@@ -40,11 +40,11 @@ function getSchedule() {
 
 function saveSchedule(events) { lsSet(LS_KEYS.schedule, JSON.stringify(events)); }
 
-function addScheduleEvent(ev) {
+function addScheduleEvent(ev, quiet) {
   var list = getSchedule();
   for (var i = 0; i < list.length; i++) {
     if (list[i].time === ev.time && list[i].building === ev.building && String(list[i].room) === String(ev.room)) {
-      toast('That event is already in your schedule.');
+      if (!quiet) { toast('That event is already in your schedule.'); }
       return false;
     }
   }
@@ -76,6 +76,7 @@ function pad2(n) { return (n < 10 ? '0' : '') + n; }
 /* Event rooms are free text from Admin QR codes ("141", "0141", "IT 141") or a CAD number from the picker. */
 function findRoomInBuilding(buildingId, roomText) {
   var floors = APP.floorsByBuilding[buildingId] || [];
+  if (roomText === null || roomText === undefined || roomText === '') { return null; }
   var raw = String(roomText || '').replace(/^\s+|\s+$/g, '');
   var b = APP.by.buildings[buildingId];
   if (b && b.code) { raw = raw.replace(new RegExp('^' + String(b.code).replace(/[^A-Za-z0-9]/g, '') + '[\\s-]*', 'i'), ''); }
@@ -108,7 +109,7 @@ function renderSchedule() {
     var next = !past && !foundNext;
     if (next) { foundNext = true; }
     var room = APP.data ? findRoomInBuilding(ev.building, ev.room) : null;
-    var where = buildingName(ev.building) + ' · ' + (room ? roomTitle(room) : 'Room ' + ev.room);
+    var where = buildingName(ev.building) + (room ? ' · ' + roomTitle(room) : (ev.room ? ' · Room ' + ev.room : ''));
     html += '<div class="event' + (past ? ' is-past' : '') + (next ? ' is-next' : '') + '">' +
       '<div class="time">' + escapeHtml(formatTime(ev.time)) + '</div>' +
       '<div class="body"><div class="name">' + escapeHtml(ev.name || 'Event') + (next ? ' <span class="chip">Next</span>' : '') + '</div>' +
@@ -248,7 +249,7 @@ function startScan() {
     box.innerHTML = '';
     qrScanner = new Html5Qrcode('qr-viewfinder');
     qrScanner.start({ facingMode: 'environment' }, { fps: 10, qrbox: { width: 240, height: 240 } },
-      function (text) { stopScan(); handleQrText(text); },
+      function (text) { stopScan(); handleQrText(text, true); },
       function () { /* no code in this frame */ }
     ).then(function () {
       $('scan-result').textContent = 'Point the camera at a campus QR code.';
@@ -277,12 +278,19 @@ function queryParam(url, name) {
   return m ? m[1] : null;
 }
 
-function handleQrText(raw) {
+function handleQrText(raw, fromCamera) {
   var out = $('scan-result');
   var payload = null;
   try {
     var qr = queryParam(raw, 'qr');
     var loc = queryParam(raw, 'loc');
+    var sched = queryParam(raw, 'sched');
+    if (sched && !qr && !loc) {
+      if (fromCamera) { MSCNAnalytics.track('qr_scan', 'camera sched'); }
+      out.textContent = '';
+      openOfficialSchedule(decodeURIComponent(sched));
+      return;
+    }
     if (qr) { payload = decodeQrPayload(qr); }
     else if (loc) { payload = { type: 'location', nodeId: decodeURIComponent(loc) }; }
     else { payload = JSON.parse(raw); }
@@ -293,6 +301,7 @@ function handleQrText(raw) {
   if (!processQrPayload(payload)) {
     out.textContent = 'That QR code is not a campus navigation code.';
   } else {
+    if (fromCamera) { MSCNAnalytics.track('qr_scan', 'camera ' + payload.type); }
     out.textContent = '';
   }
 }
@@ -310,24 +319,160 @@ function handleSchedulePayload(p) {
   switchToView('schedule');
 }
 
-/* Deep links on page load: ?qr= (Admin QR codes), ?loc=<nodeId>, ?room=<roomId>. */
+/* Deep links on page load: ?qr= (Admin QR codes), ?loc=<nodeId>, ?room=<roomId>[&nav=1], ?sched=<scheduleId>. */
 function checkDeepLink() {
-  if (typeof google === 'undefined' || !google.script || !google.script.url) { return; }
+  var p = MSCNData.queryParams(window.location.search);
   try {
-    google.script.url.getLocation(function (loc) {
-      var p = (loc && loc.parameter) || {};
-      try {
-        if (p.qr) { processQrPayload(decodeQrPayload(p.qr)); }
-        else if (p.loc) { handleLocationPayload({ type: 'location', nodeId: p.loc, permanent: true }); }
-        else if (p.room) {
-          var id = APP.by.rooms[p.room] ? p.room : null;
-          if (id) { openRoom(id, { navigate: p.nav === '1' }); } else { showError('That room link is not valid.'); }
-        }
-      } catch (e) {
-        showError('That link could not be read.');
+    if (p.qr) {
+      var payload = decodeQrPayload(p.qr);
+      if (processQrPayload(payload)) { MSCNAnalytics.track('qr_scan', 'link ' + payload.type); }
+    }
+    else if (p.loc) {
+      MSCNAnalytics.track('qr_scan', 'link location');
+      handleLocationPayload({ type: 'location', nodeId: p.loc, permanent: true });
+    }
+    else if (p.room) {
+      var id = APP.by.rooms[p.room] ? p.room : null;
+      if (id) { openRoom(id, { navigate: p.nav === '1' }); } else { showError('That room link is not valid.'); }
+    }
+  } catch (e) {
+    showError('That link could not be read.');
+  }
+  if (p.sched) { openOfficialSchedule(p.sched); }
+}
+
+/* ---------- official schedules by id (data/schedules/<id>.json, read-only) ---------- */
+var OFFICIAL = { id: null, sched: null, links: {} };
+
+function openOfficialSchedule(id) {
+  if (!MSCNData.isId(id)) { showError('That schedule link is not valid.'); return; }
+  var key = LS_KEYS.officialPrefix + id;
+  MSCNData.getSchedule(id, function (err, sched) {
+    if (!err && sched && isArray(sched.events)) {
+      MSCNData.getLinks(function (err2, links) {
+        var lk = (!err2 && links && typeof links === 'object') ? links : {};
+        lsSet(key, JSON.stringify({ sched: sched, links: lk }));
+        showOfficialSchedule(id, sched, lk);
+      });
+      return;
+    }
+    var saved = parseJsonField(lsGet(key), null);
+    if (saved && saved.sched && isArray(saved.sched.events)) {
+      showOfficialSchedule(id, saved.sched, saved.links || {});
+      toast('Offline: showing the saved copy of this schedule.');
+    } else {
+      showError(err && /HTTP 404/.test(errText(err)) ? 'That schedule was not found.' : 'That schedule could not be loaded.');
+    }
+  });
+}
+
+function showOfficialSchedule(id, sched, links) {
+  OFFICIAL.id = id;
+  OFFICIAL.sched = sched;
+  OFFICIAL.links = links;
+  MSCNAnalytics.track('sched_open', id);
+  switchToView('schedule');
+  renderOfficialSchedule();
+}
+
+function closeOfficialSchedule() {
+  OFFICIAL.id = null;
+  OFFICIAL.sched = null;
+  OFFICIAL.links = {};
+  renderOfficialSchedule();
+}
+
+function formatScheduleDate(d) {
+  var m = String(d || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) { return String(d || ''); }
+  var months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  var days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  var dt = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return days[dt.getDay()] + ', ' + months[dt.getMonth()] + ' ' + dt.getDate() + ', ' + dt.getFullYear();
+}
+
+function safeLinkUrl(url) {
+  var u = String(url || '');
+  return /^https?:\/\/[^\s"'<>]+$/.test(u) ? u : '';
+}
+
+function officialEventWhere(ev) {
+  var room = ev.roomId ? APP.by.rooms[ev.roomId] : null;
+  var where = buildingName(ev.buildingId);
+  if (room) { where += ' · ' + roomTitle(room); }
+  return where;
+}
+
+function officialToPersonal(ev) {
+  return { id: String(new Date().getTime()) + '-' + Math.floor(Math.random() * 100000), time: ev.time, building: ev.buildingId,
+    room: ev.roomId || '', name: ev.title || '', addedAt: new Date().toISOString() };
+}
+
+function renderOfficialSchedule() {
+  var box = $('official-schedule');
+  if (!box) { return; }
+  var s = OFFICIAL.sched;
+  if (!s) { box.hidden = true; box.innerHTML = ''; return; }
+  var events = s.events.slice(0).sort(function (a, b) { return String(a.time).localeCompare(String(b.time)); });
+  var html = '<section class="official" aria-labelledby="official-title">' +
+    '<div class="page-head"><div><h2 id="official-title">' + escapeHtml(s.title || 'Event schedule') + '</h2>' +
+    (s.date ? '<div class="official-date">' + escapeHtml(formatScheduleDate(s.date)) + '</div>' : '') + '</div>' +
+    '<button type="button" class="sheet-close" id="official-close" aria-label="Close ' + escapeHtml(s.title || 'event schedule') + '">' + ICONS.close + '</button></div>' +
+    '<button type="button" class="btn btn-secondary" id="official-add-all">Add all to my schedule</button>';
+  for (var i = 0; i < events.length; i++) {
+    var ev = events[i];
+    var linkHtml = '';
+    var ids = isArray(ev.links) ? ev.links : [];
+    for (var k = 0; k < ids.length; k++) {
+      var l = OFFICIAL.links[ids[k]];
+      var href = l && safeLinkUrl(l.url);
+      if (href) { linkHtml += '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener">' + escapeHtml(l.title || 'Link') + '</a>'; }
+    }
+    html += '<div class="event official-event">' +
+      '<div class="time">' + escapeHtml(formatTime(ev.time)) + '</div>' +
+      '<div class="body"><div class="name">' + escapeHtml(ev.title || 'Event') + '</div>' +
+      '<div class="loc">' + escapeHtml(officialEventWhere(ev)) + '</div>' +
+      (ev.note ? '<div class="note">' + escapeHtml(ev.note) + '</div>' : '') +
+      (linkHtml ? '<div class="links">' + linkHtml + '</div>' : '') +
+      '<div class="actions">' +
+        '<button type="button" class="btn btn-primary" data-official-go="' + i + '">' + ICONS.navigate + 'Go</button>' +
+        '<button type="button" class="btn btn-secondary" data-official-add="' + i + '">Add to my schedule</button>' +
+      '</div></div></div>';
+  }
+  html += '</section>';
+  box.innerHTML = html;
+  box.hidden = false;
+  $('official-close').onclick = closeOfficialSchedule;
+  $('official-add-all').onclick = function () {
+    var added = 0;
+    for (var a = 0; a < events.length; a++) { if (addScheduleEvent(officialToPersonal(events[a]), true)) { added++; } }
+    toast(added ? 'Added ' + added + ' event' + (added === 1 ? '' : 's') + ' to your schedule' : 'Those events are already in your schedule.', added ? 'success' : null);
+    renderSchedule();
+  };
+  var go = box.querySelectorAll('[data-official-go]');
+  for (var g = 0; g < go.length; g++) {
+    go[g].onclick = function (e) { goToOfficialEvent(events[Number(e.currentTarget.getAttribute('data-official-go'))]); };
+  }
+  var add = box.querySelectorAll('[data-official-add]');
+  for (var d = 0; d < add.length; d++) {
+    add[d].onclick = function (e) {
+      if (addScheduleEvent(officialToPersonal(events[Number(e.currentTarget.getAttribute('data-official-add'))]))) {
+        toast('Added to your schedule', 'success');
       }
-    });
-  } catch (e) { /* url API unavailable */ }
+      renderSchedule();
+    };
+  }
+}
+
+function goToOfficialEvent(ev) {
+  if (!ev) { return; }
+  if (ev.roomId && APP.by.rooms[ev.roomId]) { openRoom(ev.roomId, { navigate: true }); return; }
+  var t = buildingTarget(ev.buildingId, null);
+  if (t) {
+    window.open(directionsUrl(t.lat, t.lng), '_blank', 'noopener');
+  } else {
+    showError('That place is not in the campus data.');
+  }
 }
 
 /* ---------- panorama ---------- */

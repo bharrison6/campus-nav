@@ -1,0 +1,70 @@
+<script>
+/*
+ * Usage analytics (decision mscn-v3-analytics-and-url-shape): GoatCounter, loaded only when
+ * config.json names a site. No cookies and no identifiers: the page view is the bare path (deep-link
+ * query strings can carry schedule text), and events carry only a fixed name plus a coarse,
+ * non-personal label (a floor id, a schedule id, "room" or "building"; never what someone typed).
+ *   events: search, route_start, floor_change, qr_scan, sched_open
+ * ES5. DOM touched only in init().
+ */
+var MSCNAnalytics = (function () {
+  var EVENTS = ['search', 'route_start', 'floor_change', 'qr_scan', 'sched_open'];
+  var SCRIPT = 'https://gc.zgo.at/count.js';
+  var state = { on: false, ready: false, queue: [], endpoint: '' };
+
+  /* "mysite" -> https://mysite.goatcounter.com/count; a full https URL is used as the endpoint (self-hosted). */
+  function endpointFor(site) {
+    var s = String(site || '').replace(/^\s+|\s+$/g, '');
+    if (!s) { return ''; }
+    if (/^https:\/\/[^\s"'<>]+$/.test(s)) { return s; }
+    if (/^[a-z0-9][a-z0-9-]{0,62}$/i.test(s)) { return 'https://' + s.toLowerCase() + '.goatcounter.com/count'; }
+    return '';
+  }
+
+  function eventFor(name, label) {
+    if (EVENTS.indexOf(name) === -1) { return null; }
+    var t = String(label === undefined || label === null || label === '' ? name : label).replace(/[^\w .:-]/g, '').slice(0, 60);
+    return { path: name, title: t, event: true };
+  }
+
+  function send(o) {
+    try { if (window.goatcounter && window.goatcounter.count) { window.goatcounter.count(o); } } catch (e) { /* analytics never breaks the app */ }
+  }
+
+  function init(cfg) {
+    var a = cfg || {};
+    if (state.on) { return true; }
+    if ((a.provider || 'goatcounter') !== 'goatcounter') { return false; }
+    var endpoint = endpointFor(a.site);
+    if (!endpoint) { return false; }
+    state.on = true;
+    state.endpoint = endpoint;
+    window.goatcounter = window.goatcounter || {};
+    window.goatcounter.no_onload = true;
+    var s = document.createElement('script');
+    s.async = true;
+    s.src = SCRIPT;
+    s.setAttribute('data-goatcounter', endpoint);
+    s.setAttribute('data-goatcounter-settings', '{"no_onload": true}');
+    s.onload = function () {
+      state.ready = true;
+      send({ path: window.location.pathname || '/' });
+      var q = state.queue;
+      state.queue = [];
+      for (var i = 0; i < q.length; i++) { send(q[i]); }
+    };
+    s.onerror = function () { state.on = false; state.queue = []; };
+    document.head.appendChild(s);
+    return true;
+  }
+
+  function track(name, label) {
+    if (!state.on) { return; }
+    var o = eventFor(name, label);
+    if (!o) { return; }
+    if (state.ready) { send(o); } else if (state.queue.length < 50) { state.queue.push(o); }
+  }
+
+  return { EVENTS: EVENTS, endpointFor: endpointFor, eventFor: eventFor, init: init, track: track, state: state };
+})();
+</script>
