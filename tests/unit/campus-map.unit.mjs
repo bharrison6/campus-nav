@@ -120,16 +120,25 @@ test('matching and heights: name similarity ignores generic words; override > OS
 
 // ---- primary entrances ----
 
-test('primary entrances: 2 to 4 per indoor building, recorded with their scores, seeded and published', () => {
+test('main entrances: 2 to 4 per indoor building (the primary heuristic), recorded with their scores, seeded and published', () => {
   for (const bid of ['bld-it', 'bld-ep']) {
-    const prim = campus.navNodes.filter((n) => n.type === 'entrance' && n.primary && campus.floors.find((f) => f.id === n.floorId).buildingId === bid);
-    assert.ok(prim.length >= 2 && prim.length <= 4, `${bid}: ${prim.length}`);
+    const ents = campus.navNodes.filter((n) => n.type === 'entrance' && campus.floors.find((f) => f.id === n.floorId).buildingId === bid);
+    const main = ents.filter((n) => n.access === 'main');
+    assert.ok(main.length >= 2 && main.length <= 4, `${bid}: ${main.length}`);
     const scored = campus.floors.filter((f) => f.buildingId === bid).flatMap((f) => floorJson(f.id).entrances || []);
-    assert.deepEqual(scored.filter((e) => e.primary).map((e) => e.nodeId).sort(), prim.map((n) => n.id).sort());
+    assert.deepEqual(scored.filter((e) => e.access === 'main').map((e) => e.nodeId).sort(), main.map((n) => n.id).sort());
     for (const e of scored) assert.ok(e.score >= 0 && e.score <= 1 && e.factors && e.outwardDeg >= 0);
+    // every other exterior door is alt, or emergency when it opens out of a stairwell
+    for (const e of scored.filter((x) => x.access !== 'main')) assert.equal(e.access, e.roomType === 'stair' ? 'emergency' : 'alt', e.nodeId);
+    for (const n of ents) assert.ok(['main', 'alt', 'emergency'].includes(n.access), n.id);
+    // the legacy primary flag mirrors access (until every reader moves to access)
+    for (const n of ents) assert.equal(n.primary, n.access === 'main', n.id);
   }
-  // Only entrance nodes carry primary in the published data.
+  // EP's stair-tower exit out of stair 1300K is an emergency exit.
+  assert.equal(campus.navNodes.find((n) => n.id === 'ep-1-n0359').access, 'emergency');
+  // Only entrance nodes carry primary; only doors, entrances and waypoints carry access.
   assert.ok(campus.navNodes.filter((n) => n.type !== 'entrance').every((n) => !('primary' in n)));
+  for (const n of campus.navNodes) assert.equal('access' in n, ['door', 'entrance', 'waypoint'].includes(n.type), n.id);
 });
 
 test('primary choice: min 2, max 4, a close pair or a door on the same face is skipped', () => {
@@ -148,7 +157,7 @@ test('primary choice: min 2, max 4, a close pair or a door on the same face is s
 
 // ---- outdoor graph and the join ----
 
-test('outdoor graph: one connected component holding every primary entrance; edges well formed', () => {
+test('outdoor graph: one connected component holding every main and alt entrance, no emergency exit; edges well formed', () => {
   const ids = new Set(graph.nodes.map((n) => n.id));
   assert.equal(ids.size, graph.nodes.length);
   const adj = new Map(graph.nodes.map((n) => [n.id, []]));
@@ -156,6 +165,10 @@ test('outdoor graph: one connected component holding every primary entrance; edg
     assert.ok(ids.has(e.from) && ids.has(e.to), e.id);
     assert.ok(e.distance > 0 && e.distance < 2000, `${e.id} ${e.distance}`); // a straight town road can be one 1.2 km segment
     assert.equal(e.accessible, e.kind !== 'steps');
+    // v5: every edge has a class and names what it was drawn from
+    assert.equal(e.access, e.kind === 'road' ? 'alt' : 'main', e.id);
+    assert.match(e.way, /^(way\/\d+|override\/\d+|connector\/.+|[A-Za-z0-9_.:-]+)$/, e.id);
+    if (e.kind === 'connector') assert.equal(e.way, `connector/${e.from.startsWith('o') ? e.to : e.from}`);
     adj.get(e.from).push(e.to);
     adj.get(e.to).push(e.from);
   }
@@ -164,9 +177,9 @@ test('outdoor graph: one connected component holding every primary entrance; edg
   const q = [start];
   while (q.length) for (const m of adj.get(q.shift())) if (!seen.has(m)) { seen.add(m); q.push(m); }
   assert.equal(seen.size, graph.nodes.length, 'one component');
-  const primary = campus.navNodes.filter((n) => n.type === 'entrance' && n.primary).map((n) => n.id).sort();
-  const inGraph = graph.nodes.filter((n) => n.type === 'entrance' && n.primary).map((n) => n.id).sort();
-  assert.deepEqual(inGraph, primary);
+  const open = campus.navNodes.filter((n) => n.type === 'entrance' && n.access !== 'emergency').map((n) => n.id).sort();
+  const inGraph = graph.nodes.filter((n) => n.type === 'entrance').map((n) => n.id).sort();
+  assert.deepEqual(inGraph, open, 'every main and alt entrance (and sole door) is joined; emergency exits are not');
   // Haversine check on a sample of edges.
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
   for (const e of graph.edges.filter((_, i) => i % 97 === 0)) {
@@ -182,16 +195,19 @@ test('entrance join: graph entrances are published entrance nodes at the same co
     const n = nodes.get(g.id);
     assert.ok(n && n.type === 'entrance', g.id);
     assert.ok(haversine(g.lat, g.lng, n.lat, n.lng) < 0.2, g.id);
+    assert.equal(g.access, n.access, g.id);
     assert.equal(g.primary, n.primary, g.id);
   }
   for (const b of campus.buildings.filter((x) => x.hasIndoor)) {
     assert.ok(Array.isArray(b.entrances) && b.entrances.length >= 2, b.id);
     for (const e of b.entrances) {
-      assert.deepEqual(Object.keys(e), ['nodeId', 'lat', 'lng', 'label', 'primary']);
+      assert.deepEqual(Object.keys(e), ['nodeId', 'lat', 'lng', 'label', 'access', 'primary']);
       assert.equal(e.lat, nodes.get(e.nodeId).lat);
       assert.match(e.label, /^(North|Northeast|East|Southeast|South|Southwest|West|Northwest) entrance( \d+)?(, level \d)?$/);
     }
-    assert.ok(b.entrances[0].primary, 'primary entrances first');
+    assert.equal(b.entrances[0].access, 'main', 'main entrances first');
+    const order = { main: 0, alt: 1, emergency: 2 };
+    assert.ok(b.entrances.every((e, i) => !i || order[b.entrances[i - 1].access] <= order[e.access]), 'then alt, then emergency');
     assert.ok(b.levels >= 1);
   }
   // Every entrance's coordinates lie on its building's footprint (within 6 m of it or inside it).

@@ -25,20 +25,26 @@ import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { OVERRIDES_DIR, REPO, describeReport, openCampus } from './campus-engine.mjs';
-import { addCampusGeo, readEntranceFacing, readGeoref } from './campus-geo.mjs';
+import { addCampusGeo, readDrawnEntrances, readEntranceFacing, readGeoref } from './campus-geo.mjs';
+import { applyAccess, publishAltFactor } from './access.mjs';
 
 export const GEOREF_DIR = path.join(REPO, 'data', 'georef');
 export const FLOORPLANS_DIR = path.join(REPO, 'data', 'floorplans');
+export const CAMPUS_MAP_DIR = path.join(REPO, 'data', 'campus-map');
 
 /** A floor is public unless its public flag is false (boolean or text), as the web app and the build read it. */
 export const isPublicFloor = (f) => !(f && (f.public === false || String(f.public).toLowerCase() === 'false'));
 
 /** The export as data (no files): { campus, floors: [{ id, svg }] (public floors only), missingPlans, report }. */
-export function buildExport({ gsDir, overridesDir = OVERRIDES_DIR, georefDir = GEOREF_DIR, extraCode, props } = {}) {
+export function buildExport({ gsDir, overridesDir = OVERRIDES_DIR, georefDir = GEOREF_DIR, campusMapDir = CAMPUS_MAP_DIR, extraCode, props } = {}) {
   const engine = openCampus({ gsDir, overridesDir, extraCode, props });
   const campus = engine.gas.run('getPublicCampusData', []);
   campus.config = campus.config.filter((c) => c.key !== 'mapsApiKey');
-  const geo = addCampusGeo(campus, readGeoref(georefDir), readEntranceFacing(georefDir === GEOREF_DIR ? FLOORPLANS_DIR : null));
+  const altFactor = publishAltFactor(campus);
+  const access = applyAccess(campus);
+  const geo = addCampusGeo(campus, readGeoref(georefDir), readEntranceFacing(georefDir === GEOREF_DIR ? FLOORPLANS_DIR : null), readDrawnEntrances(campusMapDir));
+  geo.classes = access;
+  geo.altFactor = altFactor;
   const leaked = campus.floors.filter((f) => !isPublicFloor(f)).map((f) => f.id);
   if (leaked.length) throw new Error(`getPublicCampusData kept hidden floor(s) ${leaked.join(', ')}`);
   const floors = [];
@@ -112,7 +118,9 @@ if (isMain) {
       console.log(`campus data ${r.version} -> ${path.resolve(out)}`);
       console.log('  ' + Object.entries(r.counts).map(([k, n]) => `${k} ${n}`).join(', '));
       console.log(`  ${r.files.length} files (campus.json, version.json, ${r.files.length - 2} floor plans)`);
-      console.log(`  entrances: ${r.geo.entrances} (${r.geo.located} with coordinates, ${r.geo.primary} primary); building entrances derived for ${r.geo.buildingsWithEntrances.join(', ') || 'none'}`);
+      console.log(`  entrances: ${r.geo.entrances} (${r.geo.located} with coordinates; by access ${JSON.stringify(r.geo.access)}); building entrances derived for ${r.geo.buildingsWithEntrances.join(', ') || 'none'}`);
+      console.log(`  access: corridors ${JSON.stringify(r.geo.classes.rooms)}, nodes ${JSON.stringify(r.geo.classes.nodes)}; ${r.geo.classes.waypointsInherited} waypoints inherit their hallway's class${r.geo.classes.hubsMadeWaypoints.length ? `; hubs made hallway points: ${r.geo.classes.hubsMadeWaypoints.join(', ')}` : ''}; routing.altFactor ${r.geo.altFactor}`);
+      for (const id of r.geo.drawnUnknownBuildings) console.warn(`  drawn entrances name building ${id}, which is not in the campus data (add the building in the admin)`);
       for (const l of lines) console.log('  ' + l);
     } else {
       for (const l of lines.filter((s) => /^(ORPHAN|REFUSED)/.test(s))) console.warn(l);

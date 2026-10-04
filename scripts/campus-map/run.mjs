@@ -61,7 +61,15 @@ async function main() {
   log(`  buildings: ${r.buildings.footprints} footprints (${r.buildings.named} named), ${r.buildings.seededWithFootprint} of ${inputs.seeded.length} seeded buildings matched`);
   log(`  layers: ${Object.entries(out.layers).map(([k, v]) => `${k} ${v.length}`).join(', ')}`);
   for (const [bid, g] of Object.entries(r.georef)) log(`  georef ${bid}: ${g.error || `residual ${g.residualMeters} m rms (mean ${g.residual.mean}, p90 ${g.residual.p90}, max ${g.residual.max}), rotation ${g.rotationDeg} deg, fitted to ${g.fittedTo}`}`);
-  for (const [bid, e] of Object.entries(r.entrances)) log(`  primary entrances ${bid}: ${e.primary.map((p) => `${p.nodeId} (${p.score})`).join(', ')}`);
+  for (const [bid, e] of Object.entries(r.entrances)) {
+    if (bid === 'drawn') continue;
+    log(`  entrances ${bid}: main ${e.byClass.main.join(', ') || 'none'}; alt ${e.byClass.alt.length}; emergency ${e.byClass.emergency.join(', ') || 'none'}`);
+  }
+  if (r.entrances.drawn.entrances.length) log(`  drawn entrances: ${r.entrances.drawn.entrances.map((e) => `${e.id} (${e.buildingId}, ${e.access})`).join(', ')}`);
+  for (const x of r.entrances.drawn.rejected) log(`  DRAWN ENTRANCE feature ${x.feature} skipped: ${x.why}`);
+  log(`  outdoor edges by access: ${JSON.stringify(r.access.edges)}; joined entrances by access: ${JSON.stringify(r.access.graphEntrances)}`);
+  for (const w of r.overrides.pathAccess.unknown) log(`  pathAccess.json: ${w} names no outdoor path (kept, skipped)`);
+  for (const x of r.overrides.pathAccess.invalid) log(`  pathAccess.json: malformed entry ${JSON.stringify(x)} (skipped)`);
   log(`  outdoor graph: ${r.graph.nodes} nodes, ${r.graph.edges} edges, components ${r.graph.components.slice(0, 5).join('/')}, entrances in main component: ${r.graph.entrancesInMainComponent}`);
   for (const c of r.graph.connectors) if (c.straight) log(`  CONNECTOR ${c.nodeId}: ${c.meters} m straight line to the ${c.viaKind} network (over 30 m)`);
   for (const s of r.overrides.pathSnaps) if (s.how === 'unjoined') log(`  override path "${s.feature}" vertex ${s.vertex} ends without a junction (expected where a walk ends at a building wall)`);

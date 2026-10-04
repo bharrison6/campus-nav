@@ -7,7 +7,7 @@
  "source": {
   "osm": {
    "source": "api.openstreetmap.org/api/0.6/map",
-   "fetchedAt": "2026-10-04T15:17:38.981Z",
+   "fetchedAt": "2026-10-04T20:23:38.430Z",
    "bbox": {
     "minLat": 36.6065,
     "minLng": -88.3425,
@@ -36,8 +36,8 @@
   "landuse": 32,
   "water": 0,
   "labels": 84,
-  "graphNodes": 2394,
-  "graphEdges": 2758
+  "graphNodes": 2409,
+  "graphEdges": 2773
  },
  "georef": {
   "bld-ep": {

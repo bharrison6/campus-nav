@@ -8,6 +8,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { FLOORPLANS_DIR, GEOREF_DIR, buildExport, exportCampusData, isPublicFloor } from '../../scripts/data/export-campus-data.mjs';
 import { addCampusGeo, readEntranceFacing, readGeoref } from '../../scripts/data/campus-geo.mjs';
+import { applyAccess, publishAltFactor } from '../../scripts/data/access.mjs';
 import { OVERRIDES_DIR, openCampus } from '../../scripts/data/campus-engine.mjs';
 import { COLLECTIONS } from '../../scripts/data/overrides.mjs';
 
@@ -36,23 +37,38 @@ const PUBLIC_FLOORS = full.floors.filter(isPublicFloor).map((f) => f.id);
 const HIDDEN_FLOORS = full.floors.filter((f) => !isPublicFloor(f)).map((f) => f.id);
 
 const withoutVersion = (c) => ({ ...c, version: '', config: c.config.map((r) => (r.key === 'dataVersion' ? { ...r, value: '' } : r)) });
-// What the site publishes since v4: getPublicCampusData plus the map fields (scripts/data/campus-geo.mjs).
+// What the site publishes since v4: getPublicCampusData plus the map fields (scripts/data/campus-geo.mjs), and since
+// v5 the access classes (scripts/data/access.mjs) and a numeric routing.altFactor.
 const referenceGeo = JSON.parse(JSON.stringify(reference));
+publishAltFactor(referenceGeo);
+applyAccess(referenceGeo);
 addCampusGeo(referenceGeo, readGeoref(GEOREF_DIR), readEntranceFacing(FLOORPLANS_DIR));
-/** campus.json with the v4 map fields taken out again: entrance lat/lng/primary, derived entrances, levels/height. */
+/**
+ * campus.json with the map and access fields taken out again: entrance lat/lng/primary, derived entrances,
+ * levels/height, access (and what applyAccess retypes), the numeric altFactor.
+ */
 function withoutGeo(c, ref) {
   const refB = new Map(ref.buildings.map((b) => [b.id, b]));
   const refN = new Map(ref.navNodes.map((n) => [n.id, n]));
+  const refR = new Map(ref.rooms.map((r) => [r.id, r]));
+  const refC = new Map(ref.config.map((r) => [r.key, r]));
   return {
     ...c,
+    config: c.config.map((r) => ({ ...r, value: refC.get(r.key).value })),
     buildings: c.buildings.map((b) => {
       const { levels, height, entrances, ...rest } = b;
       const r = refB.get(b.id);
       return { ...rest, entrances: r.entrances, levels: r.levels, height: r.height };
     }),
+    rooms: c.rooms.map((x) => {
+      const { access, searchable, ...rest } = x;
+      const r = refR.get(x.id);
+      return { ...rest, searchable: r.searchable, access: r.access };
+    }),
     navNodes: c.navNodes.map((n) => {
-      const { lat, lng, primary, ...rest } = n;
-      return { ...rest, primary: refN.get(n.id).primary };
+      const { lat, lng, primary, access, type, ...rest } = n;
+      const r = refN.get(n.id);
+      return { ...rest, type: r.type, primary: r.primary, access: r.access };
     }),
   };
 }
@@ -72,7 +88,7 @@ test('no overrides: campus.json is what getPublicCampusData returns plus the map
   assert.deepEqual(withoutVersion(withoutGeo(x.campus, reference)), withoutVersion(reference));
   assert.match(x.version, /^[0-9a-f]{12}$/);
   assert.equal(x.campus.version, x.version);
-  assert.deepEqual(x.campus.config, [{ key: 'dataVersion', value: x.version }]);
+  assert.deepEqual(x.campus.config, [{ key: 'dataVersion', value: x.version }, { key: 'routing.altFactor', value: 3 }]);
   assert.deepEqual(x.floors.map((f) => f.id), PUBLIC_FLOORS);
   assert.deepEqual(x.missingPlans, []);
   const engine = openCampus({ overridesDir: EMPTY });
@@ -161,7 +177,7 @@ test('overrides apply at export, change the version, and orphans and refusals ar
 test('a Maps key present in the runtime (as the local admin may set one) never reaches the export', () => {
   const x = buildExport({ overridesDir: EMPTY, props: { mapsApiKey: 'test-only-maps-key' } });
   assert.ok(!JSON.stringify(x.campus).includes('test-only-maps-key'));
-  assert.deepEqual(x.campus.config.map((c) => c.key), ['dataVersion']);
+  assert.deepEqual(x.campus.config.map((c) => c.key), ['dataVersion', 'routing.altFactor']);
 });
 
 test('a malformed overrides file stops the export with the file named', () => {
