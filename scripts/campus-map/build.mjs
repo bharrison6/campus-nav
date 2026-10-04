@@ -183,7 +183,18 @@ export function buildCampusMap({ extract, overridesGeo, seeded, buildingOverride
     for (const e of scored) {
       if (e.primary) heuristicPrimary.push(e.nodeId);
       const eff = navOver.has(e.nodeId) ? navOver.get(e.nodeId) : e.primary;
-      if (eff) entrancesToConnect.push({ id: e.nodeId, lat: e.lat, lng: e.lng, outline: floorOutline[e.floorId] || null, buildingId: bid });
+      if (eff) entrancesToConnect.push({ id: e.nodeId, lat: e.lat, lng: e.lng, outline: floorOutline[e.floorId] || null, buildingId: bid, primary: true });
+    }
+    // A door that is the only way into some room (the pipeline's isolated entrances, EP 1322's exterior door) joins
+    // the outdoor graph too, never as primary: without it that room has no route at all.
+    const soleAccess = [];
+    for (const f of bf) {
+      for (const d of f.json.doors) {
+        if (!d.exterior || !excluded.has(d.nodeId)) continue;
+        const [lng, lat] = svgToLngLatWith(record, d.x, d.y, f.floorId);
+        entrancesToConnect.push({ id: d.nodeId, lat, lng, outline: floorOutline[f.floorId] || null, buildingId: bid, primary: navOver.get(d.nodeId) === true });
+        soleAccess.push(d.nodeId);
+      }
     }
     for (const f of bf) {
       entranceBlocks[f.floorId] = scored
@@ -193,6 +204,7 @@ export function buildCampusMap({ extract, overridesGeo, seeded, buildingOverride
     report.entrances[bid] = {
       candidates: scored.length,
       excluded: [...excluded],
+      soleAccess,
       primary: scored.filter((e) => e.primary).map((e) => ({ nodeId: e.nodeId, floorId: e.floorId, score: e.score, roomType: e.roomType, widthUnits: e.widthUnits, pathMeters: e.pathMeters })),
       operatorOverrides: scored.filter((e) => navOver.has(e.nodeId)).map((e) => ({ nodeId: e.nodeId, primary: navOver.get(e.nodeId) })),
     };

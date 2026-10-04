@@ -120,15 +120,18 @@ function getBuildingOverrides_() {
 
 /**
  * @return {Array} Building rows in v2 header order:
- *   [id, name, code, number, lat, lng, entrances, photoUrl, hasIndoor]
+ *   [id, name, code, number, lat, lng, entrances, photoUrl, hasIndoor, levels, height]
+ * levels and height come from the campus-map build (SeedCampusMap.gs, getGeneratedBuildingLevels), blank without it.
  */
 function getBuildingsSeedRows_() {
   var base = getBuildingsBaseRows_();
   var overrides = getBuildingOverrides_();
+  var levels = typeof getGeneratedBuildingLevels === 'function' ? (getGeneratedBuildingLevels() || {}) : {};
   var rows = [];
   for (var i = 0; i < base.length; i++) {
     var b = base[i];
     var o = overrides[b[0]] || {};
+    var lv = levels.hasOwnProperty(b[0]) ? levels[b[0]] : ['', ''];
     rows.push([
       b[0],
       o.name || b[1],
@@ -138,10 +141,30 @@ function getBuildingsSeedRows_() {
       b[3],
       b[4],
       b[5],
-      o.hasIndoor === true
+      o.hasIndoor === true,
+      lv[0],
+      lv[1]
     ]);
   }
   return rows;
+}
+
+/**
+ * The generated NavNodes rows with the primary column appended: true for the entrances the campus-map build chose
+ * (SeedCampusMap.gs, getGeneratedPrimaryEntrances), false otherwise. Rows that already carry it are kept as they are.
+ */
+function getNavNodesSeedRows_() {
+  var rows = generatedRows_('getGeneratedNavNodesSeed');
+  var ids = typeof getGeneratedPrimaryEntrances === 'function' ? (getGeneratedPrimaryEntrances() || []) : [];
+  var primary = {};
+  for (var p = 0; p < ids.length; p++) primary[ids[p]] = true;
+  var width = getSheetDefinition_('NavNodes').headers.length;
+  var out = [];
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    out.push(r.length === width - 1 ? r.concat([primary[r[0]] === true]) : r);
+  }
+  return out;
 }
 
 /**
@@ -173,7 +196,7 @@ function getSeedDatasets_() {
     { name: 'Buildings', rows: getBuildingsSeedRows_() },
     { name: 'Floors', rows: generatedRows_('getGeneratedFloorsSeed') },
     { name: 'Rooms', rows: generatedRows_('getGeneratedRoomsSeed') },
-    { name: 'NavNodes', rows: generatedRows_('getGeneratedNavNodesSeed') },
+    { name: 'NavNodes', rows: getNavNodesSeedRows_() },
     { name: 'NavEdges', rows: generatedRows_('getGeneratedNavEdgesSeed') }
   ];
 }

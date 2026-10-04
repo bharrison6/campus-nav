@@ -6,7 +6,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
-import { buildExport, exportCampusData, isPublicFloor } from '../../scripts/data/export-campus-data.mjs';
+import { FLOORPLANS_DIR, GEOREF_DIR, buildExport, exportCampusData, isPublicFloor } from '../../scripts/data/export-campus-data.mjs';
+import { addCampusGeo, readEntranceFacing, readGeoref } from '../../scripts/data/campus-geo.mjs';
 import { OVERRIDES_DIR, openCampus } from '../../scripts/data/campus-engine.mjs';
 import { COLLECTIONS } from '../../scripts/data/overrides.mjs';
 
@@ -35,6 +36,26 @@ const PUBLIC_FLOORS = full.floors.filter(isPublicFloor).map((f) => f.id);
 const HIDDEN_FLOORS = full.floors.filter((f) => !isPublicFloor(f)).map((f) => f.id);
 
 const withoutVersion = (c) => ({ ...c, version: '', config: c.config.map((r) => (r.key === 'dataVersion' ? { ...r, value: '' } : r)) });
+// What the site publishes since v4: getPublicCampusData plus the map fields (scripts/data/campus-geo.mjs).
+const referenceGeo = JSON.parse(JSON.stringify(reference));
+addCampusGeo(referenceGeo, readGeoref(GEOREF_DIR), readEntranceFacing(FLOORPLANS_DIR));
+/** campus.json with the v4 map fields taken out again: entrance lat/lng/primary, derived entrances, levels/height. */
+function withoutGeo(c, ref) {
+  const refB = new Map(ref.buildings.map((b) => [b.id, b]));
+  const refN = new Map(ref.navNodes.map((n) => [n.id, n]));
+  return {
+    ...c,
+    buildings: c.buildings.map((b) => {
+      const { levels, height, entrances, ...rest } = b;
+      const r = refB.get(b.id);
+      return { ...rest, entrances: r.entrances, levels: r.levels, height: r.height };
+    }),
+    navNodes: c.navNodes.map((n) => {
+      const { lat, lng, primary, ...rest } = n;
+      return { ...rest, primary: refN.get(n.id).primary };
+    }),
+  };
+}
 
 test('the committed overrides files are the eight collections, each a JSON array', () => {
   for (const c of Object.keys(COLLECTIONS)) {
@@ -43,10 +64,12 @@ test('the committed overrides files are the eight collections, each a JSON array
   }
 });
 
-test('no overrides: campus.json is exactly what getPublicCampusData returns (only version differs); the diff is empty', () => {
+test('no overrides: campus.json is what getPublicCampusData returns plus the map fields (only version differs); the diff is empty', () => {
   const x = buildExport({ overridesDir: EMPTY });
   assert.deepEqual(Object.keys(x.campus), ['contractVersion', 'version', 'config', 'buildings', 'floors', 'rooms', 'navNodes', 'navEdges', 'photos', 'qrLocations']);
-  assert.deepEqual(withoutVersion(x.campus), withoutVersion(reference));
+  assert.deepEqual(withoutVersion(x.campus), withoutVersion(referenceGeo));
+  // ...and nothing else changed: without the documented map fields it is getPublicCampusData exactly.
+  assert.deepEqual(withoutVersion(withoutGeo(x.campus, reference)), withoutVersion(reference));
   assert.match(x.version, /^[0-9a-f]{12}$/);
   assert.equal(x.campus.version, x.version);
   assert.deepEqual(x.campus.config, [{ key: 'dataVersion', value: x.version }]);

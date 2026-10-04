@@ -8789,58 +8789,58 @@
    "roomId": "room-ep-1-1300M",
    "roomType": "other",
    "widthUnits": 72,
-   "outwardDeg": 183,
+   "outwardDeg": 180,
    "pathMeters": 4,
    "pathKind": "path"
   },
   {
    "nodeId": "ep-1-n0363",
    "primary": true,
-   "score": 0.776,
+   "score": 0.777,
    "factors": {
     "room": 1,
     "width": 1,
     "path": 0.26,
-    "facing": 0.99
+    "facing": 1
    },
    "roomId": "room-ep-1-1300X",
    "roomType": "corridor",
    "widthUnits": 72,
-   "outwardDeg": 265,
+   "outwardDeg": 270,
    "pathMeters": 19.6,
    "pathKind": "road"
   },
   {
    "nodeId": "ep-1-n0358",
    "primary": true,
-   "score": 0.748,
+   "score": 0.724,
    "factors": {
     "room": 0.5,
     "width": 1,
     "path": 0.76,
-    "facing": 0.96
+    "facing": 0.79
    },
    "roomId": "room-ep-1-1300A",
    "roomType": "other",
    "widthUnits": 72,
-   "outwardDeg": 73,
+   "outwardDeg": 53,
    "pathMeters": 9.4,
    "pathKind": "path"
   },
   {
    "nodeId": "ep-1-n0356",
    "primary": false,
-   "score": 0.642,
+   "score": 0.691,
    "factors": {
     "room": 0.5,
     "width": 1,
     "path": 0.73,
-    "facing": 0.33
+    "facing": 0.65
    },
    "roomId": "room-ep-1-1300A",
    "roomType": "other",
    "widthUnits": 72,
-   "outwardDeg": 17,
+   "outwardDeg": 38,
    "pathMeters": 10.8,
    "pathKind": "path"
   },
@@ -8857,7 +8857,7 @@
    "roomId": "room-ep-1-1300K",
    "roomType": "stair",
    "widthUnits": 72,
-   "outwardDeg": 305,
+   "outwardDeg": 270,
    "pathMeters": 15,
    "pathKind": "path"
   },
@@ -8874,24 +8874,24 @@
    "roomId": "room-ep-1-1321",
    "roomType": "other",
    "widthUnits": 72,
-   "outwardDeg": 181,
+   "outwardDeg": 180,
    "pathMeters": 26.6,
    "pathKind": "road"
   },
   {
    "nodeId": "ep-1-n0366",
    "primary": false,
-   "score": 0.268,
+   "score": 0.389,
    "factors": {
     "room": 0.5,
     "width": 0.3,
     "path": 0.07,
-    "facing": 0.07
+    "facing": 0.88
    },
    "roomId": "room-ep-1-1329",
    "roomType": "other",
    "widthUnits": 36,
-   "outwardDeg": 238,
+   "outwardDeg": 180,
    "pathMeters": 37.1,
    "pathKind": "path"
   }

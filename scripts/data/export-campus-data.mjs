@@ -5,12 +5,14 @@
 //
 // Runs the backend (tools/admin/gs) in the Apps Script stand-in, seeds it as initSystem() does (SeedData.gs + the
 // pipeline's SeedFloorData.gs), merges data/overrides/*.json, and writes:
-//   <dir>/campus.json            exactly what getPublicCampusData returns: { contractVersion, version, config,
+//   <dir>/campus.json            what getPublicCampusData returns: { contractVersion, version, config,
 //                                buildings, floors, rooms, navNodes, navEdges, photos, qrLocations } without the hidden
 //                                floors (public = false) and everything on them (rooms, nodes, edges touching those
 //                                nodes, indoor photos, QR locations); config is key/value rows and never holds
 //                                mapsApiKey (the site's config.json carries the key). The local admin still reads
-//                                getAllCampusData, hidden floors included.
+//                                getAllCampusData, hidden floors included. v4 map fields (campus-geo.mjs): entrance
+//                                nodes gain lat/lng/primary from data/georef, indoor buildings' entrances are derived
+//                                from them, buildings carry levels (and height when set).
 //   <dir>/floors/<floorId>.svg   each public floor's plan (the FP_<floorId>.html asset, via getFloorPlanSvg)
 //   <dir>/version.json           { version, builtAt, gitSha }
 // version is a content hash of campus.json and the plans, so the same inputs give the same files; builtAt is the
@@ -23,15 +25,20 @@ import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { OVERRIDES_DIR, REPO, describeReport, openCampus } from './campus-engine.mjs';
+import { addCampusGeo, readEntranceFacing, readGeoref } from './campus-geo.mjs';
+
+export const GEOREF_DIR = path.join(REPO, 'data', 'georef');
+export const FLOORPLANS_DIR = path.join(REPO, 'data', 'floorplans');
 
 /** A floor is public unless its public flag is false (boolean or text), as the web app and the build read it. */
 export const isPublicFloor = (f) => !(f && (f.public === false || String(f.public).toLowerCase() === 'false'));
 
 /** The export as data (no files): { campus, floors: [{ id, svg }] (public floors only), missingPlans, report }. */
-export function buildExport({ gsDir, overridesDir = OVERRIDES_DIR, extraCode, props } = {}) {
+export function buildExport({ gsDir, overridesDir = OVERRIDES_DIR, georefDir = GEOREF_DIR, extraCode, props } = {}) {
   const engine = openCampus({ gsDir, overridesDir, extraCode, props });
   const campus = engine.gas.run('getPublicCampusData', []);
   campus.config = campus.config.filter((c) => c.key !== 'mapsApiKey');
+  const geo = addCampusGeo(campus, readGeoref(georefDir), readEntranceFacing(georefDir === GEOREF_DIR ? FLOORPLANS_DIR : null));
   const leaked = campus.floors.filter((f) => !isPublicFloor(f)).map((f) => f.id);
   if (leaked.length) throw new Error(`getPublicCampusData kept hidden floor(s) ${leaked.join(', ')}`);
   const floors = [];
@@ -52,7 +59,7 @@ export function buildExport({ gsDir, overridesDir = OVERRIDES_DIR, extraCode, pr
   const version = h.digest('hex').slice(0, 12);
   campus.version = version;
   for (const c of campus.config) if (c.key === 'dataVersion') c.value = version;
-  return { campus, floors, missingPlans, report: engine.report, version };
+  return { campus, floors, missingPlans, report: engine.report, version, geo };
 }
 
 function gitSha(env) {
@@ -65,8 +72,8 @@ function gitSha(env) {
 }
 
 /** Writes the export into outDir; returns { version, files, report, missingPlans, counts }. */
-export function exportCampusData({ outDir, overridesDir = OVERRIDES_DIR, gsDir, extraCode, env = process.env, now = new Date() }) {
-  const x = buildExport({ gsDir, overridesDir, extraCode });
+export function exportCampusData({ outDir, overridesDir = OVERRIDES_DIR, georefDir = GEOREF_DIR, gsDir, extraCode, env = process.env, now = new Date() }) {
+  const x = buildExport({ gsDir, overridesDir, georefDir, extraCode });
   const builtAt = env.SOURCE_DATE_EPOCH ? new Date(Number(env.SOURCE_DATE_EPOCH) * 1000).toISOString() : now.toISOString();
   fs.mkdirSync(path.join(outDir, 'floors'), { recursive: true });
   const files = [];
@@ -79,7 +86,7 @@ export function exportCampusData({ outDir, overridesDir = OVERRIDES_DIR, gsDir, 
   write('version.json', JSON.stringify({ version: x.version, builtAt, gitSha: gitSha(env) }) + '\n');
   const counts = {};
   for (const k of ['buildings', 'floors', 'rooms', 'navNodes', 'navEdges', 'photos', 'qrLocations', 'config']) counts[k] = x.campus[k].length;
-  return { version: x.version, files, report: x.report, missingPlans: x.missingPlans, counts };
+  return { version: x.version, files, report: x.report, missingPlans: x.missingPlans, counts, geo: x.geo };
 }
 
 const isMain = !!process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
@@ -105,6 +112,7 @@ if (isMain) {
       console.log(`campus data ${r.version} -> ${path.resolve(out)}`);
       console.log('  ' + Object.entries(r.counts).map(([k, n]) => `${k} ${n}`).join(', '));
       console.log(`  ${r.files.length} files (campus.json, version.json, ${r.files.length - 2} floor plans)`);
+      console.log(`  entrances: ${r.geo.entrances} (${r.geo.located} with coordinates, ${r.geo.primary} primary); building entrances derived for ${r.geo.buildingsWithEntrances.join(', ') || 'none'}`);
       for (const l of lines) console.log('  ' + l);
     } else {
       for (const l of lines.filter((s) => /^(ORPHAN|REFUSED)/.test(s))) console.warn(l);

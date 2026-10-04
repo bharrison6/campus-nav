@@ -14152,24 +14152,24 @@
   {
    "nodeId": "it-2-n0554",
    "primary": true,
-   "score": 0.779,
+   "score": 0.778,
    "factors": {
     "room": 0.5,
     "width": 1,
     "path": 0.85,
-    "facing": 1
+    "facing": 0.99
    },
    "roomId": "room-it-2-0250F",
    "roomType": "other",
    "widthUnits": 72,
-   "outwardDeg": 93,
+   "outwardDeg": 89,
    "pathMeters": 6,
    "pathKind": "path"
   },
   {
    "nodeId": "it-2-n0553",
    "primary": false,
-   "score": 0.693,
+   "score": 0.694,
    "factors": {
     "room": 0.5,
     "width": 1,
@@ -14179,19 +14179,19 @@
    "roomId": "room-it-2-0240E",
    "roomType": "other",
    "widthUnits": 72,
-   "outwardDeg": 85,
+   "outwardDeg": 89,
    "pathMeters": 17.5,
    "pathKind": "path"
   },
   {
    "nodeId": "it-2-n0552",
    "primary": true,
-   "score": 0.638,
+   "score": 0.639,
    "factors": {
     "room": 0.5,
     "width": 1,
     "path": 0.87,
-    "facing": 0.01
+    "facing": 0.02
    },
    "roomId": "room-it-2-0220B",
    "roomType": "other",
@@ -14203,17 +14203,17 @@
   {
    "nodeId": "it-2-n0551",
    "primary": false,
-   "score": 0.595,
+   "score": 0.596,
    "factors": {
     "room": 0.5,
     "width": 1,
     "path": 0.27,
-    "facing": 0.92
+    "facing": 0.93
    },
    "roomId": "room-it-2-0200A",
    "roomType": "other",
    "widthUnits": 72,
-   "outwardDeg": 328,
+   "outwardDeg": 329,
    "pathMeters": 19,
    "pathKind": "road"
   },
@@ -14230,7 +14230,7 @@
    "roomId": "room-it-2-0250C",
    "roomType": "other",
    "widthUnits": 72,
-   "outwardDeg": 184,
+   "outwardDeg": 179,
    "pathMeters": 52.5,
    "pathKind": "path"
   }

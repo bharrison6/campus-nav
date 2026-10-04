@@ -80,7 +80,7 @@ test('getAllCampusData: v2 shapes, text numbers preserved, booleans normalized',
   const ep = all.buildings.find((b) => b.id === 'bld-ep');
   assert.deepEqual([ep.code, ep.number, ep.hasIndoor, ep.name], ['EP', '0174', true, 'Engineering and Physics Building']);
   assert.equal(all.buildings.find((b) => b.id === 'bld-ac').hasIndoor, false);
-  assert.deepEqual(Object.keys(it), ['id', 'name', 'code', 'number', 'lat', 'lng', 'entrances', 'photoUrl', 'hasIndoor']);
+  assert.deepEqual(Object.keys(it), ['id', 'name', 'code', 'number', 'lat', 'lng', 'entrances', 'photoUrl', 'hasIndoor', 'levels', 'height']);
   const r = all.rooms.find((x) => x.id === 'room-it-1-0141');
   assert.equal(r.number, '0141');
   assert.deepEqual(r.polygon, [[0, 0], [10, 0], [10, 10]]);

@@ -2,7 +2,10 @@
 // walker uses where no sidewalk is mapped (service roads, residential and minor streets), plus the hand-drawn
 // override paths (data/campus-map/overrides.geojson), plus the primary entrances joined by short connectors.
 //
-//   { nodes: [{id, lat, lng, type: path|crossing|entrance}], edges: [{id, from, to, distance, accessible, kind}] }
+//   { nodes: [{id, lat, lng, type: path|crossing|entrance, primary (entrances only)}],
+//     edges: [{id, from, to, distance, accessible, kind}] }
+// Entrance nodes are the primary entrances (primary: true) and any door that is the only way into a room (primary:
+// false; EP 1322's exterior door): routes enter buildings only through these.
 //
 // Nodes sit at every way vertex; ways sharing an OSM node meet there (that is how OSM models an intersection).
 // Ids: OSM vertices "n<osmNodeId>", override vertices "v<feature>-<vertex>", split points "s<k>", entrances keep their
@@ -148,7 +151,7 @@ export class OutdoorGraph {
     const rename = new Map();
     let k = 0;
     for (const n of sorted) rename.set(n.id, n.type === 'entrance' ? n.id : `o${++k}`);
-    const nodes = sorted.map((n) => ({ id: rename.get(n.id), lat: n.lat, lng: n.lng, type: n.type }));
+    const nodes = sorted.map((n) => (n.type === 'entrance' ? { id: n.id, lat: n.lat, lng: n.lng, type: n.type, primary: !!n.primary } : { id: rename.get(n.id), lat: n.lat, lng: n.lng, type: n.type }));
     const edges = [...this.edges.values()]
       .map((e) => ({ from: rename.get(e.from), to: rename.get(e.to), distance: round(e.distance, 1), accessible: e.accessible, kind: e.kind, key: [rename.get(e.from), rename.get(e.to)].sort().join(' ') }))
       .sort((a, b) => cmp(a.key, b.key))
@@ -232,7 +235,7 @@ export function addOverridePaths(g, features) {
  * @return {{nodeId, to, meters, viaKind, straight: boolean}} straight = longer than `maxMeters` (reported)
  */
 export function connectEntrance(g, ent, { outline, maxMeters = 30 } = {}) {
-  g.addNode(ent.id, ent.lat, ent.lng, 'entrance');
+  g.addNode(ent.id, ent.lat, ent.lng, 'entrance').primary = !!ent.primary;
   const P = g.F.toXY(ent.lat, ent.lng);
   const ring = outline ? outline.map(([lng, lat]) => g.F.toXY(lat, lng)) : null;
   // A door sits in the wall (on a curved wall, at its inner face), so the connector may start inside the outline for

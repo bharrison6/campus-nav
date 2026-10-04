@@ -7,8 +7,9 @@
 //           (office, classroom, lab) 0.3, restroom/storage/mechanical 0.1, a stairwell (an exit stair) 0.15
 //   width   the door's clear width: a double door (>= 60 in) 1, >= 42 in 0.6, else 0.3
 //   path    the distance to the nearest walking path: 1 at the door, 0 at 40 m (a road counts 10 m farther)
-//   facing  whether the door faces that path: cosine of the angle between the door's outward direction and the
-//           direction to the path point, floored at 0 (1 when the path is closer than 3 m)
+//   facing  whether the door faces that path: cosine of the angle between the door's outward direction (the normal
+//           of the nearest outline edge, outside) and the direction to the path point, floored at 0 (1 when the path
+//           is closer than 3 m)
 // score = 0.35 room + 0.2 width + 0.3 path + 0.15 facing. The top-scoring entrance is primary; the next ones are too
 // while the building has fewer than 2, or fewer than 4 and they score at least 0.75 of the best. A door within 8 m of
 // one already chosen (the other leaf of a pair, the second door of a vestibule) is skipped, and so is a door on the
@@ -17,6 +18,44 @@
 import { round } from '../lib/geometry.mjs';
 
 export const WEIGHTS = { room: 0.35, width: 0.2, path: 0.3, facing: 0.15 };
+
+function inRing(p, ring) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i];
+    const [xj, yj] = ring[j];
+    if (yi > p[1] !== yj > p[1] && p[0] < ((xj - xi) * (p[1] - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+/**
+ * The SVG direction a door faces outward: the normal of the nearest edge of the floor's gross outline, on the side
+ * that is outside the building (probed 24 units out). Falls back to (door - room center) without an outline.
+ */
+export function outwardVector(door, gross, roomCenter) {
+  if (gross && gross.length >= 3) {
+    let best = null;
+    for (let i = 0; i < gross.length; i++) {
+      const a = gross[i];
+      const b = gross[(i + 1) % gross.length];
+      const dx = b[0] - a[0];
+      const dy = b[1] - a[1];
+      const L2 = dx * dx + dy * dy;
+      if (!L2) continue;
+      const t = Math.max(0, Math.min(1, ((door[0] - a[0]) * dx + (door[1] - a[1]) * dy) / L2));
+      const d = Math.hypot(door[0] - a[0] - t * dx, door[1] - a[1] - t * dy);
+      if (!best || d < best.d) best = { d, n: [-dy / Math.sqrt(L2), dx / Math.sqrt(L2)], foot: [a[0] + t * dx, a[1] + t * dy] };
+    }
+    if (best) {
+      const probe = (s) => [best.foot[0] + s * 24 * best.n[0], best.foot[1] + s * 24 * best.n[1]];
+      const outA = !inRing(probe(1), gross);
+      const outB = !inRing(probe(-1), gross);
+      if (outA !== outB) return outA ? best.n : [-best.n[0], -best.n[1]];
+    }
+  }
+  return roomCenter ? [door[0] - roomCenter[0], door[1] - roomCenter[1]] : null;
+}
 
 export function roomFactor(type) {
   if (type === 'corridor') return 1;
@@ -49,7 +88,8 @@ export function scoreEntrances({ floors, excluded = new Set(), toLngLat, bearing
       if (!d.exterior || !d.nodeId || excluded.has(d.nodeId)) continue;
       const room = rooms.get(d.rooms[0]);
       const [lng, lat] = toLngLat(f.floorId, d.x, d.y);
-      const outward = room ? bearingOf(f.floorId, d.x - room.center[0], d.y - room.center[1]) : null;
+      const ov = outwardVector([d.x, d.y], f.json.gross, room && room.center);
+      const outward = ov ? bearingOf(f.floorId, ov[0], ov[1]) : null;
       const p = nearestPath(lng, lat);
       const eff = p.meters + (p.kind === 'road' ? 10 : 0);
       let facing = 0;
