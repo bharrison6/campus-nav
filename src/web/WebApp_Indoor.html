@@ -221,6 +221,39 @@ function photosOnFloor(floorId) {
   return out;
 }
 
+/*
+ * Doors and hallways by access class (plan mscn-v5-access-classes-and-editors), drawn on every floor plan whether or
+ * not a route is shown: an emergency exit is a red EXIT plate and its hallway a red-tinted, dashed room (never on a
+ * route); a main entrance a solid dot, a side (alt) door a quieter hollow one. Ordinary inside doors are left undrawn.
+ */
+function doorClassMarkers(floorId) {
+  var out = [];
+  var nodes = (APP.graph && APP.graph.nodes) || {};
+  for (var id in nodes) {
+    if (!nodes.hasOwnProperty(id)) { continue; }
+    var n = nodes[id];
+    if (n.floorId !== floorId || (n.type !== 'entrance' && n.type !== 'door')) { continue; }
+    var c = MSCNPath.accessOf(n);
+    if (c === 'emergency') {
+      out.push({ id: 'class:' + id, x: n.x, y: n.y, kind: 'exit', text: 'EXIT', title: 'Emergency exit (not used for directions)' });
+    } else if (c === 'alt') {
+      out.push({ id: 'class:' + id, x: n.x, y: n.y, kind: 'door-alt', title: 'Side door' });
+    } else if (n.type === 'entrance') {
+      out.push({ id: 'class:' + id, x: n.x, y: n.y, kind: 'door-main', title: 'Main entrance' });
+    }
+  }
+  return out;
+}
+
+function markHallwayClasses(v, floorId) {
+  var list = APP.roomsByFloor[floorId] || [];
+  for (var i = 0; i < list.length; i++) {
+    var c = MSCNPath.accessOf({ access: list[i].access });
+    v.setRoomClass(list[i].id, 'is-emergency', c === 'emergency');
+    v.setRoomClass(list[i].id, 'is-alt', c === 'alt');
+  }
+}
+
 function decorateFloor() {
   var v = IND.viewer;
   if (!v.isLoaded()) { return; }
@@ -231,9 +264,10 @@ function decorateFloor() {
   if (NAV.start && NAV.start.roomId) { v.setRoomClass(NAV.start.roomId, 'is-start', true); }
   if (NAV.route && NAV.route.destRoomId) { v.setRoomClass(NAV.route.destRoomId, 'is-dest', true); }
   if (IND.selectedRoomId) { v.setRoomClass(IND.selectedRoomId, 'is-selected', true); }
+  markHallwayClasses(v, floorId);
 
   var routes = [];
-  var markers = [];
+  var markers = doorClassMarkers(floorId);
   var i;
   var photos = photosOnFloor(floorId);
   for (i = 0; i < photos.length; i++) {
@@ -425,7 +459,7 @@ function roomNodeIds(roomId) {
   if (!room) { return []; }
   var c = roomCenter(room);
   if (!isFinite(c.x) || !isFinite(c.y)) { return []; }
-  var n = MSCNPath.nearestNode(APP.graph, room.floorId, c.x, c.y, function (node) { return !MSCNPath.isTransitionType(node.type); });
+  var n = MSCNPath.nearestNode(APP.graph, room.floorId, c.x, c.y, function (node) { return !MSCNPath.isTransitionType(node.type) && MSCNPath.accessOf(node) !== 'emergency'; });
   return n ? [n.id] : [];
 }
 

@@ -11,7 +11,7 @@
  *              | {kind: 'gps'} | {kind: 'building', buildingId}
  *   NAV.dest   {kind: 'room', roomId} | {kind: 'building', buildingId} | {kind: 'point', lng, lat, label}
  */
-var NAV = { start: null, dest: null, route: null, stepIndex: 0, avoidStairs: false, offPath: null, reroutes: 0 };
+var NAV = { start: null, dest: null, route: null, stepIndex: 0, avoidStairs: false, useSideDoors: false, offPath: null, reroutes: 0 };
 
 var OFF_PATH_METERS = 15;
 var OFF_PATH_DEBOUNCE_MS = 3000;
@@ -19,7 +19,30 @@ var AT_DOOR_METERS = 12;
 
 function initRoute() {
   NAV.avoidStairs = lsGet(LS_KEYS.avoidStairs) === '1';
+  NAV.useSideDoors = lsGet(LS_KEYS.useSideDoors) === '1';
   if (window.GPS) { GPS.listeners.push(updateStartField); }
+}
+
+/*
+ * Access classes (plan mscn-v5-access-classes-and-editors): a route prefers main doors, hallways and paths; an alt one
+ * costs its length times routing.altFactor (campus config, default 3), or its plain length with "Use side doors and
+ * paths" on; emergency exits and hallways are drawn but never routed.
+ */
+function configAltFactor() {
+  var v = getConfigValue('routing.altFactor');
+  if (v === null || v === undefined || v === '') {
+    var r = parseJsonField(getConfigValue('routing'), null);
+    v = r && typeof r === 'object' ? r.altFactor : null;
+  }
+  var n = Number(v);
+  return v !== null && v !== undefined && v !== '' && isFinite(n) && n >= 1 ? n : MSCNPath.DEFAULT_ALT_FACTOR;
+}
+
+/* The findPath options of the current route: stairs and side doors as the visitor set them. */
+function routeOpts(extra) {
+  var o = { accessibleOnly: NAV.avoidStairs, altFactor: NAV.useSideDoors ? 1 : configAltFactor() };
+  for (var k in (extra || {})) { if (extra.hasOwnProperty(k)) { o[k] = extra[k]; } }
+  return o;
 }
 
 /* A map position onto the nearest walkable outdoor edge: the edge's two ends with the meters to each, and the snapped
@@ -27,7 +50,7 @@ function initRoute() {
 function snapToPaths(p) {
   var g = APP.graph;
   if (!g || !g.hasOutdoor || !p) { return null; }
-  var accept = NAV.avoidStairs ? function (e) { return e.accessible; } : null;
+  var accept = function (e) { return e.access !== 'emergency' && (!NAV.avoidStairs || e.accessible); };
   var s = MSCNGeo.nearestEdge(g.outdoorEdges, [Number(p.lng), Number(p.lat)], accept);
   if (!s) { return null; }
   return { ids: [{ id: s.edge.from, cost: s.dFrom }, { id: s.edge.to, cost: s.dTo }], point: s.point, dist: s.dist, edge: s.edge };
@@ -44,7 +67,7 @@ function resolveGoal(dest) {
   if (dest.kind === 'building') {
     var bid = dest.buildingId;
     var label = buildingName(bid);
-    var doors = MSCNPath.primaryEntrances(g, bid);
+    var doors = MSCNPath.primaryEntrances(g, bid, NAV.useSideDoors);
     if (doors.length) { return { kind: 'building', ids: doors, label: label, buildingId: bid }; }
     var c = buildingCenter(bid);
     var sn = c ? snapToPaths(c) : null;
@@ -73,7 +96,7 @@ function resolveStart(goal) {
       error: 'Your scanned location is not on the public map.' };
   }
   if (s && s.kind === 'building') {
-    var doors = MSCNPath.primaryEntrances(g, s.buildingId);
+    var doors = MSCNPath.primaryEntrances(g, s.buildingId, NAV.useSideDoors);
     if (doors.length) { return { kind: 'building', ids: doors, label: buildingName(s.buildingId), buildingId: s.buildingId }; }
     var c = buildingCenter(s.buildingId);
     var sn = c ? snapToPaths(c) : null;
@@ -98,9 +121,9 @@ function resolveStart(goal) {
 }
 
 /*
- * The automatic start for a room (no blue dot, no chosen start): the building's common doors (primary, joined to the
- * paths), the same policy as the outdoor join. A sole door (one the primaries cannot reach indoors, EP 1322's) is
- * used only when the primaries cannot reach the room without going outside. Without a campus map (no joined
+ * The automatic start for a room (no blue dot, no chosen start): the building's common doors (main, joined to the
+ * paths; main and side doors with "Use side doors and paths" on). A sole door (an alt door the main doors cannot reach
+ * indoors, EP 1322's) is used only when the main doors cannot reach the room without going outside. Without a campus map (no joined
  * entrances) every mapped entrance, as in v3.
  */
 function automaticEntrances(goal) {
@@ -108,8 +131,8 @@ function automaticEntrances(goal) {
   var bid = goal.buildingId;
   var joined = (g.entrances && g.entrances[bid]) || [];
   if (!joined.length) { return MSCNPath.entranceIds(g, bid); }
-  var prim = MSCNPath.primaryEntrances(g, bid);
-  var opts = { indoorOnly: true, accessibleOnly: NAV.avoidStairs };
+  var prim = MSCNPath.primaryEntrances(g, bid, NAV.useSideDoors);
+  var opts = routeOpts({ indoorOnly: true });
   if (MSCNPath.findPath(g, prim, goal.ids, opts)) { return prim; }
   var sole = [];
   for (var i = 0; i < joined.length; i++) { if (g.nodes[joined[i]].soleDoor) { sole.push(joined[i]); } }
@@ -152,7 +175,7 @@ function walkStepsFor(route, destinationLabel) {
  */
 function legacyCrossBuildingRoute(route, st, goal) {
   var g = APP.graph;
-  var opts = { accessibleOnly: NAV.avoidStairs };
+  var opts = routeOpts();
   var exits = MSCNPath.entranceIds(g, st.buildingId);
   var entries = MSCNPath.entranceIds(g, goal.buildingId);
   var leg1 = exits.length ? MSCNPath.findPath(g, st.ids, exits, opts) : null;
@@ -181,9 +204,15 @@ function legacyCrossBuildingRoute(route, st, goal) {
   route.meters += leg2.distance;
 }
 
+/* Why there is no route: stairs the visitor asked to avoid, else an emergency exit (never routed through; the data's
+   connectivity check should keep this from happening on real data), else nothing connects. */
 function noRouteMessage(fromIds, toIds) {
-  if (NAV.avoidStairs && MSCNPath.findPath(APP.graph, fromIds, toIds, { accessibleOnly: false })) {
+  var g = APP.graph;
+  if (NAV.avoidStairs && MSCNPath.findPath(g, fromIds, toIds, routeOpts({ accessibleOnly: false }))) {
     return 'No step-free route was found. Turn off "Avoid stairs" to include stairs.';
+  }
+  if (MSCNPath.findPath(g, fromIds, toIds, routeOpts({ accessibleOnly: false, allowEmergency: true }))) {
+    return 'No route without an emergency exit. Emergency exits are never used for directions.';
   }
   return 'No route was found between these points.';
 }
@@ -205,7 +234,7 @@ function planRoute(dest) {
   } else if (!g.hasOutdoor && st.buildingId && goal.buildingId && st.buildingId !== goal.buildingId) {
     legacyCrossBuildingRoute(route, st, goal);
   } else {
-    var r = MSCNPath.findPath(g, st.ids, goal.ids, { accessibleOnly: NAV.avoidStairs });
+    var r = MSCNPath.findPath(g, st.ids, goal.ids, routeOpts());
     if (r) {
       route.steps = MSCNPath.buildRouteSteps(g, MSCNPath.segmentRoute(g, MSCNPath.snapEnds(r, st.snap, goal.snap)), routeNames(goal.label));
       route.meters = r.distance;
@@ -441,6 +470,13 @@ function routeCampusTarget(r) {
   return null;
 }
 
+/* The three door and path classes in plain words (the floor plan and map draw them with these same marks). */
+var DOOR_LEGEND_HTML = '<details class="route-legend" id="route-legend"><summary>Door types</summary><ul>' +
+  '<li><span class="legend-mark legend-main" aria-hidden="true"></span><span><strong>Main door</strong>: directions use these and the main paths and hallways.</span></li>' +
+  '<li><span class="legend-mark legend-alt" aria-hidden="true"></span><span><strong>Side door</strong>: used only when it saves a long walk, or always with "Use side doors and paths" on. Side paths are drawn lighter.</span></li>' +
+  '<li><span class="legend-mark legend-emergency" aria-hidden="true"></span><span><strong>Emergency exit</strong>: for emergencies only; directions never go through it or its hallway.</span></li>' +
+  '</ul></details>';
+
 function renderRoutePanel() {
   var p = $('route-panel');
   var r = NAV.route;
@@ -478,6 +514,9 @@ function renderRoutePanel() {
   var target = r.error ? null : routeCampusTarget(r);
   html += '<div class="route-options"><label class="switch"><input type="checkbox" id="avoid-stairs"' + (NAV.avoidStairs ? ' checked' : '') + '>' +
     '<span class="track" aria-hidden="true"></span>Avoid stairs</label>' +
+    '<label class="switch"><input type="checkbox" id="use-side-doors"' + (NAV.useSideDoors ? ' checked' : '') + '>' +
+    '<span class="track" aria-hidden="true"></span>Use side doors and paths</label></div>' +
+    '<div class="route-options route-options-links">' + DOOR_LEGEND_HTML +
     (target ? '<a class="route-campus" id="route-campus" href="' + escapeHtml(directionsToCampusUrl(target.lat, target.lng)) + '" target="_blank" rel="noopener">Directions to campus</a>' : '') +
     '</div>';
   $('route-body').innerHTML = html;
@@ -498,6 +537,12 @@ function renderRoutePanel() {
     lsSet(LS_KEYS.avoidStairs, NAV.avoidStairs ? '1' : '0');
     computeRoute();
     focusSoon('avoid-stairs');
+  };
+  $('use-side-doors').onchange = function (e) {
+    NAV.useSideDoors = !!e.target.checked;
+    lsSet(LS_KEYS.useSideDoors, NAV.useSideDoors ? '1' : '0');
+    computeRoute();
+    focusSoon('use-side-doors');
   };
 }
 

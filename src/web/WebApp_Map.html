@@ -50,6 +50,7 @@ function loadOutdoorGraph(path) {
     if (err || !g || !isArray(g.nodes)) { return; }
     MAPV.outdoor = g;
     MSCNPath.addOutdoorGraph(APP.graph, g);
+    refreshEntrances();
     if (NAV.dest) { computeRoute(); }
   });
 }
@@ -149,7 +150,8 @@ function readMapTokens() {
     path: m('path'), pathCasing: m('path-casing'), steps: m('steps'), building: m('building'), buildingIndoor: m('building-indoor'),
     buildingSelected: m('building-selected'), slab: m('slab'), label: m('label'), labelMuted: m('label-muted'), labelHalo: m('label-halo'),
     route: m('route'), routeCasing: m('route-casing'), routeDim: m('route-dim'), door: m('door'), gps: m('gps'),
-    start: cssToken(cs, '--start'), dest: cssToken(cs, '--dest'), lightIntensity: m('light'), room: room, roomOther: room.other
+    start: cssToken(cs, '--start'), dest: cssToken(cs, '--dest'), lightIntensity: m('light'), room: room, roomOther: room.other,
+    pathAlt: m('path-alt'), pathAltCasing: m('path-alt-casing'), doorMain: m('door-main'), doorAlt: m('door-alt'), exit: m('exit')
   };
 }
 
@@ -163,7 +165,37 @@ function styleOptions() {
   if (man.aerial && man.aerial.tiles) {
     aerial = { tiles: absUrl(man.aerial.tiles), minzoom: man.aerial.minzoom, maxzoom: man.aerial.maxzoom, attribution: man.aerial.attribution, bounds: man.aerial.bounds };
   }
-  return { buildings: MAPV.buildings, base: MAPV.base, photos: outdoorPhotos(), aerial: aerial, aerialVisible: MAPV.aerialOn };
+  return { buildings: MAPV.buildings, base: MAPV.base, photos: outdoorPhotos(), entrances: entranceFeatures(), aerial: aerial, aerialVisible: MAPV.aerialOn };
+}
+
+/* Every mapped entrance as a point with its access class (main, alt, emergency): the joined graph's entrance nodes, then
+   any buildings[].entrances the graph lacks (a building without floor plans). */
+function entranceFeatures() {
+  var out = [];
+  var seen = {};
+  var nodes = (APP.graph && APP.graph.nodes) || {};
+  function add(id, lng, lat, item, name) {
+    if (seen[id] || !isFinite(Number(lng)) || !isFinite(Number(lat)) || !Number(lat)) { return; }
+    seen[id] = true;
+    out.push({ type: 'Feature', properties: { nodeId: id, access: MSCNPath.accessOf(item), name: name || '' },
+      geometry: { type: 'Point', coordinates: [Number(lng), Number(lat)] } });
+  }
+  for (var id in nodes) {
+    if (nodes.hasOwnProperty(id) && nodes[id].type === 'entrance' && MSCNPath.hasLngLat(nodes[id])) { add(id, nodes[id].lng, nodes[id].lat, nodes[id], nodes[id].label); }
+  }
+  var bs = (APP.data && APP.data.buildings) || [];
+  for (var i = 0; i < bs.length; i++) {
+    var ents = bs[i].entrances || [];
+    for (var k = 0; k < ents.length; k++) {
+      if (ents[k]) { add(ents[k].nodeId || (bs[i].id + ':' + k), ents[k].lng, ents[k].lat, nodes[ents[k].nodeId] || ents[k], entranceLabel(ents[k])); }
+    }
+  }
+  return { type: 'FeatureCollection', features: out };
+}
+
+function refreshEntrances() {
+  var src = MAPV.map && MAPV.ready ? MAPV.map.getSource('entrances') : null;
+  if (src) { src.setData(entranceFeatures()); }
 }
 
 /* Outdoor photos (campus data `photos`, type outdoor, with lat/lng) as map points; a tap opens the photo viewer. */
@@ -238,6 +270,7 @@ function openingView(envelope) {
 function onMapLoad() {
   MAPV.ready = true;
   $('map-canvas').setAttribute('data-map-ready', 'true');
+  refreshEntrances();
   if (MAPV.pendingRoute) { MAPV.showRoute(MAPV.pendingRoute.route, MAPV.pendingRoute.index); MAPV.pendingRoute = null; }
   if (MAPV.view) { renderIndoorOnMap(); }
   if (window.GPS) { MAPV.setGps(GPS); }
