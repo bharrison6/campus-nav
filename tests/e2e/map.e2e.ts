@@ -78,6 +78,41 @@ test('the campus map renders in 2.5D with OpenStreetMap attribution, in the app\
   await expect(page.locator('#map-locate')).toBeVisible();
 });
 
+test('the map opens on the academic core (quad, IT, EP) at a 45-degree tilt; the whole campus is a zoom-out away', async ({ page }) => {
+  await boot(page);
+  await mapReady(page);
+  const view = await page.evaluate(() => {
+    const m = (window as any).MAPV.map;
+    const b = m.getBounds();
+    const env = (window as any).MAPV.bounds;
+    const fit = m.cameraForBounds([[env[0], env[1]], [env[2], env[3]]], { padding: 30, pitch: m.getPitch(), bearing: m.getBearing() });
+    return { w: b.getWest(), s: b.getSouth(), e: b.getEast(), n: b.getNorth(), pitch: m.getPitch(), zoom: m.getZoom(), envelopeZoom: fit.zoom,
+      core: (window as any).MAPV.manifest.defaultView };
+  });
+  expect(view.core.buildings).toEqual(expect.arrayContaining(['bld-it', 'bld-ep']));
+  expect(view.pitch).toBeCloseTo(45, 0);
+  const inView = (c: { lng: number; lat: number }, v: any) => c.lng >= v.w && c.lng <= v.e && c.lat >= v.s && c.lat <= v.n;
+  for (const bid of ['bld-it', 'bld-ep', 'bld-fh', 'bld-wr']) expect(inView(centerOf(bid), view), bid).toBe(true);
+  // the far end of campus (the Animal Health Technology Center, about 1.6 km west) is not in the opening view
+  const far = centerOf('bld-cp');
+  expect(inView(far, view)).toBe(false);
+  // the opening view is the core, not the 2.7 km envelope: at least a zoom level closer than fitting the envelope
+  expect(view.zoom - view.envelopeZoom).toBeGreaterThan(1);
+  // zoomed all the way out the view spans the campus scale (km, not the core's few hundred m), and maxBounds is the
+  // envelope, so the far end is in reach (on a portrait phone by a pan as well)
+  const out = await page.evaluate((c) => {
+    const m = (window as any).MAPV.map;
+    m.jumpTo({ zoom: m.getMinZoom(), pitch: 0, bearing: 0 });
+    const b = m.getBounds();
+    const wide = { w: b.getWest(), s: b.getSouth(), e: b.getEast(), n: b.getNorth() };
+    m.jumpTo({ center: [c.lng, c.lat] });
+    const p = m.getBounds();
+    return { wide, panned: { w: p.getWest(), s: p.getSouth(), e: p.getEast(), n: p.getNorth() } };
+  }, far);
+  expect(meters({ lng: out.wide.w, lat: out.wide.s }, { lng: out.wide.e, lat: out.wide.s })).toBeGreaterThan(1800);
+  expect(inView(far, out.panned), JSON.stringify(out.panned)).toBe(true);
+});
+
 test('search flies the map to a building, and a room opens its floor in the building view', async ({ page }) => {
   await boot(page);
   await mapReady(page);

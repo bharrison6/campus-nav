@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import vm from 'node:vm';
 import { renderPage } from '../../scripts/build/render-page.mjs';
 import {
-  copyCampusMap, findRootRelativeUrls, loadBuildConfig, MAPLIBRE_FILES, maplibreDir, notFoundPage, siteConfig, validateLinks, validateSchedule,
+  copyCampusMap, findRootRelativeUrls, resolveDefaultView, loadBuildConfig, MAPLIBRE_FILES, maplibreDir, notFoundPage, siteConfig, validateLinks, validateSchedule,
 } from '../../scripts/build/build-site.mjs';
 import { AERIAL_MAX_TILES, buildHash, precacheEntries, serviceWorkerSource } from '../../scripts/build/service-worker.mjs';
 import { ROOT, SRC } from './load-include.mjs';
@@ -71,7 +71,7 @@ test('build config: base path shape, domain implies root base, analytics passthr
   const dir = mkdtempSync(join(tmpdir(), 'mscn-cfg-'));
   const write = (o) => { const p = join(dir, 'c.json'); writeFileSync(p, JSON.stringify(o)); return p; };
   assert.deepEqual(loadBuildConfig(write({ basePath: '/campus-nav/', analytics: { site: ' msu ' } })),
-    { basePath: '/campus-nav/', domain: '', siteUrl: '', analytics: { provider: 'goatcounter', site: 'msu' } });
+    { basePath: '/campus-nav/', domain: '', siteUrl: '', analytics: { provider: 'goatcounter', site: 'msu' }, map: { defaultView: null } });
   assert.equal(loadBuildConfig(write({ basePath: '/campus-nav/', domain: 'Nav.Example.org' })).basePath, '/');
   assert.equal(loadBuildConfig(write({ domain: 'nav.example.org' })).domain, 'nav.example.org');
   assert.throws(() => loadBuildConfig(write({ basePath: 'campus-nav' })), /basePath/);
@@ -117,7 +117,31 @@ test('copyCampusMap: the committed campus map lands under data/ with a manifest 
   assert.equal(existsSync(join(out, 'data', 'campus-map', 'overrides.geojson')), false, 'nor the hand-drawn overrides');
   // an empty root is valid: nothing is published and the app falls back to its building list
   const empty = copyCampusMap(mkdtempSync(join(tmpdir(), 'mscn-none-')), mkdtempSync(join(tmpdir(), 'mscn-out-')));
-  assert.deepEqual(empty, { buildings: null, basemap: [], outdoorGraph: null, aerial: null, georef: {}, georefModule: false });
+  assert.deepEqual(empty, { buildings: null, basemap: [], outdoorGraph: null, aerial: null, georef: {}, georefModule: false, defaultView: null });
+});
+
+test('opening view: build.config.json map.defaultView names the academic core; the manifest carries its footprint box', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mscn-view-'));
+  const write = (o) => { const p = join(dir, 'c.json'); writeFileSync(p, JSON.stringify(o)); return p; };
+  assert.deepEqual(loadBuildConfig(write({ map: { defaultView: { buildings: ['a', 'b'] } } })).map.defaultView, { buildings: ['a', 'b'], pitch: 45 });
+  assert.throws(() => loadBuildConfig(write({ map: { defaultView: { buildings: [] } } })), /defaultView.buildings/);
+  assert.throws(() => loadBuildConfig(write({ map: { defaultView: { buildings: ['a'], pitch: 85 } } })), /pitch/);
+  const sq = (id, x, y) => ({ type: 'Feature', properties: { buildingId: id }, geometry: { type: 'Polygon', coordinates: [[[x, y], [x + 1, y], [x + 1, y + 1], [x, y + 1], [x, y]]] } });
+  const fc = { type: 'FeatureCollection', features: [sq('a', 0, 0), sq('b', 5, 2), sq('b', 6, -1), sq('far', 100, 100)] };
+  assert.deepEqual(resolveDefaultView(fc, { buildings: ['a', 'b'], pitch: 45 }), { buildings: ['a', 'b'], bounds: [0, -1, 7, 3], pitch: 45 });
+  assert.throws(() => resolveDefaultView(fc, { buildings: ['a', 'nope'], pitch: 45 }), /nope/);
+
+  // the committed config: the quad, IT and EP, a box well inside the 2.7 x 2.1 km building envelope
+  const cfg = loadBuildConfig(join(ROOT, 'build.config.json'));
+  for (const id of ['bld-it', 'bld-ep']) assert.ok(cfg.map.defaultView.buildings.includes(id), id);
+  assert.equal(cfg.map.defaultView.pitch, 45);
+  const m = copyCampusMap(ROOT, mkdtempSync(join(tmpdir(), 'mscn-map-')), cfg.map.defaultView);
+  const [w, s, e, n] = m.defaultView.bounds;
+  const lat = (s + n) / 2;
+  const widthM = (e - w) * 111320 * Math.cos((lat * Math.PI) / 180);
+  const heightM = (n - s) * 110574;
+  assert.ok(Math.hypot(widthM, heightM) > 400 && Math.hypot(widthM, heightM) < 1200, `core box ${widthM.toFixed(0)} x ${heightM.toFixed(0)} m`);
+  assert.equal(copyCampusMap(ROOT, mkdtempSync(join(tmpdir(), 'mscn-map-'))).defaultView, null, 'no config entry, no defaultView');
 });
 
 test('service worker: precache manifest hashes every published file except sw.js, 404, CNAME, maps and aerial tiles', () => {

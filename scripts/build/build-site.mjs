@@ -13,7 +13,9 @@
 //                            georef.mjs (src/shared/georef.mjs, the SVG <-> lng/lat transform shared with the exporter)
 //   data/campus-map/**       the committed campus map (buildings, basemap layers, outdoor graph, optional aerial tiles)
 //   data/georef/<id>.json    each indoor building's floor-frame transform
-//   data/map-manifest.json   what of the above exists: {buildings, basemap[], outdoorGraph, aerial, georef{id: doc}}
+//   data/map-manifest.json   what of the above exists: {buildings, basemap[], outdoorGraph, aerial, georef{id: doc}}, and
+//                            defaultView {buildings[], bounds, pitch}: the opening camera, the footprint box of the
+//                            buildings build.config.json map.defaultView names
 //   sw.js                    the service worker with its precache manifest (scripts/build/service-worker.mjs)
 //   data/campus.json         \
 //   data/version.json         } the campus-data export (scripts/data/export-campus-data.mjs): public floors only;
@@ -53,7 +55,38 @@ export function loadBuildConfig(path) {
     domain,
     siteUrl: String(raw.siteUrl || ''),
     analytics: { provider: String(a.provider || 'goatcounter'), site: String(a.site || '').trim() },
+    map: { defaultView: defaultViewConfig(raw.map && raw.map.defaultView) },
   };
+}
+
+/** map.defaultView: {buildings: [buildingId, ...], pitch?} -> the same with pitch defaulted to 45, or null when absent. */
+function defaultViewConfig(v) {
+  if (v === undefined || v === null) return null;
+  const ids = v && Array.isArray(v.buildings) ? v.buildings.map((b) => String(b)) : [];
+  if (!ids.length || ids.some((b) => !ID_RE.test(b))) fail('map.defaultView.buildings must be a non-empty list of building ids');
+  const pitch = v.pitch === undefined ? 45 : Number(v.pitch);
+  if (!(pitch >= 0 && pitch <= 70)) fail(`map.defaultView.pitch must be 0 to 70 degrees (got ${JSON.stringify(v.pitch)})`);
+  return { buildings: ids, pitch };
+}
+
+/** The opening camera: the lng/lat box [w, s, e, n] around the footprints of the named buildings, with the pitch. */
+export function resolveDefaultView(fc, view) {
+  const box = [Infinity, Infinity, -Infinity, -Infinity];
+  const missing = [];
+  for (const id of view.buildings) {
+    const feats = fc.features.filter((f) => f && f.properties && f.properties.buildingId === id && f.geometry);
+    if (!feats.length) { missing.push(id); continue; }
+    for (const f of feats) {
+      const polys = f.geometry.type === 'Polygon' ? [f.geometry.coordinates] : f.geometry.type === 'MultiPolygon' ? f.geometry.coordinates : [];
+      for (const poly of polys) for (const [lng, lat] of poly[0] || []) {
+        if (lng < box[0]) box[0] = lng; if (lat < box[1]) box[1] = lat;
+        if (lng > box[2]) box[2] = lng; if (lat > box[3]) box[3] = lat;
+      }
+    }
+  }
+  if (missing.length) fail(`map.defaultView names building(s) with no footprint in campus-map/buildings.geojson: ${missing.join(', ')}`);
+  if (box[0] === Infinity) fail('map.defaultView: the named buildings have no footprint coordinates');
+  return { buildings: view.buildings, bounds: box.map((x) => Math.round(x * 1e6) / 1e6), pitch: view.pitch };
 }
 
 /** The public config.json. There is no map key: v4 draws its own map (MapLibre + committed OSM data). */
@@ -96,10 +129,10 @@ function readJsonChecked(p, what) {
  *   <mapRoot>/data/georef/<buildingId>.json, <mapRoot>/src/shared/georef.mjs
  * Every piece is optional; the app draws what exists (no buildings file: the building-list fallback).
  */
-export function copyCampusMap(mapRoot, out) {
+export function copyCampusMap(mapRoot, out, defaultView = null) {
   const srcMap = join(mapRoot, 'data', 'campus-map');
   const srcRef = join(mapRoot, 'data', 'georef');
-  const manifest = { buildings: null, basemap: [], outdoorGraph: null, aerial: null, georef: {}, georefModule: false };
+  const manifest = { buildings: null, basemap: [], outdoorGraph: null, aerial: null, georef: {}, georefModule: false, defaultView: null };
   const dstMap = join(out, 'data', 'campus-map');
   // the build inputs of npm run campus-map (the OpenStreetMap extract, the hand-drawn overrides) are not published
   const input = (p) => { const r = relative(srcMap, p).split(sep).join('/'); return r.startsWith('source/') || r === 'overrides.geojson'; };
@@ -109,6 +142,7 @@ export function copyCampusMap(mapRoot, out) {
     const fc = readJsonChecked(join(dstMap, 'buildings.geojson'), 'campus-map/buildings.geojson');
     if (fc.type !== 'FeatureCollection' || !Array.isArray(fc.features)) fail('campus-map/buildings.geojson is not a FeatureCollection');
     manifest.buildings = 'data/campus-map/buildings.geojson';
+    if (defaultView) manifest.defaultView = resolveDefaultView(fc, defaultView);
   }
   if (has('basemap.geojson')) manifest.basemap.push('data/campus-map/basemap.geojson');
   if (has('layers')) {
@@ -298,7 +332,7 @@ export function buildSite({ out = join(ROOT, 'dist'), configPath = join(ROOT, 'b
   const mlLicense = join(mlDir, '..', 'LICENSE.txt');
   if (existsSync(mlLicense)) copyFileSync(mlLicense, join(vendor, 'maplibre-gl-LICENSE.txt'));
   copyFileSync(join(WEB_SRC, 'modules.mjs'), join(vendor, 'modules.mjs'));
-  const map = copyCampusMap(ROOT, out);
+  const map = copyCampusMap(ROOT, out, cfg.map.defaultView);
   writeFileSync(join(out, 'data', 'map-manifest.json'), JSON.stringify(map));
 
   // 4. the page, its config, 404 and CNAME
