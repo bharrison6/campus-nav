@@ -5,7 +5,7 @@
  "level": 1,
  "label": "First Floor",
  "public": true,
- "source": "data/dwg/0174_1-bp.dwg",
+ "source": "0174_1-bp.dwg",
  "planAsset": "FP_floor_ep_1",
  "svgFile": "floor-ep-1.svg",
  "widthPx": 3375.8,

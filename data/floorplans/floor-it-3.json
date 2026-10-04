@@ -5,7 +5,7 @@
  "level": 3,
  "label": "Mezzanine",
  "public": false,
- "source": "data/dwg/0135_3-bp.dwg",
+ "source": "0135_3-bp.dwg",
  "planAsset": "FP_floor_it_3",
  "svgFile": "floor-it-3.svg",
  "widthPx": 806.7,

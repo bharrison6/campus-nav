@@ -10,7 +10,7 @@
     "test:e2e:headed": "playwright test -c tests/e2e/playwright.config.ts --headed",
     "test:smoke": "playwright test -c playwright.config.ts",
     "serve": "node dev/serve.mjs",
-    "pipeline": "node scripts/floorplan-pipeline/run.mjs --in data/dwg --out data/floorplans"
+    "pipeline": "node scripts/floorplan-pipeline/run.mjs --out data/floorplans"
   },
   "repository": {
     "type": "git",

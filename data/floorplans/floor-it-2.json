@@ -5,7 +5,7 @@
  "level": 2,
  "label": "Second Floor",
  "public": true,
- "source": "data/dwg/0135_2-bp.dwg",
+ "source": "0135_2-bp.dwg",
  "planAsset": "FP_floor_it_2",
  "svgFile": "floor-it-2.svg",
  "widthPx": 5184.9,

@@ -41,5 +41,9 @@ logs/
 # Map source files (large binaries — floor plans hosted on Google Drive)
 Maps/
 
+# Facilities drawings: never in this repository (they live in MSCN_DWG_DIR, default ../drawings/dwg)
+data/dwg/
+*.dwg
+
 # ACC kernel — local-only transcripts (§12)
 .transcripts/
