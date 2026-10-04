@@ -271,7 +271,7 @@ function deleteFloor(data) {
 }
 
 // ============================================================================
-// Rooms: id, floorId, number, label, type, polygon, centerX, centerY, searchable
+// Rooms: id, floorId, number, label, type, polygon, centerX, centerY, searchable, access
 // ============================================================================
 
 function saveRoom(data) {
@@ -298,7 +298,7 @@ function saveBatchRooms(data) {
 }
 
 // ============================================================================
-// NavNodes: id, floorId, x, y, type, roomId, linkId, primary
+// NavNodes: id, floorId, x, y, type, roomId, linkId, primary, access
 // NavEdges: id, fromNodeId, toNodeId, distance, floorChange, accessible
 // ============================================================================
 

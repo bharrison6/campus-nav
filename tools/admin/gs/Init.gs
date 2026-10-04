@@ -64,6 +64,7 @@ function initSystem() {
  * blank elsewhere), seeded by the pipeline and the campus-map build, overridable. NavNodes.primary is retired: an old
  * primary override reads as access (true main, false alt; scripts/data/overrides.mjs) and the column is kept only
  * until the admin and the app read access.
+ *  - appended: columns added after the generated seed's format; a seed row without them is padded with blanks.
  *  - text:  columns forced to plain-text format so Sheets keeps "0141" as "0141".
  *  - json:  columns stored as JSON strings and parsed on read.
  *  - bools: boolean columns with the default used when a cell is blank.
@@ -89,13 +90,15 @@ function getSheetDefinitions_() {
       headers: ['id', 'floorId', 'number', 'label', 'type', 'polygon', 'centerX', 'centerY', 'searchable', 'access'],
       text: ['id', 'floorId', 'number', 'label', 'type', 'access'],
       json: ['polygon'],
-      bools: { searchable: true }
+      bools: { searchable: true },
+      appended: ['access']
     },
     {
       name: 'NavNodes',
       headers: ['id', 'floorId', 'x', 'y', 'type', 'roomId', 'linkId', 'primary', 'access'],
       text: ['id', 'floorId', 'type', 'roomId', 'linkId', 'access'],
-      bools: { primary: false }
+      bools: { primary: false },
+      appended: ['access']
     },
     {
       name: 'NavEdges',

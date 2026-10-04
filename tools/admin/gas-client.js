@@ -12,7 +12,11 @@
       if (!r.ok) throw new Error('HTTP ' + r.status);
       return r.json();
     }).then(function (reply) {
-      if (!reply.ok) throw new Error(reply.error);
+      if (!reply.ok) {
+        var err = new Error(reply.error);
+        if (reply.refused) err.refused = reply.refused; // a save the connectivity check refused: what it would cut off
+        throw err;
+      }
       return reply.value;
     });
   }
