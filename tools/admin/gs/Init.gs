@@ -57,7 +57,9 @@ function initSystem() {
 }
 
 /**
- * Data contract v2. Every lane reads these shapes.
+ * Data contract v2. Every lane reads these shapes. v4 additions (columns appended, so older rows stay valid):
+ * Buildings.levels / Buildings.height (extrusion on the campus map; seeded by the campus-map build, overridable) and
+ * NavNodes.primary (an entrance visitors are routed to; seeded by the primary-entrance heuristic, overridable).
  *  - text:  columns forced to plain-text format so Sheets keeps "0141" as "0141".
  *  - json:  columns stored as JSON strings and parsed on read.
  *  - bools: boolean columns with the default used when a cell is blank.
@@ -67,7 +69,7 @@ function getSheetDefinitions_() {
     { name: 'Config', headers: ['key', 'value'], text: ['key', 'value'] },
     {
       name: 'Buildings',
-      headers: ['id', 'name', 'code', 'number', 'lat', 'lng', 'entrances', 'photoUrl', 'hasIndoor'],
+      headers: ['id', 'name', 'code', 'number', 'lat', 'lng', 'entrances', 'photoUrl', 'hasIndoor', 'levels', 'height'],
       text: ['id', 'name', 'code', 'number', 'photoUrl'],
       json: ['entrances'],
       bools: { hasIndoor: false }
@@ -87,8 +89,9 @@ function getSheetDefinitions_() {
     },
     {
       name: 'NavNodes',
-      headers: ['id', 'floorId', 'x', 'y', 'type', 'roomId', 'linkId'],
-      text: ['id', 'floorId', 'type', 'roomId', 'linkId']
+      headers: ['id', 'floorId', 'x', 'y', 'type', 'roomId', 'linkId', 'primary'],
+      text: ['id', 'floorId', 'type', 'roomId', 'linkId'],
+      bools: { primary: false }
     },
     {
       name: 'NavEdges',

@@ -1,0 +1,70 @@
+{
+ "generated": "scripts/campus-map/run.mjs (npm run campus-map)",
+ "attribution": {
+  "osm": "© OpenStreetMap contributors (ODbL 1.0, https://www.openstreetmap.org/copyright)"
+ },
+ "license": "Map data (buildings, layers, outdoor graph) is derived from OpenStreetMap and published under the ODbL 1.0.",
+ "source": {
+  "osm": {
+   "source": "api.openstreetmap.org/api/0.6/map",
+   "fetchedAt": "2026-10-04T15:17:38.981Z",
+   "bbox": {
+    "minLat": 36.6065,
+    "minLng": -88.3425,
+    "maxLat": 36.625,
+    "maxLng": -88.3135
+   },
+   "license": "ODbL 1.0",
+   "attribution": "© OpenStreetMap contributors (ODbL 1.0, https://www.openstreetmap.org/copyright)"
+  }
+ },
+ "files": [
+  "buildings.geojson",
+  "layers/paths.geojson",
+  "layers/roads.geojson",
+  "layers/parking.geojson",
+  "layers/landuse.geojson",
+  "layers/water.geojson",
+  "layers/labels.geojson",
+  "outdoor-graph.json"
+ ],
+ "counts": {
+  "buildings": 144,
+  "paths": 98,
+  "roads": 529,
+  "parking": 30,
+  "landuse": 32,
+  "water": 0,
+  "labels": 84,
+  "graphNodes": 2394,
+  "graphEdges": 2758
+ },
+ "georef": {
+  "bld-ep": {
+   "residualMeters": 1.21,
+   "residual": {
+    "rms": 1.21,
+    "mean": 0.66,
+    "p90": 1.14,
+    "max": 9.62,
+    "measure": "symmetric boundary distance between the fitted outline and the footprint, meters (residualMeters = rms)"
+   },
+   "fittedTo": "way/1232965496",
+   "rotationDeg": 359.629,
+   "reflected": false
+  },
+  "bld-it": {
+   "residualMeters": 2.39,
+   "residual": {
+    "rms": 2.39,
+    "mean": 1.01,
+    "p90": 2.07,
+    "max": 13.81,
+    "measure": "symmetric boundary distance between the fitted outline and the footprint, meters (residualMeters = rms)"
+   },
+   "fittedTo": "way/1232973735",
+   "rotationDeg": 1.077,
+   "reflected": false
+  }
+ }
+}

@@ -828,6 +828,18 @@
                   <label for="buildings-edit-hasIndoor">Has indoor maps (floor plans and room navigation)</label>
                 </div>
               </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="buildings-edit-levels">Levels</label>
+                  <input type="number" id="buildings-edit-levels" min="1" max="40" step="1" placeholder="from the map data">
+                  <p class="field-help">Floors above ground, for the 2.5D campus map (3.5 m each). Seeded from OpenStreetMap or a default by building type.</p>
+                </div>
+                <div class="form-group">
+                  <label for="buildings-edit-height">Height (m)</label>
+                  <input type="number" id="buildings-edit-height" min="1" max="200" step="0.5" placeholder="levels x 3.5 m">
+                  <p class="field-help">Overrides the height from the levels. Run <code>npm run campus-map</code> to apply both to the map.</p>
+                </div>
+              </div>
               <div style="display:flex;gap:10px;">
                 <div class="form-group" style="flex:1;">
                   <label for="buildings-edit-lat">Latitude</label>
@@ -3346,6 +3358,15 @@
         ctx.arc(nd.x, nd.y, drawRadius, 0, 2 * Math.PI);
         ctx.stroke();
 
+        // Double ring for a primary entrance
+        if (normalizeNodeType(nd.type) === 'entrance' && toBool(nd.primary, false)) {
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 2 / scale;
+          ctx.beginPath();
+          ctx.arc(nd.x, nd.y, drawRadius + 4 / scale, 0, 2 * Math.PI);
+          ctx.stroke();
+        }
+
         // Gold ring for selected node
         if (isNodeSelected) {
           ctx.strokeStyle = '#FDB515';
@@ -3392,6 +3413,13 @@
           '<input type="text" id="nav-edit-linkId" placeholder="e.g. it-stair-1">' +
           '<p class="field-help">Stairs and elevators on different floors that share a Link ID are the same shaft; cross-floor edges connect them.</p>' +
         '</div>' +
+        '<div class="form-group" id="nav-edit-primary-group">' +
+          '<div class="checkbox-group">' +
+            '<input type="checkbox" id="nav-edit-primary">' +
+            '<label for="nav-edit-primary">Primary entrance (visitors are routed to this door)</label>' +
+          '</div>' +
+          '<p class="field-help">Keep 2 to 4 per building, the doors people actually use. Then run <code>npm run campus-map</code> so the outdoor walking graph joins this door.</p>' +
+        '</div>' +
         '<div class="btn-row">' +
           '<button class="btn btn-primary" onclick="saveNavNodeEdit()">Save</button>' +
           '<button class="btn btn-outline" onclick="startNavNodeDrag()">Move</button>' +
@@ -3403,6 +3431,7 @@
       fillSelectOptions(document.getElementById('nav-edit-type'), NODE_TYPES, type);
       document.getElementById('nav-edit-roomId').value = node.roomId || '';
       document.getElementById('nav-edit-linkId').value = node.linkId || '';
+      document.getElementById('nav-edit-primary').checked = toBool(node.primary, false);
       onNavEditTypeChange();
 
       panel.classList.add('visible');
@@ -3417,6 +3446,8 @@
       if (!typeEl || !linkEl) return;
       var vertical = typeEl.value === 'stair' || typeEl.value === 'elevator';
       linkEl.placeholder = vertical ? 'e.g. it-' + typeEl.value + '-1' : 'Only used by stairs and elevators';
+      var primaryGroup = document.getElementById('nav-edit-primary-group');
+      if (primaryGroup) primaryGroup.style.display = typeEl.value === 'entrance' ? '' : 'none';
     }
 
     /**
@@ -3478,7 +3509,7 @@
     }
 
     /**
-     * Save edits to the selected nav node (type, roomId, linkId).
+     * Save edits to the selected nav node (type, roomId, linkId, primary for entrances).
      */
     function saveNavNodeEdit() {
       if (!navSelectedNode) { showMessage('No node selected.', 'error'); return; }
@@ -3494,7 +3525,8 @@
         y: navSelectedNode.y,
         type: type,
         roomId: roomId,
-        linkId: linkId
+        linkId: linkId,
+        primary: type === 'entrance' && document.getElementById('nav-edit-primary').checked
       };
 
       google.script.run
@@ -3703,6 +3735,7 @@
     function navNodeOptionLabel(node) {
       var label = normalizeNodeType(node.type);
       if (node.linkId) label += ' [' + node.linkId + ']';
+      if (normalizeNodeType(node.type) === 'entrance' && toBool(node.primary, false)) label += ' (primary)';
       return label + ' (' + Math.round(node.x) + ', ' + Math.round(node.y) + ') ' + node.id;
     }
 
@@ -4266,6 +4299,8 @@
       document.getElementById('buildings-edit-code').value = building.code || '';
       document.getElementById('buildings-edit-number').value = building.number || '';
       document.getElementById('buildings-edit-hasIndoor').checked = toBool(building.hasIndoor, false);
+      document.getElementById('buildings-edit-levels').value = (building.levels === undefined || building.levels === null) ? '' : building.levels;
+      document.getElementById('buildings-edit-height').value = (building.height === undefined || building.height === null) ? '' : building.height;
       document.getElementById('buildings-edit-lat').value = building.lat || '';
       document.getElementById('buildings-edit-lng').value = building.lng || '';
 
@@ -4374,7 +4409,7 @@
     }
 
     /**
-     * Save building details (name, code, number, hasIndoor, lat, lng) via
+     * Save building details (name, code, number, hasIndoor, lat, lng, levels, height) via
      * updateBuilding. Preserves existing entrances and photoUrl.
      */
     function saveBuildingDetails() {
@@ -4389,8 +4424,16 @@
       var hasIndoor = document.getElementById('buildings-edit-hasIndoor').checked;
       var lat = document.getElementById('buildings-edit-lat').value.trim();
       var lng = document.getElementById('buildings-edit-lng').value.trim();
+      var levelsText = document.getElementById('buildings-edit-levels').value.trim();
+      var heightText = document.getElementById('buildings-edit-height').value.trim();
+      var levels = levelsText === '' ? '' : parseInt(levelsText, 10);
+      var height = heightText === '' ? '' : parseFloat(heightText);
 
       if (!name) { showMessage('Building name is required.', 'error'); return; }
+      if ((levels !== '' && !(levels >= 1)) || (height !== '' && !(height > 0))) {
+        showMessage('Levels must be a whole number of at least 1 and height a positive number of meters (or leave them blank).', 'error');
+        return;
+      }
       if ((lat && isNaN(parseFloat(lat))) || (lng && isNaN(parseFloat(lng)))) {
         showMessage('Latitude and longitude must be numbers.', 'error');
         return;
@@ -4406,7 +4449,9 @@
         lng: parseFloat(lng) || 0,
         entrances: buildingsSelectedBuilding.entrances || '',
         photoUrl: buildingsSelectedBuilding.photoUrl || '',
-        hasIndoor: hasIndoor
+        hasIndoor: hasIndoor,
+        levels: levels,
+        height: height
       };
 
       google.script.run

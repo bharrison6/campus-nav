@@ -52,3 +52,5 @@ scripts/floorplan-pipeline/.cache/
 
 # ACC kernel — local-only transcripts (§12)
 .transcripts/
+# ...nor the campus-map raw downloads (OSM JSON, aerial source); only the derived layers in data/campus-map are committed
+scripts/campus-map/.cache/

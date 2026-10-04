@@ -1,0 +1,29 @@
+{
+ "buildingId": "bld-ep",
+ "floorFrame": "svg",
+ "fittedFloor": "floor-ep-1",
+ "transform": {
+  "originLat": 36.61250748,
+  "originLng": -88.32543869,
+  "rotationDeg": 359.629,
+  "metersPerUnit": 0.0254,
+  "reflected": false
+ },
+ "floorOffsets": {
+  "floor-ep-2": [
+   -29.647,
+   6.561
+  ]
+ },
+ "method": "similarity fit, scale fixed at metersPerUnit; rotation and translation solved (mirrored drawing also tried) by a coarse rotation search then trimmed symmetric ICP, matching the union of the public floors' gross outlines (scripts/campus-map/georef-fit.mjs) to the footprint",
+ "residualMeters": 1.21,
+ "residual": {
+  "rms": 1.21,
+  "mean": 0.66,
+  "p90": 1.14,
+  "max": 9.62,
+  "measure": "symmetric boundary distance between the fitted outline and the footprint, meters (residualMeters = rms)"
+ },
+ "fittedTo": "way/1232965496",
+ "footprintSource": "override: part of the OpenStreetMap way, split in data/campus-map/overrides.geojson"
+}
