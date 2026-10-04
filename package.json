@@ -8,7 +8,7 @@
     "test:pipeline": "node --test \"scripts/floorplan-pipeline/test/*.test.mjs\"",
     "test:e2e": "playwright test -c tests/e2e/playwright.config.ts",
     "test:e2e:headed": "playwright test -c tests/e2e/playwright.config.ts --headed",
-    "test:smoke": "playwright test -c playwright.config.ts",
+    "test:smoke": "playwright test -c tests/smoke/playwright.config.ts",
     "build": "node scripts/build/build-site.mjs",
     "preview": "node dev/serve.mjs --build",
     "serve": "node dev/serve.mjs",

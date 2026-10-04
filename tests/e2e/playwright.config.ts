@@ -3,7 +3,7 @@
 // at http://localhost:<port>/campus-nav/ with dev/serve.mjs --dist. Nothing answers outside /campus-nav/, so a
 // root-relative URL in the app fails visibly.
 //   npm run test:e2e        (PW_CHANNEL=chrome to use the installed Chrome instead of a downloaded browser)
-// The root playwright.config.ts stays the live smoke config (APP_URL).
+// The live smoke test against the deployed site is tests/smoke (npm run test:smoke).
 import { defineConfig, devices } from '@playwright/test';
 
 const PORT = Number(process.env.MSCN_E2E_PORT || 8788);
