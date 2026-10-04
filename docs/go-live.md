@@ -98,15 +98,22 @@ the background and the app offers "Campus Nav was updated. Reload".
 
 ## 6. Changing the data
 
-Room names, buildings, entrances, the walking graph and QR locations are edited in the local admin and
-published by committing the result:
+Room names, buildings, entrances, door, hallway and path classes (main, alt, emergency), missing paths and buildings
+(the Map Editor tab), the walking graph and QR locations are edited in the local admin and published by committing
+the result:
 
 1. `npm run admin` and open `http://localhost:8790/` (it runs only on your computer; there is no PIN).
 2. Make the edits. Every save is written at once to `data/overrides/<collection>.json`.
-3. `git diff data/overrides` to review, then commit and push. The workflow publishes it within minutes. A change to
-   a primary entrance or a building's levels or height also reruns the campus-map build in the background (the
-   admin log says when it is done, about 6 s); commit what it regenerated (`data/campus-map`, `data/georef`,
-   `data/floorplans`, `tools/admin/gs/SeedCampusMap.gs`) with the overrides.
+3. `git diff data/overrides data/campus-map/overrides.geojson` to review, then commit and push. The workflow
+   publishes it within minutes. A change to an entrance's class, a building's levels or height, or anything in the
+   Map Editor also reruns the campus-map build in the background (the admin log says when it is done, about 6 s);
+   commit what it regenerated (`data/campus-map`, `data/georef`, `data/floorplans`, `tools/admin/gs/SeedCampusMap.gs`)
+   with the overrides. A save that would leave a room or building with no route is refused before anything is
+   written; the admin names what it would cut off.
+
+The nursing building is not on the map yet (not in OpenStreetMap, and a parking lot in the 2022 aerial): add it to
+OpenStreetMap and run `npm run campus-map -- --refresh`, or draw it and its entrances in the Map Editor (README, "The
+nursing building").
 
 Optional before pushing: `npm run preview` builds the site and serves it at
 `http://localhost:8787/campus-nav/`, so you can check the change locally. New or revised floor drawings go
@@ -124,7 +131,8 @@ code of that URL): it opens in the Schedule tab, read-only, and visitors can add
 - `npm run test:smoke` (with `PW_CHANNEL=chrome` on a machine without Playwright's own browser): loads the live
   site, checks the campus data is fetched and a floor plan draws. `APP_URL=<address>` checks another address.
 - The site opens with no sign-in; Map, Indoor, Schedule and Scan tabs work on a phone.
-- `?room=room-it-2-0241&nav=1` opens a route; `?sched=eday-sample` opens the sample schedule.
+- `?room=room-it-2-0241&nav=1` opens a route, entering IT by a main door; with "Use side doors and paths" on it may
+  take a side door, and a step through one says "side door". `?sched=eday-sample` opens the sample schedule.
 - The Map tab shows the 2.5D campus map with the OpenStreetMap credit; "View inside" on IT or EP shows its floors;
   "Navigate here" walks along the paths to a door and switches to the floor plan at the door step.
 - With location allowed, the locate button shows the blue dot; with the network off after one visit, the app still

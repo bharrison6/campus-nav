@@ -54,7 +54,8 @@ campus" links.
     is always shown. Without WebGL 2 the tab is a building list; routes still work.
   - **one route, door to room** (`WebApp_Pathfinding.html` + `WebApp_Route.html`): A* over the indoor graph and
     the outdoor footpath graph (`data/campus-map/outdoor-graph.json`), joined at entrance node ids, through the
-    building's primary doors; one step list ("Walk 120 m along the path, enter by the east entrance, take the
+    building's main doors (side doors when they save a lot, never emergency exits; see Access classes below); one
+    step list ("Walk 120 m along the path, enter by the east entrance, take the
     stairs up to Second Floor, arrive at IT 241"); the route panel is shared by the Map and Indoor tabs and each
     step switches to its view (the walk on the map, the door and the floors on the plan, back to the map when
     leaving a building). Starts: the blue dot, a scanned QR code, a room, or a chosen building.
@@ -84,7 +85,7 @@ campus" links.
 | `scripts/data/` | the build-time export (`export-campus-data.mjs`) and the overrides merge it shares with the admin |
 | `scripts/floorplan-pipeline/` | the DWG to SVG / JSON / nav-graph / seed pipeline (Node); reads the drawings from outside the repo |
 | `data/floorplans/` | generated per-floor JSON and SVG, `cross-floor-edges.json`, `pipeline-report.json` (committed) |
-| `scripts/campus-map/` | the campus map build (`npm run campus-map`): OpenStreetMap extract to map layers, georeference, primary entrances, outdoor walking graph, optional aerial tiles |
+| `scripts/campus-map/` | the campus map build (`npm run campus-map`): OpenStreetMap extract to map layers, georeference, entrance classes, outdoor walking graph with path classes, optional aerial tiles |
 | `data/campus-map/` | the campus map data (OpenStreetMap-derived, ODbL): `buildings.geojson`, `layers/*.geojson`, `outdoor-graph.json`, `manifest.json`, `aerial/` + `aerial.json`; inputs `source/osm-extract.json` and `overrides.geojson` (committed) |
 | `data/georef/` | one georeference per indoor building: its floor plans' frame fitted to its map footprint (committed) |
 | `src/shared/` | `georef.mjs`, the floor-plan to map transform shared by the data build and the app (served to the page as `vendor/georef.mjs`) |
@@ -119,8 +120,10 @@ The export runs the backend `.gs` code in the Node stand-in, seeds it the way th
 new sheet, merges the overrides, and writes exactly what `getPublicCampusData` returns: the data without hidden
 floors and everything on them (rooms, nodes, the edges into them, indoor photos, QR locations). No map key exists
 anywhere (v4 draws its own map). It adds the map fields (`scripts/data/campus-geo.mjs`): entrance nodes gain `lat`,
-`lng` (through `data/georef` and `src/shared/georef.mjs`) and a boolean `primary`; the indoor buildings' `entrances`
-become `[{nodeId, lat, lng, label, primary}]` ("West entrance", "East entrance, level 2"); buildings carry `levels`
+`lng` (through `data/georef` and `src/shared/georef.mjs`); doors, entrances, waypoints and hallways carry `access`
+(`scripts/data/access.mjs`: a hallway's class reaches the waypoints inside it); the config carries `routing.altFactor`
+and `routing.altDoorCost`; the indoor buildings' `entrances` become `[{nodeId, lat, lng, label, access}]` ("West
+entrance", "East entrance, level 2"), main first, and a building with entrances drawn on the map lists those; buildings carry `levels`
 (and `height` when set). It adds the plans of the published floors. The local admin reads `getAllCampusData`, so it still shows and edits hidden floors. `version` is a content hash, so
 the same inputs give byte-identical files; `version.json` adds `builtAt` and `gitSha`. `npm run export:data`
 writes it to `build/data` for a look.
@@ -154,7 +157,7 @@ rest are `other`. The run is deterministic: a rerun on the same drawings reprodu
 byte for byte, and `npm run test:pipeline` (with the drawings present) fails if they drift.
 
 The floor JSON also carries the floor's `gross` outline (what the campus map fits to the building's footprint) and,
-for public floors, an `entrances` block written by `npm run campus-map` (each exterior door's primary-entrance score;
+for public floors, an `entrances` block written by `npm run campus-map` (each exterior door's main-entrance score and class;
 the pipeline keeps it when it regenerates the floor, and `npm run campus-map` re-scores).
 
 ### New or revised drawings
@@ -170,7 +173,7 @@ the pipeline keeps it when it regenerates the floor, and `npm run campus-map` re
    whose room, node or edge the new drawings no longer produce. Orphans are skipped, never applied, and stay in
    the file until you fix or remove them.
 5. Run `npm run campus-map` (the georeference and the entrances depend on the floor outlines and doors) and check its
-   residuals and primary entrances.
+   residuals and entrance classes (main, alt, emergency).
 6. Commit the regenerated files and push; the site rebuilds.
 
 ## The campus map data
@@ -179,8 +182,8 @@ the pipeline keeps it when it regenerates the floor, and `npm run campus-map` re
 
 - inputs: `data/campus-map/source/osm-extract.json` (an OpenStreetMap extract of the campus box: buildings, highways,
   parking, landuse, with only the tags the layers read), `data/campus-map/overrides.geojson` (hand-made corrections),
-  the floor JSON in `data/floorplans` and the operator's overrides (`data/overrides`: entrance `primary`, building
-  `levels`/`height`);
+  the floor JSON in `data/floorplans` and the operator's overrides (`data/overrides`: entrance `access`, building
+  `levels`/`height`, `pathAccess.json` for path classes);
 - `data/campus-map/buildings.geojson`: every building footprint with `{osmId, buildingId, name, height, levels, source}`;
   `buildingId` is the seeded building it matches (the seed point inside the footprint, or the names agreeing within
   150 m); `height` is the operator's height, else the operator's levels x 3.5 m, else OpenStreetMap `height` or
@@ -193,25 +196,32 @@ the pipeline keeps it when it regenerates the floor, and `npm run campus-map` re
   the tests require under 3 m). `src/shared/georef.mjs` (`svgToLngLat(buildingId, x, y, floorId)`, `lngLatToSvg`, and
   the record-taking `svgToLngLatWith(record, x, y, floorId)` the app uses) applies it; the export and the app use that
   one module. Always pass the floor id: each floor's SVG origin is its own extents, up to a meter off the fitted floor's;
-- primary entrances: every exterior door on a public floor is scored (the space it opens into, its width, the distance
+- entrance classes: every exterior door on a public floor is scored (the space it opens into, its width, the distance
   to the nearest walking path, whether it faces that path) and the best 2 to 4 per building, on different faces, are
-  primary. The scores go to the floor JSON's `entrances` block, the choice to `tools/admin/gs/SeedCampusMap.gs`;
-- `data/campus-map/outdoor-graph.json`: the walking network (`{nodes: [{id, lat, lng, type}], edges: [{id, from, to,
-  distance, accessible, kind}]}`, meters): footways, crossings, the roads a walker uses where no sidewalk is mapped,
-  the override walks, and the entrances visitors may use (the primary ones, plus a door that is the only way into a
-  room, as EP 1322's) joined to the nearest path by a short connector. Entrance nodes keep their indoor ids, so the
-  outdoor and indoor graphs join by id; `steps` edges are not accessible;
+  `main`; a door out of a stair tower is `emergency`; every other exterior door is `alt` (see
+  [Access classes](#access-classes-main-alt-emergency)). The scores go to the floor JSON's `entrances` block, the
+  classes to `tools/admin/gs/SeedCampusMap.gs`; the operator's `access` in `data/overrides/navNodes.json` wins;
+- `data/campus-map/outdoor-graph.json`: the walking network (`{nodes: [{id, lat, lng, type, access}], edges: [{id,
+  from, to, distance, accessible, kind, access, way}]}`, meters): footways, crossings, the roads a walker uses where no
+  sidewalk is mapped, the override walks, and every main and alt entrance joined to the nearest path by a short
+  connector (emergency exits are left off). Each edge carries `access` (`road` is `alt`, every pedestrian kind
+  `main`, `data/overrides/pathAccess.json` and a drawn path's own `access` override that) and `way`, what it was drawn
+  from (`way/123`, an override feature id, or `connector/<entrance id>`). Entrance nodes keep their indoor ids, so the
+  outdoor and indoor graphs join by id; an entrance drawn on the map for a building without floor plans is
+  `entrance-<building>-<n>`. `steps` edges are not accessible;
 - `data/campus-map/manifest.json`: sources, attribution, counts, residuals.
 
 `npm run campus-map -- --check` writes nothing and fails when a committed output is out of date (a unit test does the
-same). The local admin reruns the build by itself after a save that changes a primary entrance or a building's levels
-or height (about 6 s, in the background); run it by hand after `npm run pipeline` or after editing `overrides.geojson`.
+same). The local admin reruns the build by itself after a save that changes an entrance's class, a building's levels
+or height, or anything in the Map Editor (about 6 s, in the background); run it by hand after `npm run pipeline` or
+after editing `overrides.geojson` or `pathAccess.json` by hand.
 
 **Refreshing the OpenStreetMap data.** `npm run campus-map -- --refresh` downloads the campus box again (the main
 OpenStreetMap API `map` call, split into tiles if refused, Overpass mirrors as the fallback), rewrites the extract and
 rebuilds. Review the diff: footprints, paths and the residuals can move. Corrections OpenStreetMap lacks go into
-`data/campus-map/overrides.geojson` (features with `layer: "buildings"`, optionally `replaces: "way/<id>"`, or
-`layer: "paths"`); each is also a candidate to contribute to OpenStreetMap itself. Today it splits the one OSM polygon
+`data/campus-map/overrides.geojson` (features with `layer: "buildings"`, optionally `replaces: "way/<id>"` or
+`buildingId`, `layer: "paths"` with `access`, or `layer: "entrances"`; the admin's Map Editor writes them); each is
+also a candidate to contribute to OpenStreetMap itself. Today it splits the one OSM polygon
 that draws Engineering and Physics together with the building north of it, and adds five walks visible in the NAIP
 imagery (the North 16th Street west sidewalk, EP's north and south walks, IT's east terrace walks).
 
@@ -242,6 +252,42 @@ under the operator's OpenStreetMap account, so it is the operator's decision; no
 - add the five walks visible in the NAIP imagery: the North 16th Street west sidewalk, EP's north and south walks, and
   IT's two east terrace walks.
 
+## Access classes (main, alt, emergency)
+
+Every door, entrance and hallway is **main**, **alt** or **emergency**; every outdoor path is **main** or **alt**:
+
+- **main**: the normal way. Routes walk main doors, hallways and paths at their real length.
+- **alt** (a side door, a back hallway, a road with no sidewalk): usable, not preferred. An alt hallway or path costs
+  its length times `routing.altFactor` (default 3), and each alt door or entrance a route passes through adds
+  `routing.altDoorCost` meters (default 300). A route takes a side door only when it saves that much, or when nothing
+  main gets there (EP 1322 opens only to the outside, through an alt door). A step through an alt door names it: "Enter
+  by the side door (South entrance 2, level 2)".
+- **emergency** (doors and hallways only): drawn on the floor plan (a red EXIT marker, a hatched hallway) and never
+  routed through. If the only way is through one, the app says "No route without an emergency exit".
+
+The route panel's **Use side doors and paths** switch (off by default, remembered on the phone) walks alt at its plain
+length with no side-door cost, so the shortest way wins. The two numbers live in the campus config; change them in
+`data/overrides/config.json`, for example `[{"key": "routing.altDoorCost", "value": 200}]`. Why 300: with the alt
+factor alone, or a small door cost, routes from across campus still entered IT by its northwest side door, because
+the main doors' approach walks more road (alt, 3x); below about 280 m that still happens.
+
+The classes start automatic (entrances as described under [The campus map data](#the-campus-map-data); hallways are
+`main`; roads `alt`, other paths `main`) and the operator corrects them in the admin's Map Editor and Doors & Halls
+tabs. A hallway's class reaches the waypoints inside it at export, so routing sees the change.
+
+**Hallway detection.** The pipeline types a room as a hallway (`corridor`) from its shape (narrow and long) or a
+circulation-style number (such as 1300D); 58 public hallways today. Rooms that look like circulation but are not
+certain are listed in `data/review/corridor-candidates.json` (32 today, each with its evidence and a confidence); the
+Doors & Halls tab shows them as suggested hallways to accept or reject.
+
+**Connectivity check.** `scripts/data/connectivity.mjs` (`checkConnectivity(campus, outdoorGraph)`) checks that, with
+emergency doors and hallways removed and alt allowed, every searchable room reaches every other and every building
+with mapped entrances is reachable from every other. `npm test` runs it on the real data
+(`tests/unit/connectivity.unit.mjs`). The admin runs it before writing a class change, a deleted door or a deleted map
+feature: a save that would cut a room or building off is refused, nothing is written, and the admin names what it
+would cut off (for example making EP 1322's only door emergency). A gap that already existed does not block other
+saves.
+
 ## Editing the data (local admin)
 
 ```
@@ -266,14 +312,48 @@ data, in that order:
 
 A partial record changes only the fields it names; `"_delete": true` removes the record; `"_new": true` marks a
 record the operator added. Hand edits are fine (use **Settings > Reload from disk** in a running admin to pick
-them up). `config` may not set `mapsApiKey` or `dataVersion`. Map fields: `navNodes` `primary` (true/false on entrance
-nodes: the doors visitors are routed to; the Nav Graph panel's "Primary entrance" box) and `buildings` `levels` /
-`height` (meters; the Buildings tab). Saving either reruns `npm run campus-map` in the background so the map files
-match; the admin log prints the run and its duration, `getAdminStatus` reports the last run, and the regenerated
-files (`data/campus-map`, `data/georef`, the floors' entrance blocks) are committed with the overrides. The admin's
+them up). `config` may not set `mapsApiKey` or `dataVersion`. Class fields: `navNodes` and `rooms` `access`
+(`main`, `alt`, `emergency`) and `rooms` `type: "corridor"` for a room made a hallway. (A v4 `primary` true/false on
+an entrance override still reads as main/alt.) Map fields: an entrance's `access` and `buildings` `levels` / `height`
+(meters; the Buildings tab). Saving either reruns `npm run campus-map` in the background so the map files match; the
+admin log prints the run and its duration, `getAdminStatus` reports the last run, and the regenerated files
+(`data/campus-map`, `data/georef`, the floors' entrance blocks) are committed with the overrides. The admin's
 Settings tab shows how many records each file holds and lists orphans. Whole floors are not imported by hand any
 more: new drawings go through the pipeline. QR codes link to `MSCN_SITE_URL`, else `siteUrl` in
-`build.config.json`. The Buildings tab shows no map (v4 has no map key); coordinates are typed in.
+`build.config.json`.
+
+**Map Editor tab** (MapLibre over the committed campus map and, when present, the NAIP aerial; nothing from the
+internet). Paths are colored by class (main teal, alt orange dashed, drawn purple), entrances by class.
+
+- **Select**, then click a path: set it main or alt (`data/overrides/pathAccess.json`, by OpenStreetMap way), or rename
+  or delete a path drawn here. Click an entrance: set its class (`navNodes.json` for a floor-plan door, the feature
+  itself for a drawn entrance).
+- **Draw path**: click its points, **Save path** with a class and an optional name. Its two ends snap to an entrance,
+  a path vertex or a path within 4 m, so it joins the walking network. This is how missing sidewalks get in.
+- **Draw building**: click the corners, name it, give a short code, levels or a height, and link it to a campus
+  building (the directory record) so search and routes find it. Redrawing an OpenStreetMap building writes a
+  `replaces` feature.
+- **Place entrance**: on a building without floor plans, with a class and a label. These become the building's
+  doors: routes to the building end at its main entrance.
+
+These write `data/campus-map/overrides.geojson` (every feature gets an `id`) and rebuild the map data.
+
+**Doors & Halls tab** (a floor plan per building and floor). Click a door or an entrance to make it main, alt or
+emergency (`navNodes.json`); click a room to make it a hallway, or not, and set the hallway's class (`rooms.json`).
+The **Suggested hallways** list shows the pipeline's corridor candidates (dashed pink on the plan) with their evidence;
+**Accept** makes the room a hallway, **Reject** is remembered (`data/overrides/corridorReview.json`). Every change here
+goes through the connectivity check before it is written.
+
+**The nursing building.** The School of Nursing and Health Professions (`bld-nursing`, in the directory) is not in
+OpenStreetMap yet, and the 2022 NAIP aerial still shows a parking lot there, so the map has no footprint for it.
+Either add it to OpenStreetMap (any OSM editor with current imagery; then `npm run campus-map -- --refresh`; this is
+the recommended way, it also helps every other map) or draw it in the Map Editor: **Draw building** linked to
+"School of Nursing and Health Professions", then **Place entrance** at its main door (and any side doors or emergency
+exits). Either way the campus-map build takes it as it is.
+
+**Sidewalks.** OpenStreetMap maps few campus sidewalks, so many routes follow roads (alt). Each sidewalk the operator
+draws in the Map Editor (or adds to OpenStreetMap) gives routes a main way to walk; this is the operator's
+contribution, nothing draws them automatically.
 
 ## The site build
 
@@ -303,8 +383,9 @@ npm run preview           # build, then serve dist/ at http://localhost:8787/cam
 npm run serve             # serve the last build without rebuilding
 npm run admin             # the local admin at http://localhost:8790/
 npm run pipeline          # drawings -> data/floorplans and the generated .gs files
-npm run campus-map        # map layers, georeference, primary entrances, outdoor graph (--refresh, --aerial, --check)
+npm run campus-map        # map layers, georeference, entrance classes, outdoor graph (--refresh, --aerial, --check)
 npm run test:e2e          # Playwright against a fresh build (build/e2e-site) served at /campus-nav/
+npm run test:admin        # Playwright against the local admin over a copy of the data (Map Editor, Doors & Halls)
 npm run test:smoke        # Playwright against the deployed site (APP_URL, default the address in build.config.json)
 ```
 
@@ -340,14 +421,18 @@ gitignored.
 ## Known data limits (open for the owner)
 
 - IT elevators are inferred from the drawings (shafts at rooms 0129/0245 and 0101C/0200D); not yet confirmed.
-- EP room 1322 has only an exterior door (`ep-1-n0365`, not a primary door). It stays joined to the paths as a sole
-  door, so routes reach it from outside, and a route from inside EP leaves the building and comes back in by it.
+- EP room 1322 has only an exterior door (`ep-1-n0365`, an alt door). It stays joined to the paths as a sole door, so
+  routes reach it from outside, and a route from inside EP leaves the building and comes back in by it.
 - The IT mezzanine (0301) has no stair or elevator link in the drawings; it is hidden from visitors anyway.
-- Primary entrances are a heuristic (the drawings carry no door names or uses); review them in the admin Nav Graph
-  tab. IT's level-2 east doors are taken to open onto the terrace at grade, as the floor data suggests; not surveyed.
+- Main entrances are a heuristic (the drawings carry no door names or uses), and so is "a door out of a stair tower
+  is an emergency exit" (one today, EP's `ep-1-n0359`); review them in the admin's Doors & Halls tab. IT's level-2
+  east doors are taken to open onto the terrace at grade, as the floor data suggests; not surveyed.
 - The IT footprint fit leaves 2.4 m RMS (mean 1.0 m): OpenStreetMap includes a one-storey structure at the
   southeast corner that no floor drawing has.
-- Routes enter IT and EP only by their primary doors, plus a sole door such as EP 1322's (a door the primary doors
-  cannot reach indoors); a building without indoor maps is reached at the path point nearest its center. The real
-  paths make some routes cut through a building (in by one primary door, out by another); the primary doors and the
-  IT terrace assumption still need the operator's walk-through.
+- With the default costs, routes enter IT and EP by their main doors, plus a sole door such as EP 1322's (a door the
+  main doors cannot reach indoors); a visitor already standing at a side door is routed through it. A building
+  without indoor maps is reached at its drawn main entrance, else at the path point nearest its center. The real
+  paths make some routes cut through a building (in by one main door, out by another); the main doors, the side and
+  emergency doors, and the IT terrace assumption still need the operator's walk-through.
+- No hallway is marked emergency in the real data yet, and none of the 58 hallways is alt; that is the operator's
+  call in the Doors & Halls tab.
