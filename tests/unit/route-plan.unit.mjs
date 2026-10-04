@@ -234,3 +234,90 @@ test('resolveStart without a campus map: every mapped entrance, as in v3', () =>
   const st = V.resolveStart(goal);
   assert.deepEqual(Array.from(st.ids).sort(), Array.from(V.MSCNPath.entranceIds(V.APP.graph, 'bld-it')).sort());
 });
+
+// ---------------- the route panel's Start (lane O): "My location" or a search for a start ----------------
+// The field's results are the top bar's own search (MSCNSearch over the same index); a picked entry becomes a
+// NAV.start of the existing shapes, which resolveStart and planRoute already handle.
+
+const INDEX = A.MSCNSearch.buildIndex(data, { floorFilter: A.isPublicFloor });
+A.APP.searchIndex = INDEX;
+const pick = (q) => A.MSCNSearch.search(INDEX, q, 6)[0];
+
+function choose(start, gps = null) {
+  A.tracked = [];
+  A.MSCNAnalytics = { track: (name, label) => A.tracked.push([name, label]) };
+  A.gpsStarted = 0;
+  A.gpsStart = () => { A.gpsStarted++; };
+  A.GPS = gps ? { state: 'on', fix: fixAt(gps), listeners: [] } : undefined;
+  A.recomputed = 0;
+  NAV.avoidStairs = false;
+  NAV.dest = { kind: 'room', roomId: 'room-ep-1-1332' };
+  A.setRouteStart(start);
+  return A.planRoute(NAV.dest);
+}
+
+test('Start search "IT 141": the room starts the route to an EP room, and the field shows it', () => {
+  const e = pick('IT 141');
+  assert.equal(e.kind, 'room');
+  assert.equal(e.roomId, 'room-it-1-0141');
+  const s = A.startForSearchEntry(e);
+  assert.deepEqual({ ...s }, { kind: 'room', roomId: 'room-it-1-0141', label: 'IT 141' });
+  const r = choose(s);
+  assert.equal(A.recomputed, 1, 'the route is recomputed in place');
+  assert.equal(r.error, null);
+  assert.equal(r.startKind, 'room');
+  assert.equal(r.fromLabel, 'IT 141');
+  assert.ok(P.nodesForRoom(g, 'room-it-1-0141').includes(r.steps[0].nodeIds[0]), 'the first step leaves IT 141');
+  assert.equal(r.steps.at(-1).title, 'Arrive at EP 1332');
+  assert.deepEqual(A.tracked, [['route_from', 'room']], 'analytics: the kind only, never the text');
+  assert.equal(A.startFieldText().value, 'IT 141');
+});
+
+test('Start search "Engineering": the building starts the route at its primary doors', () => {
+  // "Engineering" ties EP with E.B. Howton Agricultural Engineering (same score, alphabetical): the visitor picks EP
+  const hits = A.MSCNSearch.search(INDEX, 'Engineering', 6);
+  const e = hits.find((h) => h.title === 'Engineering and Physics Building');
+  assert.ok(e && hits.indexOf(e) < 3, 'EP is among the first results');
+  assert.equal(e.kind, 'building');
+  assert.equal(e.buildingId, 'bld-ep');
+  const s = A.startForSearchEntry(e);
+  assert.deepEqual({ ...s }, { kind: 'building', buildingId: 'bld-ep' });
+  const r = choose(s);
+  assert.equal(r.error, null);
+  assert.equal(r.startKind, 'building');
+  assert.deepEqual(Array.from(A.resolveStart(A.resolveGoal(NAV.dest)).ids).sort(), prim('bld-ep'));
+  const firstNode = g.nodes[r.steps[0].nodeIds[0]];
+  assert.equal(firstNode.type, 'entrance');
+  assert.equal(firstNode.primary, true, 'starts at an EP primary door');
+  assert.deepEqual(A.tracked, [['route_from', 'building']]);
+  assert.equal(A.startFieldText().value, 'Engineering and Physics Building');
+});
+
+test('"My location": GPS is started and the route walks from the blue dot; the field says "My location"', () => {
+  const r = choose({ kind: 'gps' }, midpoint(edge('e13')));
+  assert.equal(A.gpsStarted, 1);
+  assert.equal(r.error, null);
+  assert.equal(r.startKind, 'gps');
+  assert.equal(r.steps[0].kind, 'outdoor');
+  assert.deepEqual(A.tracked, [['route_from', 'gps']]);
+  assert.deepEqual({ ...A.startFieldText() }, { value: 'My location', placeholder: 'My location (automatic)', kind: 'gps' });
+});
+
+test('clearing the start returns to automatic: the building entrance, said in the placeholder', () => {
+  const r = choose(null);
+  assert.equal(NAV.start, null);
+  assert.equal(r.startKind, 'entrance');
+  assert.deepEqual(A.tracked, [], 'clearing sends nothing');
+  assert.deepEqual({ ...A.startFieldText() }, { value: '', placeholder: 'Building entrance (automatic)', kind: '' });
+  A.GPS = { state: 'on', fix: fixAt(midpoint(edge('e13'))) };
+  assert.equal(A.startFieldText().placeholder, 'My location (automatic)', 'with the blue dot on campus, automatic is my location');
+  A.GPS = undefined;
+});
+
+test('a start set elsewhere (a scanned code or ?loc=, a room\'s "Set as start") shows in the field', () => {
+  NAV.start = { kind: 'node', nodeId: 'it-1-n0489', label: 'IT first-floor entrance' };
+  assert.deepEqual({ ...A.startFieldText() }, { value: 'IT first-floor entrance', placeholder: 'Building entrance (automatic)', kind: 'node' });
+  NAV.start = { kind: 'room', roomId: 'room-it-1-0101F', label: 'IT 101F' };
+  assert.equal(A.startFieldText().value, 'IT 101F');
+  NAV.start = null;
+});

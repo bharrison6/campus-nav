@@ -48,64 +48,99 @@ function initTabs() {
 }
 
 /* ---------- search (combobox + listbox) ---------- */
-var SEARCH = { results: [], active: -1 };
+/*
+ * One search for every field that finds a room or building (the top bar, the route's Start): MSCNSearch over
+ * APP.searchIndex, ranked the same everywhere, in the ARIA combobox pattern (aria-expanded, aria-activedescendant,
+ * arrows, Enter, Escape closes). o: input, list (the listbox), idPrefix (option ids), onChoose(entry, fromKeyboard),
+ * and optionally limit, onQuery(text) on every edit, onFocus(), onBlur(), onOpen(isOpen) when the list opens or closes,
+ * and onEscape(event) when Escape finds the list already closed.
+ */
+function searchCombobox(o) {
+  var cb = { results: [], active: -1 };
+  var input = o.input;
+  var list = o.list;
 
-function renderSearchResults(query) {
-  var list = $('search-results');
-  var input = $('search-input');
-  $('search-clear').hidden = !query;
-  if (!query || !APP.searchIndex) { closeSearch(); return; }
-  SEARCH.results = MSCNSearch.search(APP.searchIndex, query, 8);
-  SEARCH.active = SEARCH.results.length ? 0 : -1;
-  var html = '';
-  if (!SEARCH.results.length) {
-    html = '<li class="empty" role="option" aria-disabled="true">No rooms or buildings match “' + escapeHtml(query) + '”</li>';
+  function text() { return input.value.replace(/^\s+|\s+$/g, ''); }
+
+  function render(query) {
+    if (!query || !APP.searchIndex) { close(); return; }
+    cb.results = MSCNSearch.search(APP.searchIndex, query, o.limit || 8);
+    cb.active = cb.results.length ? 0 : -1;
+    var html = '';
+    if (!cb.results.length) {
+      html = '<li class="empty" role="option" aria-disabled="true">No rooms or buildings match “' + escapeHtml(query) + '”</li>';
+    }
+    for (var i = 0; i < cb.results.length; i++) {
+      var e = cb.results[i];
+      var icon = e.kind === 'room'
+        ? '<span class="ico" aria-hidden="true">' + escapeHtml(e.title.split(' ')[0].substring(0, 3)) + '</span>'
+        : '<span class="ico" aria-hidden="true">' + ICONS.building + '</span>';
+      html += '<li role="option" id="' + o.idPrefix + i + '" data-index="' + i + '" aria-selected="' + (i === cb.active ? 'true' : 'false') + '">' +
+        icon + '<div><div class="t">' + escapeHtml(e.title) + '</div><div class="s">' + escapeHtml(e.subtitle) + '</div></div></li>';
+    }
+    list.innerHTML = html;
+    list.hidden = false;
+    input.setAttribute('aria-expanded', 'true');
+    input.setAttribute('aria-activedescendant', cb.active > -1 ? o.idPrefix + cb.active : '');
+    var items = list.querySelectorAll('li[data-index]');
+    for (var k = 0; k < items.length; k++) {
+      items[k].onmousedown = function (ev) { ev.preventDefault(); };
+      items[k].onclick = function (ev) { choose(Number(ev.currentTarget.getAttribute('data-index')), false); };
+    }
+    if (o.onOpen) { o.onOpen(true); }
   }
-  for (var i = 0; i < SEARCH.results.length; i++) {
-    var e = SEARCH.results[i];
-    var icon = e.kind === 'room'
-      ? '<span class="ico" aria-hidden="true">' + escapeHtml(e.title.split(' ')[0].substring(0, 3)) + '</span>'
-      : '<span class="ico" aria-hidden="true">' + ICONS.building + '</span>';
-    html += '<li role="option" id="search-opt-' + i + '" data-index="' + i + '" aria-selected="' + (i === SEARCH.active ? 'true' : 'false') + '">' +
-      icon + '<div><div class="t">' + escapeHtml(e.title) + '</div><div class="s">' + escapeHtml(e.subtitle) + '</div></div></li>';
+
+  function move(delta) {
+    if (!cb.results.length) { return; }
+    cb.active = (cb.active + delta + cb.results.length) % cb.results.length;
+    var items = list.querySelectorAll('li[data-index]');
+    for (var i = 0; i < items.length; i++) { items[i].setAttribute('aria-selected', i === cb.active ? 'true' : 'false'); }
+    input.setAttribute('aria-activedescendant', o.idPrefix + cb.active);
+    if (items[cb.active] && items[cb.active].scrollIntoView) { items[cb.active].scrollIntoView({ block: 'nearest' }); }
   }
-  list.innerHTML = html;
-  list.hidden = false;
-  input.setAttribute('aria-expanded', 'true');
-  input.setAttribute('aria-activedescendant', SEARCH.active > -1 ? 'search-opt-' + SEARCH.active : '');
-  var items = list.querySelectorAll('li[data-index]');
-  for (var k = 0; k < items.length; k++) {
-    items[k].onmousedown = function (ev) { ev.preventDefault(); };
-    items[k].onclick = function (ev) { chooseSearchResult(Number(ev.currentTarget.getAttribute('data-index')), false); };
+
+  function close() {
+    var was = !list.hidden;
+    list.hidden = true;
+    list.innerHTML = '';
+    input.setAttribute('aria-expanded', 'false');
+    input.removeAttribute('aria-activedescendant');
+    cb.results = [];
+    cb.active = -1;
+    if (was && o.onOpen) { o.onOpen(false); }
   }
+
+  function choose(i, fromKeyboard) {
+    var e = cb.results[i];
+    if (!e) { return; }
+    close();
+    o.onChoose(e, fromKeyboard);
+  }
+
+  input.oninput = function () { if (o.onQuery) { o.onQuery(text()); } render(text()); };
+  input.onfocus = function () { if (o.onFocus) { o.onFocus(); } if (text()) { render(text()); } };
+  input.onblur = function () { setTimeout(function () { close(); if (o.onBlur) { o.onBlur(); } }, 150); };
+  input.onkeydown = function (e) {
+    if (e.key === 'ArrowDown') { e.preventDefault(); if (list.hidden) { render(text()); } else { move(1); } }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); move(-1); }
+    else if (e.key === 'Enter') { if (cb.active > -1) { e.preventDefault(); choose(cb.active, true); } }
+    else if (e.key === 'Escape') {
+      if (!list.hidden) { e.preventDefault(); e.stopPropagation(); close(); }
+      else if (o.onEscape) { o.onEscape(e); }
+    }
+  };
+  cb.render = render;
+  cb.close = close;
+  cb.move = move;
+  cb.choose = choose;
+  return cb;
 }
 
-function moveSearchActive(delta) {
-  if (!SEARCH.results.length) { return; }
-  SEARCH.active = (SEARCH.active + delta + SEARCH.results.length) % SEARCH.results.length;
-  var items = $('search-results').querySelectorAll('li[data-index]');
-  for (var i = 0; i < items.length; i++) { items[i].setAttribute('aria-selected', i === SEARCH.active ? 'true' : 'false'); }
-  $('search-input').setAttribute('aria-activedescendant', 'search-opt-' + SEARCH.active);
-  if (items[SEARCH.active] && items[SEARCH.active].scrollIntoView) { items[SEARCH.active].scrollIntoView({ block: 'nearest' }); }
-}
+var SEARCH = null;
 
-function closeSearch() {
-  var list = $('search-results');
-  list.hidden = true;
-  list.innerHTML = '';
-  var input = $('search-input');
-  input.setAttribute('aria-expanded', 'false');
-  input.removeAttribute('aria-activedescendant');
-  SEARCH.results = [];
-  SEARCH.active = -1;
-}
-
-function chooseSearchResult(i, fromKeyboard) {
-  var e = SEARCH.results[i];
-  if (!e) { return; }
+function chooseSearchResult(e, fromKeyboard) {
   var input = $('search-input');
   input.value = e.title;
-  closeSearch();
   input.blur();
   MSCNAnalytics.track('search', e.kind);
   if (e.kind === 'room') {
@@ -121,19 +156,16 @@ function chooseSearchResult(i, fromKeyboard) {
 
 function initSearch() {
   var input = $('search-input');
-  input.oninput = function () { renderSearchResults(input.value.replace(/^\s+|\s+$/g, '')); };
-  input.onfocus = function () { if (input.value) { renderSearchResults(input.value.replace(/^\s+|\s+$/g, '')); } };
-  input.onblur = function () { setTimeout(closeSearch, 150); };
-  input.onkeydown = function (e) {
-    if (e.key === 'ArrowDown') { e.preventDefault(); if ($('search-results').hidden) { renderSearchResults(input.value); } else { moveSearchActive(1); } }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); moveSearchActive(-1); }
-    else if (e.key === 'Enter') { if (SEARCH.active > -1) { e.preventDefault(); chooseSearchResult(SEARCH.active, true); } }
-    else if (e.key === 'Escape') { if (!$('search-results').hidden) { e.preventDefault(); closeSearch(); } else if (input.value) { input.value = ''; $('search-clear').hidden = true; } }
-  };
-  $('search-clear').onclick = function () {
+  var clear = $('search-clear');
+  SEARCH = searchCombobox({
+    input: input, list: $('search-results'), idPrefix: 'search-opt-', onChoose: chooseSearchResult,
+    onQuery: function (q) { clear.hidden = !q; },
+    onEscape: function (e) { if (input.value) { e.preventDefault(); input.value = ''; clear.hidden = true; } }
+  });
+  clear.onclick = function () {
     input.value = '';
-    $('search-clear').hidden = true;
-    closeSearch();
+    clear.hidden = true;
+    SEARCH.close();
     input.focus();
   };
 }

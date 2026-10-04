@@ -109,8 +109,8 @@ function gpsOnError(err) {
 function gpsMessage() {
   var st = GPS.state;
   if (st === 'locating') { return 'Finding your location…'; }
-  if (st === 'denied') { return 'Location is off for this site. You can still choose a starting building, or scan a campus QR code.'; }
-  if (st === 'unavailable') { return 'Your location is not available right now. Choose a starting building, or scan a campus QR code.'; }
+  if (st === 'denied') { return 'Location is off for this site. You can still search for a starting room or building, or scan a campus QR code.'; }
+  if (st === 'unavailable') { return 'Your location is not available right now. Search for a starting room or building, or scan a campus QR code.'; }
   if (st === 'indoors') {
     return 'You seem to be inside ' + buildingName(GPS.fix && GPS.fix.insideBuildingId) + '. GPS is not precise indoors: scan a nearby campus QR code to set where you are.';
   }

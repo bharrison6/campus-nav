@@ -55,6 +55,15 @@ function meters(a: { lng: number; lat: number }, b: { lng: number; lat: number }
 
 const step = (page: Page) => page.locator('#route-panel #route-step');
 
+// The route's Start field: the top bar's search, picked by an exact result title.
+async function startFrom(page: Page, q: string, title: string) {
+  const input = page.locator('#route-panel #route-from');
+  await input.fill(q);
+  const opt = page.locator('#route-from-results li').filter({ has: page.locator('.t', { hasText: new RegExp('^' + title + '$') }) });
+  await opt.first().click();
+  await expect(input).toHaveValue(title);
+}
+
 test('the campus map renders in 2.5D with OpenStreetMap attribution, in the app\'s own style', async ({ page }) => {
   await boot(page);
   await mapReady(page);
@@ -160,7 +169,7 @@ test('one route door to room: map walk, the door hands off to the floor plan, st
   await page.locator('#map-room-nav').click();
   const panel = page.locator('#route-panel');
   await expect(panel).toContainText('From the building entrance'); // no position yet: v3's indoor start
-  await panel.locator('#route-from').selectOption('b:bld-ep');
+  await startFrom(page, 'Engineering', 'Engineering and Physics Building');
   await expect(panel).toContainText('From Engineering and Physics Building');
   await expect(step(page)).toHaveAttribute('data-step-kind', 'outdoor');
   await expect(step(page).locator('.title')).toHaveText(/^Walk to the .+ of Collins Industry and Technology Center$/);
@@ -185,7 +194,7 @@ test('one route door to room: map walk, the door hands off to the floor plan, st
   await page.locator('#route-close').click();
   await search(page, 'EP 1332', 'EP 1332');
   await page.locator('#room-sheet').getByRole('button', { name: 'Navigate here' }).click();
-  await panel.locator('#route-from').selectOption('b:bld-it');
+  await startFrom(page, 'Collins', 'Collins Industry and Technology Center');
   await expect(page.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true');
   await expect(step(page)).toHaveAttribute('data-step-kind', 'outdoor');
 });
@@ -196,7 +205,7 @@ test('"Avoid stairs" applies outdoors: a steps shortcut gives way to the step-fr
     await mapReady(page);
     await search(page, 'EP 1332', 'EP 1332');
     await page.locator('#map-room-nav').click();
-    await page.locator('#route-panel #route-from').selectOption('b:bld-it');
+    await startFrom(page, 'Collins', 'Collins Industry and Technology Center');
     await expect(page.locator('#route-panel #route-step')).toBeVisible();
   };
   // 1. the real walk: find where it detours most between two of its path nodes
@@ -286,6 +295,27 @@ test.describe('GPS', () => {
     await expect(page.getByRole('tab', { name: 'Indoor' })).toHaveAttribute('aria-selected', 'true');
   });
 
+  test('"My location" in the route Start: GPS starts, the walk is from the blue dot, the field says My location', async ({ page }) => {
+    await boot(page);
+    await mapReady(page);
+    await search(page, 'IT 241', 'IT 241');
+    await page.locator('#map-room-nav').click();
+    const panel = page.locator('#route-panel');
+    await expect(panel).toContainText('From the building entrance'); // GPS not started yet
+    await panel.locator('#route-from-gps').click();
+    await expect(panel.locator('#route-from')).toHaveValue('My location');
+    await expect(panel.locator('#route-from-gps')).toHaveAttribute('aria-pressed', 'true');
+    await expect(panel.locator('#route-from-gps')).toHaveAttribute('data-gps-state', 'on');
+    await expect(panel).toContainText('From your location');
+    await expect(step(page)).toHaveAttribute('data-step-kind', 'outdoor');
+    expect(await page.evaluate(() => (window as any).NAV.route.startKind)).toBe('gps');
+    // cleared: still automatic, which with the blue dot on campus is the blue dot
+    await panel.locator('#route-from-clear').click();
+    await expect(panel.locator('#route-from')).toHaveValue('');
+    await expect(panel.locator('#route-from')).toHaveAttribute('placeholder', 'My location (automatic)');
+    await expect(panel.locator('#route-from-gps')).toHaveAttribute('aria-pressed', 'false');
+  });
+
   // Midpoints of real edges (Codex review v4, finding 2): e13 a path 72 m long, e5 IT's connector to it-1-n0490. The
   // drawn walk starts at the blue dot and counts the half edge; on a connector the walk to that door and the door
   // come before the floor plan.
@@ -339,10 +369,119 @@ test('GPS denied: a clear message, and routes still start from a chosen building
   await expect(page.locator('#map-status')).toContainText('Location is off for this site');
   await search(page, 'IT 241', 'IT 241');
   await page.locator('#map-room-nav').click();
-  await page.locator('#route-panel #route-from').selectOption('gps');
+  await page.locator('#route-panel #route-from-gps').click();
   await expect(page.locator('#route-panel')).toContainText('Location is off for this site');
-  await page.locator('#route-panel #route-from').selectOption('b:bld-ep');
+  await expect(page.locator('#route-from-gps')).toHaveAttribute('data-gps-state', 'denied');
+  await startFrom(page, 'Engineering', 'Engineering and Physics Building');
   await expect(step(page)).toHaveAttribute('data-step-kind', 'outdoor');
+});
+
+// The route's Start (lane O): "My location" or a search for a start, the top bar's search; neither is automatic.
+test.describe('route Start', () => {
+  test('search "IT 141" as the start of a route to an EP room: the route starts at IT 141; keyboard combobox; clear is automatic', async ({ page }) => {
+    await boot(page);
+    await mapReady(page);
+    await search(page, 'EP 1332', 'EP 1332');
+    await page.locator('#map-room-nav').click();
+    const panel = page.locator('#route-panel');
+    const input = panel.locator('#route-from');
+    await expect(panel).toContainText('From the building entrance');
+    await expect(input).toHaveValue('');
+    await expect(input).toHaveAttribute('placeholder', 'Building entrance (automatic)');
+    await expect(panel.locator('#route-from-clear')).toBeHidden();
+
+    // the combobox: typing opens the listbox, arrows move the active option, Escape closes, Enter picks
+    await input.fill('IT 141');
+    const list = page.locator('#route-from-results');
+    await expect(list).toBeVisible();
+    await expect(input).toHaveAttribute('aria-expanded', 'true');
+    await expect(input).toHaveAttribute('aria-activedescendant', 'route-from-opt-0');
+    await expect(list.locator('li').first().locator('.t')).toHaveText('IT 141');
+    // the same results, in the same order, as the top bar
+    const topBar = await page.evaluate(() => (window as any).MSCNSearch.search((window as any).APP.searchIndex, 'IT 141', 6).map((e: any) => e.title));
+    expect(await list.locator('li .t').allTextContents()).toEqual(topBar);
+    await input.press('ArrowDown');
+    await expect(input).toHaveAttribute('aria-activedescendant', 'route-from-opt-1');
+    await input.press('ArrowUp');
+    await input.press('Escape');
+    await expect(list).toBeHidden();
+    await expect(input).toHaveAttribute('aria-expanded', 'false');
+    await input.press('ArrowDown');
+    await expect(list).toBeVisible();
+    await input.press('Enter');
+    await expect(list).toBeHidden();
+    await expect(input).toHaveValue('IT 141');
+    await expect(panel).toContainText('From IT 141');
+    const r = await page.evaluate(() => {
+      const route = (window as any).NAV.route;
+      return { startKind: route.startKind, first: route.steps[0].nodeIds[0], room: (window as any).MSCNPath.nodesForRoom((window as any).APP.graph, 'room-it-1-0141') };
+    });
+    expect(r.startKind).toBe('room');
+    expect(r.room).toContain(r.first);
+    await expect(page.getByRole('tab', { name: 'Indoor' })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.locator('#floor-picker [aria-checked="true"]')).toHaveText('First Floor');
+
+    // clear: back to the automatic start
+    await expect(panel.locator('#route-from-clear')).toBeVisible();
+    await panel.locator('#route-from-clear').click();
+    await expect(input).toHaveValue('');
+    await expect(input).toBeFocused();
+    await expect(panel).toContainText('From the building entrance');
+    expect(await page.evaluate(() => (window as any).NAV.start)).toBeNull();
+  });
+
+  test('search "Engineering" as the start: the route leaves by an EP primary door', async ({ page }) => {
+    await boot(page);
+    await mapReady(page);
+    await search(page, 'IT 241', 'IT 241');
+    await page.locator('#map-room-nav').click();
+    await startFrom(page, 'Engineering', 'Engineering and Physics Building');
+    await expect(page.locator('#route-panel')).toContainText('From Engineering and Physics Building');
+    await expect(step(page)).toHaveAttribute('data-step-kind', 'outdoor');
+    const first = await page.evaluate(() => {
+      const g = (window as any).APP.graph;
+      const n = g.nodes[(window as any).NAV.route.steps[0].nodeIds[0]];
+      return { type: n.type, primary: n.primary, building: (window as any).MSCNPath.buildingOfNode(g, n.id) };
+    });
+    expect(first).toEqual({ type: 'entrance', primary: true, building: 'bld-ep' });
+  });
+
+  test('a ?loc= start shows in the field as the current start, with a clear control', async ({ page }) => {
+    await boot(page, '?loc=it-1-n0489');
+    await expect(page.locator('#viewer .fv-marker--you')).toHaveCount(1);
+    const label = await page.evaluate(() => (window as any).NAV.start.label);
+    expect(label).toBeTruthy();
+    const input = page.locator('#search-input');
+    await input.fill('IT 241');
+    await page.locator('#search-results li').first().click();
+    await page.locator('#room-sheet').getByRole('button', { name: 'Navigate here' }).click();
+    const panel = page.locator('#route-panel');
+    await expect(panel.locator('#route-from')).toHaveValue(label);
+    await expect(panel.locator('#route-from')).toHaveAttribute('data-start-kind', 'node');
+    await expect(panel.locator('#route-from-clear')).toBeVisible();
+    await expect(panel).toContainText('From ' + label);
+  });
+
+  test('on a 375 px phone the Start field and its results fit the screen with the route panel open', async ({ browser }) => {
+    const ctx = await browser.newContext({ viewport: { width: 375, height: 667 }, isMobile: true, hasTouch: true, serviceWorkers: 'block' });
+    const page = await ctx.newPage();
+    await boot(page);
+    await mapReady(page);
+    await search(page, 'EP 1332', 'EP 1332');
+    await page.locator('#map-room-nav').click();
+    await page.locator('#route-from').fill('IT 1');
+    const list = page.locator('#route-from-results');
+    await expect(list.locator('li').first()).toBeVisible();
+    for (const sel of ['#route-from', '#route-from-gps', '#route-from-results']) {
+      const b = (await page.locator(sel).boundingBox())!;
+      expect(b.x, sel).toBeGreaterThanOrEqual(0);
+      expect(b.x + b.width, sel).toBeLessThanOrEqual(375);
+    }
+    const first = (await list.locator('li').first().boundingBox())!;
+    expect(first.y + first.height).toBeLessThanOrEqual(667);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375);
+    await ctx.close();
+  });
 });
 
 test('"Directions to campus" opens Apple Maps on an iPhone', async ({ browser }) => {

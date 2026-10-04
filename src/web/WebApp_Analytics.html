@@ -4,11 +4,11 @@
  * config.json names a site. No cookies and no identifiers: the page view is the bare path (deep-link
  * query strings can carry schedule text), and events carry only a fixed name plus a coarse,
  * non-personal label (a floor id, a schedule id, "room" or "building"; never what someone typed).
- *   events: search, route_start, floor_change, qr_scan, sched_open
+ *   events: search, route_start, route_from (a start chosen in the route panel: its kind only), floor_change, qr_scan, sched_open
  * ES5. DOM touched only in init().
  */
 var MSCNAnalytics = (function () {
-  var EVENTS = ['search', 'route_start', 'floor_change', 'qr_scan', 'sched_open'];
+  var EVENTS = ['search', 'route_start', 'route_from', 'floor_change', 'qr_scan', 'sched_open'];
   var SCRIPT = 'https://gc.zgo.at/count.js';
   /* decided: config.json has been read (events from before that, e.g. a deep link, wait in the queue) */
   var state = { decided: false, on: false, ready: false, queue: [], endpoint: '' };

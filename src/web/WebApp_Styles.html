@@ -438,11 +438,34 @@
   @media (min-width: 720px) {
     .route-panel { position: absolute; left: 16px; bottom: 16px; width: 380px; max-height: calc(100% - 32px); border: 1px solid var(--border); border-radius: 18px; box-shadow: var(--shadow); }
   }
-  .route-from { display: flex; align-items: center; gap: 8px; margin: 6px 0 2px; font-size: 0.85rem; color: var(--muted); font-weight: 600; }
-  .route-from select {
-    flex: 1; min-width: 0; height: 36px; padding: 0 8px; border-radius: 10px; border: 1px solid var(--border);
-    background: var(--surface-2); color: var(--text); font-weight: 600;
+  .route-from { position: relative; display: flex; align-items: center; gap: 6px; margin: 6px 0 2px; font-size: 0.85rem; color: var(--muted); font-weight: 600; }
+  .route-from-field {
+    flex: 1; min-width: 0; display: flex; align-items: center; height: 40px; border-radius: 10px; border: 1px solid var(--border);
+    background: var(--surface-2); color: var(--text);
   }
+  .route-from-field:focus-within { border-color: var(--link); box-shadow: 0 0 0 2px rgba(11, 87, 208, 0.25); }
+  #route-from {
+    flex: 1; min-width: 0; height: 100%; padding: 0 4px 0 10px; border: 0; background: transparent; color: inherit;
+    font: inherit; font-size: 1rem; font-weight: 600; outline: none;
+  }
+  #route-from::placeholder { color: var(--muted); font-weight: 500; }
+  #route-from::-webkit-search-cancel-button { display: none; }
+  #route-from-clear {
+    width: 36px; height: 36px; flex: none; border: 0; border-radius: 50%; background: transparent; color: var(--muted);
+    display: flex; align-items: center; justify-content: center;
+  }
+  #route-from-clear svg { width: 18px; height: 18px; fill: currentColor; }
+  .route-from-gps {
+    flex: none; display: inline-flex; align-items: center; gap: 4px; height: 40px; padding: 0 10px; border-radius: 10px;
+    border: 1px solid var(--border); background: var(--surface-2); color: var(--link); font: inherit; font-size: 0.85rem; font-weight: 700; white-space: nowrap;
+  }
+  .route-from-gps svg { width: 18px; height: 18px; fill: currentColor; }
+  .route-from-gps[aria-pressed="true"] { background: var(--link); border-color: var(--link); color: var(--surface); }
+  /* The start results flow inside the panel (a dropdown would be clipped by its scroll), in place of the step while open. */
+  .route-from-results.search-results { position: static; flex-basis: 100%; margin-top: 4px; box-shadow: none; max-height: none; font-weight: 400; }
+  .route-from { flex-wrap: wrap; }
+  .route-panel.is-picking #route-body { display: none; }
+  @media (max-width: 719px) { .route-panel.is-picking { max-height: 72%; } }
   .route-sentence { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
   @media (max-width: 719px) { .route-sentence { display: none; } .route-from { margin-top: 2px; } }
   .route-links { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 4px; font-size: 0.85rem; }

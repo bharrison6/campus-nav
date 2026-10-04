@@ -89,8 +89,8 @@ test('analytics: endpoint from a site code or a full https URL; anything else st
   for (const off of ['', '  ', 'http://x.example/count', 'bad site', '"><script>', null]) assert.equal(A.endpointFor(off), '', String(off));
 });
 
-test('analytics: only the five named events, with a short non-personal label', () => {
-  assert.deepEqual(plain(A.EVENTS), ['search', 'route_start', 'floor_change', 'qr_scan', 'sched_open']);
+test('analytics: only the six named events, with a short non-personal label', () => {
+  assert.deepEqual(plain(A.EVENTS), ['search', 'route_start', 'route_from', 'floor_change', 'qr_scan', 'sched_open']);
   assert.deepEqual(plain(A.eventFor('floor_change', 'floor-it-2')), { path: 'floor_change', title: 'floor-it-2', event: true });
   assert.deepEqual(plain(A.eventFor('search')), { path: 'search', title: 'search', event: true });
   assert.equal(A.eventFor('page_scroll', 'x'), null);

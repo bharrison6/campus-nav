@@ -19,6 +19,7 @@ var AT_DOOR_METERS = 12;
 
 function initRoute() {
   NAV.avoidStairs = lsGet(LS_KEYS.avoidStairs) === '1';
+  if (window.GPS) { GPS.listeners.push(updateStartField); }
 }
 
 /* A map position onto the nearest walkable outdoor edge: the edge's two ends with the meters to each, and the snapped
@@ -93,7 +94,7 @@ function resolveStart(goal) {
     return { kind: 'entrance', ids: automaticEntrances(goal), label: 'the building entrance', buildingId: goal.buildingId,
       error: 'No entrance is mapped for this building yet. Set a starting room with "Set as start" instead.' };
   }
-  return { kind: 'none', ids: [], label: 'a starting point', error: 'Choose where you are starting from: your location, or a building.' };
+  return { kind: 'none', ids: [], label: 'a starting point', error: 'Choose where you are starting from: your location, or search for a room or building.' };
 }
 
 /*
@@ -119,10 +120,10 @@ function automaticEntrances(goal) {
 function gpsStartProblem() {
   var st = window.GPS ? GPS.state : 'off';
   if (st === 'locating' || st === 'off') { return 'Finding your location…'; }
-  if (st === 'denied') { return 'Location is off for this site. Choose a building to start from, or scan a campus QR code.'; }
+  if (st === 'denied') { return 'Location is off for this site. Search for a room or building to start from, or scan a campus QR code.'; }
   if (st === 'indoors') { return 'You seem to be inside a building. Scan a nearby campus QR code to set where you are.'; }
-  if (st === 'offcampus') { return 'You are not on campus. Use "Directions to campus" first, or choose a building to start from.'; }
-  return 'Your location is not available right now. Choose a building to start from.';
+  if (st === 'offcampus') { return 'You are not on campus. Use "Directions to campus" first, or search for a room or building to start from.'; }
+  return 'Your location is not available right now. Search for a room or building to start from.';
 }
 
 function transitionName(node) {
@@ -331,34 +332,100 @@ function endRoute() {
   var p = $('route-panel');
   p.hidden = true;
   p.innerHTML = '';
+  p.className = 'route-panel';
   if (window.MAPV) { MAPV.clearRoute(); }
   renderFloorPicker();
   decorateFloor();
 }
 
-function routeFromOptions() {
-  var s = NAV.start;
-  var dest = NAV.dest || {};
-  var opts = [];
-  var cur = !s ? '' : (s.kind === 'gps' ? 'gps' : (s.kind === 'building' ? 'b:' + s.buildingId : 'here'));
-  opts.push(['', dest.kind === 'room' ? (gpsOnCampus() ? 'Automatic (my location)' : 'The building entrance') : (gpsOnCampus() ? 'Automatic (my location)' : 'Choose a start…')]);
-  opts.push(['gps', 'My location']);
-  if (s && (s.kind === 'room' || s.kind === 'node')) { opts.push(['here', s.label]); }
-  var list = ((APP.data && APP.data.buildings) || []).slice(0).sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
-  for (var i = 0; i < list.length; i++) { if (list[i] && list[i].id) { opts.push(['b:' + list[i].id, list[i].name || list[i].id]); } }
-  var html = '';
-  for (var k = 0; k < opts.length; k++) {
-    html += '<option value="' + escapeHtml(opts[k][0]) + '"' + (opts[k][0] === cur ? ' selected' : '') + '>' + escapeHtml(opts[k][1]) + '</option>';
+/*
+ * The route's Start: "My location" (the blue dot, GPS started on demand) or a search for a start, the top bar's own
+ * search (searchCombobox in WebApp_Main): a room starts at that room, a building at its primary doors. Neither chosen
+ * is the automatic start, said in the placeholder; a start set elsewhere (a room's "Set as start", a scanned code, a
+ * ?loc= link) shows as the field's value with a clear control. The field is built once per route panel and kept
+ * across re-renders, so a re-route never takes it from under someone typing.
+ */
+function startForSearchEntry(e) {
+  if (!e) { return null; }
+  if (e.kind === 'room') {
+    var room = APP.by.rooms[e.roomId];
+    return room ? { kind: 'room', roomId: e.roomId, label: roomTitle(room) } : null;
   }
-  return html;
+  if (e.kind === 'building') {
+    return APP.by.buildings[e.buildingId] ? { kind: 'building', buildingId: e.buildingId } : null;
+  }
+  return null;
 }
 
-function onRouteFromChange(v) {
-  if (v === '') { NAV.start = null; }
-  else if (v === 'gps') { NAV.start = { kind: 'gps' }; if (window.GPS) { gpsStart(); } }
-  else if (v.indexOf('b:') === 0) { NAV.start = { kind: 'building', buildingId: v.slice(2) }; }
-  computeRoute();
-  focusSoon('route-from');
+/* What the Start field shows for NAV.start: its value (empty for automatic) and the automatic start as placeholder. */
+function startFieldText() {
+  var s = NAV.start;
+  var dest = NAV.dest || {};
+  var auto = gpsOnCampus() && APP.graph && APP.graph.hasOutdoor ? 'My location (automatic)'
+    : (dest.kind === 'room' ? 'Building entrance (automatic)' : 'Search for a start');
+  if (!s) { return { value: '', placeholder: auto, kind: '' }; }
+  if (s.kind === 'gps') { return { value: 'My location', placeholder: auto, kind: 'gps' }; }
+  if (s.kind === 'building') { return { value: buildingName(s.buildingId), placeholder: auto, kind: 'building' }; }
+  return { value: String(s.label || ''), placeholder: auto, kind: s.kind };
+}
+
+/* A start chosen in the route panel: the analytics event records only its kind, never what was typed. */
+function setRouteStart(start) {
+  NAV.start = start;
+  if (start) { MSCNAnalytics.track('route_from', start.kind); }
+  if (start && start.kind === 'gps' && window.GPS) { gpsStart(); }
+  if (NAV.dest) { computeRoute(); } else { decorateFloor(); }
+}
+
+function startField() {
+  var wrap = document.createElement('div');
+  wrap.className = 'route-from';
+  wrap.id = 'route-from-group';
+  wrap.innerHTML = '<label for="route-from" id="route-from-label">Start</label>' +
+    '<div class="route-from-field">' +
+    '<input id="route-from" type="search" autocomplete="off" spellcheck="false" role="combobox" aria-autocomplete="list" ' +
+    'aria-expanded="false" aria-controls="route-from-results" aria-describedby="route-from-hint">' +
+    '<button type="button" id="route-from-clear" aria-label="Clear start (use the automatic start)" hidden>' + ICONS.close + '</button></div>' +
+    '<button type="button" class="route-from-gps" id="route-from-gps" aria-pressed="false">' + ICONS.start + '<span>My location</span></button>' +
+    '<span class="sr-only" id="route-from-hint">Search for a room or building to start from</span>' +
+    '<ul id="route-from-results" class="search-results route-from-results" role="listbox" aria-label="Starting points" hidden></ul>';
+  var input = wrap.querySelector('#route-from');
+  var cb = searchCombobox({
+    input: input, list: wrap.querySelector('#route-from-results'), idPrefix: 'route-from-opt-', limit: 6,
+    onChoose: function (e, fromKeyboard) {
+      setRouteStart(startForSearchEntry(e));
+      input.value = startFieldText().value;
+      if (!fromKeyboard) { input.blur(); }
+    },
+    onFocus: function () { if (input.value && startFieldText().value === input.value) { input.select(); } },
+    onBlur: function () { if (document.activeElement !== input) { updateStartField(); } },
+    onOpen: function (open) { $('route-panel').className = 'route-panel' + (open ? ' is-picking' : ''); },
+    onEscape: function (e) {
+      var v = startFieldText().value;
+      if (input.value !== v) { e.preventDefault(); e.stopPropagation(); input.value = v; }
+    }
+  });
+  wrap.querySelector('#route-from-clear').onclick = function () {
+    cb.close();
+    setRouteStart(null);
+    input.focus();
+  };
+  wrap.querySelector('#route-from-gps').onclick = function () { cb.close(); setRouteStart({ kind: 'gps' }); };
+  return wrap;
+}
+
+/* The field's value, placeholder, clear control and "My location" state for the current start; typing is left alone. */
+function updateStartField() {
+  var input = $('route-from');
+  if (!input) { return; }
+  var t = startFieldText();
+  input.placeholder = t.placeholder;
+  input.setAttribute('data-start-kind', t.kind);
+  if (document.activeElement !== input) { input.value = t.value; }
+  $('route-from-clear').hidden = !NAV.start;
+  var gps = $('route-from-gps');
+  gps.setAttribute('aria-pressed', t.kind === 'gps' ? 'true' : 'false');
+  gps.setAttribute('data-gps-state', window.GPS ? GPS.state : 'off');
 }
 
 /* "Directions to campus": the route's first door, else the destination building's best door. */
@@ -378,10 +445,15 @@ function renderRoutePanel() {
   var p = $('route-panel');
   var r = NAV.route;
   if (!r) { p.hidden = true; return; }
-  var html = '<div class="route-head"><div class="ends"><span>Route to</span><strong id="route-dest">' + escapeHtml(r.destLabel) + '</strong>' +
+  if (!$('route-from-group')) {
+    p.innerHTML = '<div id="route-top"></div><div id="route-body"></div>';
+    p.insertBefore(startField(), $('route-body'));
+  }
+  $('route-top').innerHTML = '<div class="route-head"><div class="ends"><span>Route to</span><strong id="route-dest">' + escapeHtml(r.destLabel) + '</strong>' +
     '<span>From ' + escapeHtml(r.fromLabel) + '</span></div>' +
-    '<button type="button" class="sheet-close" id="route-close" aria-label="End route">' + ICONS.close + '</button></div>' +
-    '<div class="route-from"><label for="route-from">Start</label><select id="route-from">' + routeFromOptions() + '</select></div>';
+    '<button type="button" class="sheet-close" id="route-close" aria-label="End route">' + ICONS.close + '</button></div>';
+  updateStartField();
+  var html = '';
   if (r.error) {
     html += '<div class="route-step is-error" role="alert"><div class="title">' + (r.waitingForGps ? 'Finding your location' : 'No route') + '</div><div class="detail">' + escapeHtml(r.error) + '</div></div>';
   } else {
@@ -408,10 +480,9 @@ function renderRoutePanel() {
     '<span class="track" aria-hidden="true"></span>Avoid stairs</label>' +
     (target ? '<a class="route-campus" id="route-campus" href="' + escapeHtml(directionsToCampusUrl(target.lat, target.lng)) + '" target="_blank" rel="noopener">Directions to campus</a>' : '') +
     '</div>';
-  p.innerHTML = html;
+  $('route-body').innerHTML = html;
   p.hidden = !(APP.view === 'map' || APP.view === 'indoor');
   $('route-close').onclick = function () { endRoute(); };
-  $('route-from').onchange = function (e) { onRouteFromChange(e.target.value); };
   var prev = $('route-prev');
   var next = $('route-next');
   if (prev) { prev.onclick = function () { goToStep(NAV.stepIndex - 1); focusSoon('route-prev'); }; }
