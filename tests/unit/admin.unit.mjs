@@ -25,11 +25,12 @@ const freshDir = () => {
 const readOv = (dir, c) => JSON.parse(fs.readFileSync(path.join(dir, `${c}.json`), 'utf8'));
 const quiet = () => {};
 
-test('the page: no PIN gate, no Import tab, no Apps Script scriptlet, no key literal; its scripts parse', () => {
+test('the page: no PIN gate, no Import tab, no Apps Script scriptlet, no key literal, no Google Maps; its scripts parse', () => {
   assert.ok(!/pin-gate|adminPin|verifyAdminPin|changeAdminPin|setMapsApiKey|importFloorData|reseedCampusData|data-tab="import"/.test(ADMIN_HTML));
   assert.ok(!/<\?/.test(ADMIN_HTML), 'no Apps Script template scriptlets');
   assert.ok(ADMIN_HTML.includes('data-app-url="__MSCN_SITE_URL__"'));
   assert.ok(!/AIza[0-9A-Za-z_-]{20,}/.test(ADMIN_HTML));
+  assert.ok(!/maps\.googleapis|maps\.google\.com|google\.maps|mapsApiKey/.test(ADMIN_HTML), 'no Google Maps loader in the Buildings tab');
   const re = /<script\b([^>]*)>([\s\S]*?)<\/script>/gi;
   let m;
   let scripts = 0;
