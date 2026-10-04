@@ -13,6 +13,7 @@
     "preview": "node dev/serve.mjs --build",
     "serve": "node dev/serve.mjs",
     "pipeline": "node scripts/floorplan-pipeline/run.mjs --out data/floorplans",
+    "campus-map": "node scripts/campus-map/run.mjs",
     "export:data": "node scripts/data/export-campus-data.mjs --out build/data",
     "admin": "node tools/admin/server.mjs"
   },

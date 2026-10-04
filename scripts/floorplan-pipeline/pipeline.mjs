@@ -181,6 +181,9 @@ export function runPipeline({ inDir, outDir, gasDir, cacheDir, floors = FLOORS, 
       metersPerPixel: mpu,
       units,
       frame: { ...fp.origin, sharedBuildingFrame: frameChecks[floor.bldg] },
+      // The floor's gross outline (the drawing's GROSS layer) in this floor's SVG units: what the campus-map build fits
+      // to the OpenStreetMap footprint (scripts/campus-map/georef-fit.mjs). null when the drawing has none.
+      gross: fp.gross ? fp.gross.map((p) => [round(p[0], 1), round(p[1], 1)]) : null,
       rooms: fp.rooms.map((r) => ({
         id: r.id, number: r.number, label: r.label, type: r.type, typeEvidence: r.typeEvidence, searchable: r.searchable,
         kind: r.kind, linkId: r.linkId || '', areaSqFt: round(r.areaSf, 0), tagAreaSqFt: r.tagAreaSf, useText: r.useText,
