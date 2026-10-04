@@ -21,7 +21,8 @@ function initRoute() {
   NAV.avoidStairs = lsGet(LS_KEYS.avoidStairs) === '1';
 }
 
-/* A map position onto the nearest walkable outdoor edge: the edge's two ends with the meters to each. */
+/* A map position onto the nearest walkable outdoor edge: the edge's two ends with the meters to each, and the snapped
+   point (MSCNPath.snapEnds draws and counts the walk from there to the end the route takes). */
 function snapToPaths(p) {
   var g = APP.graph;
   if (!g || !g.hasOutdoor || !p) { return null; }
@@ -46,11 +47,11 @@ function resolveGoal(dest) {
     if (doors.length) { return { kind: 'building', ids: doors, label: label, buildingId: bid }; }
     var c = buildingCenter(bid);
     var sn = c ? snapToPaths(c) : null;
-    if (sn) { return { kind: 'building', ids: sn.ids, label: label, buildingId: bid, tail: [sn.point, [c.lng, c.lat]] }; }
+    if (sn) { return { kind: 'building', ids: sn.ids, label: label, buildingId: bid, snap: sn, tail: [sn.point, [c.lng, c.lat]] }; }
     return { kind: 'building', ids: [], label: label, buildingId: bid, error: 'There is no walking map near ' + label + ' yet.' };
   }
   var sp = snapToPaths(dest);
-  return { kind: 'point', ids: sp ? sp.ids : [], label: dest.label || 'the marked spot', buildingId: null,
+  return { kind: 'point', ids: sp ? sp.ids : [], label: dest.label || 'the marked spot', buildingId: null, snap: sp,
     tail: sp ? [sp.point, [Number(dest.lng), Number(dest.lat)]] : null, error: 'There is no walking path near that spot.' };
 }
 
@@ -75,7 +76,7 @@ function resolveStart(goal) {
     if (doors.length) { return { kind: 'building', ids: doors, label: buildingName(s.buildingId), buildingId: s.buildingId }; }
     var c = buildingCenter(s.buildingId);
     var sn = c ? snapToPaths(c) : null;
-    return { kind: 'building', ids: sn ? sn.ids : [], label: buildingName(s.buildingId), buildingId: null,
+    return { kind: 'building', ids: sn ? sn.ids : [], label: buildingName(s.buildingId), buildingId: null, snap: sn,
       lead: sn ? [[c.lng, c.lat], sn.point] : null, error: 'There is no walking map near ' + buildingName(s.buildingId) + ' yet.' };
   }
   if ((s && s.kind === 'gps') || (!s && gpsOnCampus() && g.hasOutdoor)) {
@@ -86,13 +87,33 @@ function resolveStart(goal) {
     }
     var sp = snapToPaths(fix);
     if (!sp) { return { kind: 'gps', ids: [], label: 'your location', error: 'There is no walking path near your location.' }; }
-    return { kind: 'gps', ids: sp.ids, label: 'your location', buildingId: null, lead: [[fix.lng, fix.lat], sp.point] };
+    return { kind: 'gps', ids: sp.ids, label: 'your location', buildingId: null, snap: sp, lead: [[fix.lng, fix.lat], sp.point] };
   }
   if (goal.kind === 'room' && goal.buildingId) {
-    return { kind: 'entrance', ids: MSCNPath.entranceIds(g, goal.buildingId), label: 'the building entrance', buildingId: goal.buildingId,
+    return { kind: 'entrance', ids: automaticEntrances(goal), label: 'the building entrance', buildingId: goal.buildingId,
       error: 'No entrance is mapped for this building yet. Set a starting room with "Set as start" instead.' };
   }
   return { kind: 'none', ids: [], label: 'a starting point', error: 'Choose where you are starting from: your location, or a building.' };
+}
+
+/*
+ * The automatic start for a room (no blue dot, no chosen start): the building's common doors (primary, joined to the
+ * paths), the same policy as the outdoor join. A sole door (one the primaries cannot reach indoors, EP 1322's) is
+ * used only when the primaries cannot reach the room without going outside. Without a campus map (no joined
+ * entrances) every mapped entrance, as in v3.
+ */
+function automaticEntrances(goal) {
+  var g = APP.graph;
+  var bid = goal.buildingId;
+  var joined = (g.entrances && g.entrances[bid]) || [];
+  if (!joined.length) { return MSCNPath.entranceIds(g, bid); }
+  var prim = MSCNPath.primaryEntrances(g, bid);
+  var opts = { indoorOnly: true, accessibleOnly: NAV.avoidStairs };
+  if (MSCNPath.findPath(g, prim, goal.ids, opts)) { return prim; }
+  var sole = [];
+  for (var i = 0; i < joined.length; i++) { if (g.nodes[joined[i]].soleDoor) { sole.push(joined[i]); } }
+  if (sole.length && MSCNPath.findPath(g, sole, goal.ids, opts)) { return sole; }
+  return prim;
 }
 
 function gpsStartProblem() {
@@ -166,10 +187,8 @@ function noRouteMessage(fromIds, toIds) {
   return 'No route was found between these points.';
 }
 
-function computeRoute(opts) {
-  opts = opts || {};
-  var dest = NAV.dest;
-  if (!dest) { endRoute(); return; }
+/* The route to dest from NAV.start (no UI): steps, meters, lead / tail, or an error. */
+function planRoute(dest) {
   var g = APP.graph;
   var goal = resolveGoal(dest);
   var st = resolveStart(goal);
@@ -187,7 +206,7 @@ function computeRoute(opts) {
   } else {
     var r = MSCNPath.findPath(g, st.ids, goal.ids, { accessibleOnly: NAV.avoidStairs });
     if (r) {
-      route.steps = MSCNPath.buildRouteSteps(g, MSCNPath.segmentRoute(g, r), routeNames(goal.label));
+      route.steps = MSCNPath.buildRouteSteps(g, MSCNPath.segmentRoute(g, MSCNPath.snapEnds(r, st.snap, goal.snap)), routeNames(goal.label));
       route.meters = r.distance;
       finishEnds(route, st, goal);
     } else {
@@ -195,6 +214,14 @@ function computeRoute(opts) {
     }
   }
   route.sentence = route.error ? '' : MSCNPath.routeSentence(route.steps);
+  return route;
+}
+
+function computeRoute(opts) {
+  opts = opts || {};
+  var dest = NAV.dest;
+  if (!dest) { endRoute(); return; }
+  var route = planRoute(dest);
   NAV.route = route;
   NAV.stepIndex = 0;
   NAV.offPath = null;
@@ -210,7 +237,9 @@ function computeRoute(opts) {
   }
 }
 
-/* The dotted lead from the blue dot to the path, the tail from the path to a building or point, and building arrivals. */
+/* The dotted lead from the blue dot to the path, the tail from the path to a building or point, and building arrivals.
+   The partial edge between the snapped point and the graph is already in the steps (MSCNPath.snapEnds): a start on an
+   entrance's connector begins with the walk to that door, so the lead always meets an outdoor first step. */
 function finishEnds(route, st, goal) {
   var steps = route.steps;
   /* Starting from a building means starting at its door: no empty "Leave by" step. */

@@ -12,6 +12,7 @@
  *   addOutdoorGraph(graph, outdoor)        union with the outdoor graph; entrances gain lat/lng and join by id
  *   findPath(graph, starts, goals, opts)   A*; starts/goals are ids or {id, cost} (cost = meters to reach the node,
  *                                          e.g. from a GPS point snapped onto an edge)
+ *   snapEnds(route, start, goal)           the partial edges of a snapped start / goal made part of the route
  *   segmentRoute(graph, route)             typed segments: outdoor | indoor (per floor), joined by doors and stairs
  *   buildRouteSteps(graph, segments, names) one step list: outdoor walk, door, indoor legs, arrival
  * segmentPath / buildSteps are the v3 indoor-only forms, kept for their callers and tests.
@@ -206,6 +207,7 @@ var MSCNPath = (function () {
    *   starts / goals: a node id, an array of ids, or an array of {id, cost} (multi-source / multi-goal; cost is the
    *   extra meters before the start node or after the goal node).
    *   opts.accessibleOnly: skip edges with accessible === false (indoor stairs, outdoor steps).
+   *   opts.indoorOnly: skip the outdoor edges (can these doors reach the goal without going outside?).
    *   route = { nodeIds, nodes, distance (including both end costs), startCost, goalCost }
    */
   function findPath(graph, startIds, goalIds, opts) {
@@ -258,6 +260,7 @@ var MSCNPath = (function () {
       for (var i = 0; i < nbrs.length; i++) {
         var nb = nbrs[i];
         if (opts.accessibleOnly && !nb.accessible) { continue; }
+        if (opts.indoorOnly && nb.outdoor) { continue; }
         if (closed[nb.to]) { continue; }
         var ng = g[cur] + nb.cost;
         if (!g.hasOwnProperty(nb.to) || ng < g[nb.to]) {
@@ -540,6 +543,53 @@ var MSCNPath = (function () {
   }
 
   /*
+   * snapEnds(route, start, goal) -> route   a route whose start or goal was snapped onto an outdoor edge (findPath
+   * starts / goals with costs) drawn and counted from the snapped point itself.
+   *   start / goal: {point: [lng, lat], edge?: an outdoor edge (its kind, accessible)} or null.
+   * The partial edge becomes a link from a virtual outdoor node at the point to the route's first node (from its last
+   * node to a point at the goal), of startCost (goalCost) meters. segmentRoute then counts those meters in the outdoor
+   * walk, and when the edge ends at an entrance, the walk to that door and the door come before the indoor leg (a
+   * visitor on the path is still outside). The virtual nodes are not graph nodes; route.links holds their edges.
+   */
+  var SNAP_START = '\u0000snap-start';
+  var SNAP_GOAL = '\u0000snap-goal';
+
+  function snapEnds(route, start, goal) {
+    if (!route || !route.nodes || !route.nodes.length) { return route; }
+    var nodes = route.nodes.slice(0);
+    var ids = route.nodeIds.slice(0);
+    var links = {};
+    function point(id, p) { return { id: id, lng: Number(p[0]), lat: Number(p[1]), type: 'path', outdoor: true, snapped: true }; }
+    function link(snap, cost) {
+      var e = snap.edge || {};
+      return { cost: cost, outdoor: true, kind: e.kind || 'footway', accessible: e.accessible !== false };
+    }
+    var sc = num(route.startCost, 0);
+    if (start && start.point && (!nodes[0].outdoor || sc > 0.01)) {
+      links[SNAP_START + '>' + nodes[0].id] = link(start, sc);
+      nodes.unshift(point(SNAP_START, start.point));
+      ids.unshift(SNAP_START);
+    }
+    var gc = num(route.goalCost, 0);
+    var last = nodes[nodes.length - 1];
+    if (goal && goal.point && (!last.outdoor || gc > 0.01)) {
+      links[last.id + '>' + SNAP_GOAL] = link(goal, gc);
+      nodes.push(point(SNAP_GOAL, goal.point));
+      ids.push(SNAP_GOAL);
+    }
+    return { nodeIds: ids, nodes: nodes, distance: route.distance, startCost: sc, goalCost: gc, links: links };
+  }
+
+  /* The edge walked from a to b: a snapped end's link, else the cheapest graph edge. */
+  function linkOf(graph, links, aId, bId) {
+    if (links) {
+      var l = links[aId + '>' + bId] || links[bId + '>' + aId];
+      if (l) { return l; }
+    }
+    return stepEdge(graph, aId, bId);
+  }
+
+  /*
    * segmentRoute(graph, route) -> [segment]
    *   segment = { kind: 'outdoor'|'indoor', floorId (indoor), buildingId (indoor), nodes, distance, entry?, exit? }
    *   transitions: { type: 'door', node, buildingId, floorId }  between outdoor and indoor (the entrance node ends
@@ -560,7 +610,7 @@ var MSCNPath = (function () {
     for (var i = 1; i < nodes.length; i++) {
       var a = nodes[i - 1];
       var b = nodes[i];
-      var e = stepEdge(graph, a.id, b.id);
+      var e = linkOf(graph, route.links, a.id, b.id);
       var cost = e ? e.cost : 0;
       if (e && e.outdoor) {
         if (cur.kind === 'indoor') {
@@ -621,13 +671,14 @@ var MSCNPath = (function () {
       }
       merged.push(sg);
     }
+    if (route.links) { for (var m = 0; m < merged.length; m++) { merged[m].links = route.links; } }
     return merged;
   }
 
-  function edgeKindsAlong(graph, nodes) {
+  function edgeKindsAlong(graph, nodes, links) {
     var kinds = {};
     for (var i = 1; i < nodes.length; i++) {
-      var e = stepEdge(graph, nodes[i - 1].id, nodes[i].id);
+      var e = linkOf(graph, links, nodes[i - 1].id, nodes[i].id);
       if (e && e.kind) { kinds[e.kind] = true; }
     }
     return kinds;
@@ -650,18 +701,18 @@ var MSCNPath = (function () {
     var doorName = names.doorName || function (n) { return (n && n.label) || 'entrance'; };
     var bName = names.buildingName || function (id) { return id || 'the building'; };
     var steps = [];
-    function idsOf(s) { var out = []; for (var k = 0; k < s.nodes.length; k++) { out.push(s.nodes[k].id); } return out; }
+    function idsOf(s) { var out = []; for (var k = 0; k < s.nodes.length; k++) { if (!s.nodes[k].snapped) { out.push(s.nodes[k].id); } } return out; }
     function xy(s) { var out = []; for (var k = 0; k < s.nodes.length; k++) { if (!s.nodes[k].outdoor) { out.push([num(s.nodes[k].x, 0), num(s.nodes[k].y, 0)]); } } return out; }
     function ll(list) { var out = []; for (var k = 0; k < list.length; k++) { if (hasLngLat(list[k])) { out.push([Number(list[k].lng), Number(list[k].lat)]); } } return out; }
     for (var i = 0; i < segments.length; i++) {
       var s = segments[i];
       var walk = formatMeters(s.distance);
       if (s.kind === 'outdoor') {
-        var kinds = edgeKindsAlong(graph, s.nodes);
+        var kinds = edgeKindsAlong(graph, s.nodes, s.links);
         var door = s.exit && s.exit.type === 'door' ? s.exit : null;
         var dn = door ? doorName(door.node, door.buildingId) : '';
         var detail = s.distance > 0.5 ? 'Walk ' + walk + ' along the path' + (kinds.steps ? ', including steps' : '') + ' (about ' +
-          formatMinutes(s.distance) + ').' : 'You are at the path.';
+          formatMinutes(s.distance) + ').' : (door ? 'You are at the ' + dn + '.' : 'You are at the path.');
         steps.push({
           kind: 'outdoor', view: 'map', floorId: null, buildingId: door ? door.buildingId : null,
           title: door ? 'Walk to the ' + dn + ' of ' + bName(door.buildingId) : 'Arrive at ' + dest,
@@ -730,6 +781,7 @@ var MSCNPath = (function () {
     geoMeters: geoMeters,
     findPath: findPath,
     segmentPath: segmentPath,
+    snapEnds: snapEnds,
     segmentRoute: segmentRoute,
     buildSteps: buildSteps,
     buildRouteSteps: buildRouteSteps,
