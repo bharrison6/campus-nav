@@ -11,7 +11,9 @@ import { haversine, round } from './geo.mjs';
 import { basemapLayers, buildingHeight, clean, feature, footprints, indexOsm, labelPoint, matchBuildings } from './osm.mjs';
 import { boundaryResiduals, fitOutline, unionOutline } from './georef-fit.mjs';
 import { addOsmWays, addOverridePaths, connectEntrance, OutdoorGraph, pruneFragments } from './outdoor-graph.mjs';
-import { choosePrimary, scoreEntrances } from '../floorplan-pipeline/stages/primary-entrances.mjs';
+import { choosePrimary, scoreEntrances, withEntrances } from '../floorplan-pipeline/stages/primary-entrances.mjs';
+
+export { withEntrances };
 import { svgBearingWith, svgToLngLatWith } from '../../src/shared/georef.mjs';
 
 export const LAYERS = ['paths', 'roads', 'parking', 'landuse', 'water', 'labels'];
@@ -25,18 +27,6 @@ export function formatGeojson(features, extra = {}) {
 
 const byKey = (k) => (a, b) => (a[k] < b[k] ? -1 : a[k] > b[k] ? 1 : 0);
 const truthy = (v) => v === true || /^(true|1|yes)$/i.test(String(v));
-
-/** Puts the entrances block right after `doors` in a pipeline floor JSON (same key order on every write). */
-export function withEntrances(json, entrances) {
-  const out = {};
-  for (const [k, v] of Object.entries(json)) {
-    if (k === 'entrances') continue;
-    out[k] = v;
-    if (k === 'doors') out.entrances = entrances;
-  }
-  if (!('entrances' in out)) out.entrances = entrances;
-  return out;
-}
 
 /** Georeferences one indoor building: fits the union of its public floors' outlines to its footprint. */
 export function georeferenceBuilding(buildingId, floors, footprint) {

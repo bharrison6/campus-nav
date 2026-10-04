@@ -101,3 +101,26 @@ export function choosePrimary(scored, { min = 2, max = 4, ratio = 0.75, spacingM
   }
   return chosen.map((e) => e.nodeId);
 }
+
+/**
+ * Puts the entrances block right after `doors` in a floor JSON (one key order for every writer). Used by the
+ * campus-map build, which scores the entrances, and by the pipeline, which carries the committed block over to the
+ * regenerated floor JSON (for the entrance nodes that still exist) until the next `npm run campus-map` re-scores.
+ */
+export function withEntrances(json, entrances) {
+  const out = {};
+  for (const [k, v] of Object.entries(json)) {
+    if (k === 'entrances') continue;
+    out[k] = v;
+    if (k === 'doors') out.entrances = entrances;
+  }
+  if (!('entrances' in out)) out.entrances = entrances;
+  return out;
+}
+
+/** The committed entrances block of a floor, kept for the entrance nodes the new graph still has; null if none. */
+export function carryEntrances(previousJson, nodes) {
+  if (!previousJson || !Array.isArray(previousJson.entrances)) return null;
+  const ids = new Set(nodes.filter((n) => n.type === 'entrance').map((n) => n.id));
+  return previousJson.entrances.filter((e) => ids.has(e.nodeId));
+}

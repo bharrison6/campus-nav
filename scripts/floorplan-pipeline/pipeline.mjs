@@ -8,6 +8,7 @@ import { assembleOpenings, inferMissingOpenings } from './stages/doors.mjs';
 import { buildFloorGraph, components, FLOOR_CHANGE_METERS } from './stages/graph.mjs';
 import { buildSvg } from './stages/svg.mjs';
 import { emitGas } from './stages/emit-gas.mjs';
+import { carryEntrances, withEntrances } from './stages/primary-entrances.mjs';
 import { classifyBuilding, floorEvidence, isSearchable, polygonIoU } from './lib/classify.mjs';
 import { findShaftXs, mergeCollinear, primsToSegments, SegmentIndex } from './lib/detect.mjs';
 import { dist, round } from './lib/geometry.mjs';
@@ -234,7 +235,11 @@ export function runPipeline({ inDir, outDir, gasDir, cacheDir, floors = FLOORS, 
     fs.mkdirSync(outDir, { recursive: true });
     for (const f of outFloors) {
       fs.writeFileSync(path.join(outDir, `${f.floorId}.svg`), f.svg);
-      fs.writeFileSync(path.join(outDir, `${f.floorId}.json`), JSON.stringify(f.json, null, 1) + '\n');
+      // The entrances block (primary-entrance scores) is written by npm run campus-map; carry it over.
+      const jsonPath = path.join(outDir, `${f.floorId}.json`);
+      const prev = fs.existsSync(jsonPath) ? JSON.parse(fs.readFileSync(jsonPath, 'utf8')) : null;
+      const kept = carryEntrances(prev, f.json.nav.nodes);
+      fs.writeFileSync(jsonPath, JSON.stringify(kept ? withEntrances(f.json, kept) : f.json, null, 1) + '\n');
     }
     fs.writeFileSync(path.join(outDir, 'cross-floor-edges.json'), JSON.stringify(crossEdges, null, 1) + '\n');
     const gas = emitGas(outFloors, crossEdges, gasDir, { unitName: 'inches' });
