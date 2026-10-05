@@ -722,6 +722,9 @@ function stepDoor(step) {
   var last = step.nodeIds[step.nodeIds.length - 1];
   if (step.kind === 'door' && step.nodeId) { return { id: step.nodeId, outside: true }; }
   if (step.kind === 'outdoor' && step.exitType === 'door') { return { id: last, outside: true }; }
+  /* An automatic start begins inside its door: the visitor stands outside it. */
+  var first = APP.graph && APP.graph.nodes[step.nodeIds[0]];
+  if (step.index === 0 && NAV.route && NAV.route.startKind === 'entrance' && first && first.type === 'entrance') { return { id: first.id, outside: true }; }
   if (step.kind === 'walk' && step.exitType === 'door') { return { id: last, outside: false }; }
   return null;
 }

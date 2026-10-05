@@ -348,3 +348,18 @@ test('panel: the entrance choice is remembered; v5\'s "Use side doors and paths"
   vm.runInContext(CODE, ctx, { filename: 'webapp-route' });
   assert.equal(ctx.loadEntranceChoice(), 'best');
 });
+
+test('panel, Reroute: an automatic start at a door offers "This door is locked" for that door', () => {
+  const { ctx, NAV } = panel();
+  NAV.start = null;
+  ctx.computeRoute();
+  assert.equal(NAV.route.startKind, 'entrance');
+  // standing at the building, no approach to save: the main door (211 m of confusion is less than the 300 m side-door cost)
+  assert.equal(NAV.route.steps[0].nodeIds[0], 'M');
+  assert.equal(NAV.route.fromLabel, 'the building entrance');
+  assert.deepEqual({ ...ctx.stepDoor(NAV.route.steps[0]) }, { id: 'M', outside: true });
+  ctx.chooseReroute('locked');
+  assert.deepEqual(routeDoors(NAV.route), ['S'], 'walked around from outside it to the side door');
+  assert.equal(NAV.route.fromLabel, 'the locked door');
+  assert.equal(NAV.route.steps[0].kind, 'outdoor');
+});

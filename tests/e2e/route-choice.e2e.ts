@@ -170,7 +170,10 @@ test('the route panel with the entrance choice and Reroute open fits a 375 px ph
   await boot(page);
   await searchAndOpen(page, 'IT 157G', 'IT 157G');
   await page.getByRole('button', { name: 'Navigate here' }).click();
+  // the automatic start is IT's side door by the 157 suite: the visitor may find it locked
+  await expect(page.locator('#route-panel')).toContainText(`From the side door (${SIDE_LABEL})`);
   await page.locator('#route-reroute').click();
+  await expect(page.locator('#reroute-locked')).toBeVisible();
   await expect(page.locator('#route-reroute-menu')).toBeVisible();
   const box = await page.evaluate(() => {
     const p = document.getElementById('route-panel')!;

@@ -843,7 +843,7 @@ var MSCNPath = (function () {
   }
 
   /* The doors a route starts or ends at for a building: its joined main entrances, else (none main, or allowAlt: the
-     "Use side doors and paths" toggle) its joined main and alt entrances. Emergency doors never. A sole door is alt,
+     route panel's Best entrance and Any door) its joined main and alt entrances. Emergency doors never. A sole door is alt,
      so it is not offered here by default: it is used only when the goal lies behind it. */
   function mainEntrances(graph, buildingId, allowAlt) {
     var ids = (graph.entrances && graph.entrances[buildingId]) || [];

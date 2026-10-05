@@ -133,8 +133,9 @@ code of that URL): it opens in the Schedule tab, read-only, and visitors can add
 - `npm run test:smoke` (with `PW_CHANNEL=chrome` on a machine without Playwright's own browser): loads the live
   site, checks the campus data is fetched and a floor plan draws. `APP_URL=<address>` checks another address.
 - The site opens with no sign-in; Map, Indoor, Schedule and Scan tabs work on a phone.
-- `?room=room-it-2-0241&nav=1` opens a route, entering IT by a main door; with "Use side doors and paths" on it may
-  take a side door, and a step through one says "side door". `?sched=eday-sample` opens the sample schedule.
+- `?room=room-it-2-0241&nav=1` opens a route, entering IT by a main door; with the Entrance choice on "Any door" it
+  may take a side door, and a step through one says "side door". IT 157G (from EP 1332) enters by IT's South
+  entrance 2 side door under "Best entrance", with a step that says why; "Front door only" keeps the main doors. `?sched=eday-sample` opens the sample schedule.
 - The Map tab shows the 2.5D campus map with the OpenStreetMap credit; "View inside" on IT or EP shows its floors;
   "Navigate here" walks along the paths to a door and switches to the floor plan at the door step.
 - With location allowed, the locate button shows the blue dot; with the network off after one visit, the app still
