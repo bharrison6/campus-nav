@@ -212,7 +212,7 @@ test('entrance join: graph entrances are published entrance nodes at the same co
   for (const n of campus.navNodes.filter((x) => x.type === 'entrance')) assert.ok(Number.isFinite(n.lat) && Number.isFinite(n.lng), n.id);
 });
 
-test('door to room: routes from the far corner of campus reach rooms through a main door, step-free too', () => {
+test('door to room: routes from the far corner of campus reach rooms through a main door, or a side door that is simpler, step-free too', () => {
   // The app's own engine: the published indoor graph joined with the outdoor graph by MSCNPath.addOutdoorGraph.
   const P = loadInclude('WebApp_Pathfinding.html', 'MSCNPath');
   const g = P.addOutdoorGraph(P.buildGraph(campus, {}), graph);
@@ -229,7 +229,13 @@ test('door to room: routes from the far corner of campus reach rooms through a m
       assert.ok(route, `${roomId}${accessibleOnly ? ' step-free' : ''}`);
       const entered = route.nodeIds.filter((id) => doors.has(id));
       assert.ok(entered.length >= 1, `${roomId} enters through a door of the outdoor graph`);
-      for (const d of entered) assert.ok(P.accessOf(g.nodes[d]) === 'main' || g.nodes[d].soleDoor === true, `${roomId}: ${d} is a main or sole door`);
+      for (const d of entered) {
+        if (P.accessOf(g.nodes[d]) === 'main' || g.nodes[d].soleDoor === true) continue;
+        // v5.1: a side door only when it makes the indoor way simpler than any main door does (the confusion score)
+        const front = P.findPath(g, far.id, P.nodesForRoom(g, roomId), { accessibleOnly, avoidNodes: Object.fromEntries(Object.values(g.entrances).flat().filter((id) => P.accessOf(g.nodes[id]) === 'alt').map((id) => [id, true])) });
+        const score = (r) => { const c = P.routeConfusion(g, r); const w = P.DEFAULTS; return c.turns * w.turnCost + c.floorChanges * w.floorChangeCost + c.junctions * w.junctionCost + c.rooms * w.roomCost; };
+        assert.ok(!front || score(front) > score(route), `${roomId}: side door ${d} saves confusion`);
+      }
       assert.ok(route.distance > 1000 && route.distance < 6000, `${roomId} ${route.distance}`);
     }
   }

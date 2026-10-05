@@ -63,7 +63,7 @@ test('initSystem creates and seeds; idempotent; no PIN or settings any more', ()
   const init = g.initSystem();
   assert.equal(init.created, true);
   assert.deepEqual(init.seeded, { Buildings: BUILDINGS, Floors: 2, Rooms: 3, NavNodes: 3, NavEdges: 2 });
-  assert.equal(init.counts.Config, 3, 'dataVersion, routing.altFactor and routing.altDoorCost');
+  assert.equal(init.counts.Config, 7, 'dataVersion, routing.altFactor and the five v5.1 route weights');
   assert.deepEqual(init.schemaMismatch, []);
   assert.equal(init.floorSeedSource, 'generated');
   assert.equal(init.settings, undefined);

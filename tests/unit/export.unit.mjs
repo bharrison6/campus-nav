@@ -9,7 +9,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { FLOORPLANS_DIR, GEOREF_DIR, buildExport, exportCampusData, isPublicFloor } from '../../scripts/data/export-campus-data.mjs';
 import { addCampusGeo, readEntranceFacing, readGeoref } from '../../scripts/data/campus-geo.mjs';
-import { applyAccess, publishAltDoorCost, publishAltFactor } from '../../scripts/data/access.mjs';
+import { applyAccess, publishAltFactor, publishRoutingWeights } from '../../scripts/data/access.mjs';
 import { OVERRIDES_DIR, openCampus } from '../../scripts/data/campus-engine.mjs';
 import { COLLECTIONS } from '../../scripts/data/overrides.mjs';
 
@@ -45,10 +45,11 @@ const HIDDEN_FLOORS = full.floors.filter((f) => !isPublicFloor(f)).map((f) => f.
 
 const withoutVersion = (c) => ({ ...c, version: '', config: c.config.map((r) => (r.key === 'dataVersion' ? { ...r, value: '' } : r)) });
 // What the site publishes since v4: getPublicCampusData plus the map fields (scripts/data/campus-geo.mjs), and since
-// v5 the access classes (scripts/data/access.mjs) and numeric routing.altFactor and routing.altDoorCost.
+// v5 the access classes (scripts/data/access.mjs) and numeric routing.altFactor, and since v5.1 the route weights
+// (routing.sideDoorCost, turnCost, floorChangeCost, junctionCost, roomCost).
 const referenceGeo = JSON.parse(JSON.stringify(reference));
 publishAltFactor(referenceGeo);
-publishAltDoorCost(referenceGeo);
+publishRoutingWeights(referenceGeo);
 applyAccess(referenceGeo);
 addCampusGeo(referenceGeo, readGeoref(GEOREF_DIR), readEntranceFacing(FLOORPLANS_DIR));
 /**
@@ -62,7 +63,7 @@ function withoutGeo(c, ref) {
   const refC = new Map(ref.config.map((r) => [r.key, r]));
   return {
     ...c,
-    config: c.config.map((r) => ({ ...r, value: refC.get(r.key).value })),
+    config: c.config.filter((r) => refC.has(r.key)).map((r) => ({ ...r, value: refC.get(r.key).value })),
     buildings: c.buildings.map((b) => {
       const { levels, height, entrances, ...rest } = b;
       const r = refB.get(b.id);
@@ -96,7 +97,7 @@ test('no overrides: campus.json is what getPublicCampusData returns plus the map
   assert.deepEqual(withoutVersion(withoutGeo(x.campus, reference)), withoutVersion(reference));
   assert.match(x.version, /^[0-9a-f]{12}$/);
   assert.equal(x.campus.version, x.version);
-  assert.deepEqual(x.campus.config, [{ key: 'dataVersion', value: x.version }, { key: 'routing.altFactor', value: 3 }, { key: 'routing.altDoorCost', value: 300 }]);
+  assert.deepEqual(x.campus.config, [{ key: 'dataVersion', value: x.version }, { key: 'routing.altFactor', value: 3 }, { key: 'routing.sideDoorCost', value: 300 }, { key: 'routing.turnCost', value: 15 }, { key: 'routing.floorChangeCost', value: 120 }, { key: 'routing.junctionCost', value: 8 }, { key: 'routing.roomCost', value: 15 }]);
   assert.deepEqual(x.floors.map((f) => f.id), PUBLIC_FLOORS);
   assert.deepEqual(x.missingPlans, []);
   const engine = openCampus({ overridesDir: EMPTY });
@@ -194,7 +195,7 @@ test('overrides apply at export, change the version, and orphans and refusals ar
 test('a Maps key present in the runtime (as the local admin may set one) never reaches the export', () => {
   const x = buildExport({ overridesDir: EMPTY, props: { mapsApiKey: 'test-only-maps-key' } });
   assert.ok(!JSON.stringify(x.campus).includes('test-only-maps-key'));
-  assert.deepEqual(x.campus.config.map((c) => c.key), ['dataVersion', 'routing.altFactor', 'routing.altDoorCost']);
+  assert.deepEqual(x.campus.config.map((c) => c.key), ['dataVersion', 'routing.altFactor', 'routing.sideDoorCost', 'routing.turnCost', 'routing.floorChangeCost', 'routing.junctionCost', 'routing.roomCost']);
 });
 
 test('a malformed overrides file stops the export with the file named', () => {

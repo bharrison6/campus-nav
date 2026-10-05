@@ -1,8 +1,8 @@
 // v5 access classes (plan mscn-v5-access-classes-and-editors) in the app's route engine, on small synthetic graphs:
 // main doors, hallways and paths at their length, alt ones at their length times the alt factor (default 3) plus a
-// fixed cost for each alt door passed through (default 300 m), emergency never walked; the "Use side doors and paths"
-// toggle passes factor 1 and door cost 0. Also the route panel's own use of them (WebApp_Route, run in a VM as
-// route-plan.unit.mjs does).
+// fixed cost for each side door on the route (v5.1 routing.sideDoorCost, default 300 m), emergency never walked; the
+// entrance choice "Any door" passes factor 1 and side-door cost 0. Also the route panel's own use of them (WebApp_Route,
+// run in a VM as route-plan.unit.mjs does). The v5.1 confusion score is tested in route-choice.unit.mjs.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -45,7 +45,7 @@ test('accessOf: the access field, else main (the retired v4 primary flag is not 
   assert.equal(P.accessOf({ type: 'door', access: 'bogus' }), 'main');
   assert.equal(P.accessOf(null), 'main');
   assert.equal(P.DEFAULT_ALT_FACTOR, 3);
-  assert.equal(P.DEFAULT_ALT_DOOR_COST, 300);
+  assert.deepEqual({ ...P.DEFAULTS }, { turnCost: 15, floorChangeCost: 120, junctionCost: 8, roomCost: 15, sideDoorCost: 300 });
 });
 
 test('alt factor: the main route wins when it is longer than the alt shortcut by less than the factor', () => {
@@ -105,7 +105,7 @@ test('emergency: an emergency edge between two ordinary rooms is never walked, e
   });
   assert.equal(P.findPath(g, 'a', 'b'), null);
   assert.equal(P.findPath(g, 'b', 'a'), null);
-  assert.equal(P.findPath(g, 'a', 'b', { altFactor: 1, altDoorCost: 0 }), null);
+  assert.equal(P.findPath(g, 'a', 'b', { altFactor: 1, sideDoorCost: 0 }), null);
   assert.deepEqual(Array.from(P.findPath(g, 'a', 'b', { allowEmergency: true }).nodeIds), ['a', 'b']);
   // the shared fixture the connectivity check is tested on: room a, an emergency edge, waypoint m, room b
   assert.equal(P.findPath(P.buildGraph(emergencyEdgeCampus()), 'a', 'b'), null);
@@ -162,12 +162,12 @@ function campus({ withMainDoor = true, roadAlt = false, mainInside = 30 } = {}) 
 const doorOf = (r) => Array.from(r.nodeIds).find((id) => id[0] === 'd');
 const stepsOf = (g, r) => P.buildRouteSteps(g, P.segmentRoute(g, r), { destination: 'R2', floorLabel: () => 'First Floor', buildingName: () => 'Hall' });
 
-test('doors: the main door by default, the side door with the toggle, never the emergency exit', () => {
+test('doors: the main door by default, the side door with Any door, never the emergency exit', () => {
   const g = campus();
   // main: 10 + 10 + 30 = 50; alt: 10 + (10 + 5) x 3 + 300 = 355; emergency would be 21
   const r = P.findPath(g, 'o0', 'r2');
   assert.equal(doorOf(r), 'dm');
-  const t = P.findPath(g, 'o0', 'r2', { altFactor: 1, altDoorCost: 0 });
+  const t = P.findPath(g, 'o0', 'r2', { altFactor: 1, sideDoorCost: 0 });
   assert.equal(doorOf(t), 'da');
   const st = stepsOf(g, t);
   const enter = st.find((s) => s.kind === 'door');
@@ -188,22 +188,23 @@ test('doors: with no main door the side door is used and named a side door', () 
   assert.deepEqual(Array.from(P.mainEntrances(g, 'B')), ['da'], 'no main door: the side door is the building door');
 });
 
-test('side-door cost: a fixed cost per alt door passed through keeps the main door where the factor alone would not', () => {
+test('side-door cost: a fixed cost per side door on the route keeps the main door where the factor alone would not', () => {
   // main door 60 m inside: main 10 + 10 + 60 = 80; alt by the factor alone 10 + (10 + 5) x 3 = 55
   const g = campus({ mainInside: 60 });
-  assert.equal(doorOf(P.findPath(g, 'o0', 'r2', { altDoorCost: 0 })), 'da', 'the factor alone takes the side door');
+  assert.equal(doorOf(P.findPath(g, 'o0', 'r2', { sideDoorCost: 0 })), 'da', 'the factor alone takes the side door');
   const r = P.findPath(g, 'o0', 'r2');
-  assert.equal(doorOf(r), 'dm', 'the default door cost (300) keeps the main door');
+  assert.equal(doorOf(r), 'dm', 'the default side-door cost (300) keeps the main door');
   assert.equal(r.cost, 80);
-  assert.equal(doorOf(P.findPath(g, 'o0', 'r2', { altDoorCost: 20 })), 'da', '55 + 20 < 80');
-  const t = P.findPath(g, 'o0', 'r2', { altDoorCost: 30 });
+  assert.equal(doorOf(P.findPath(g, 'o0', 'r2', { sideDoorCost: 20 })), 'da', '55 + 20 < 80');
+  const t = P.findPath(g, 'o0', 'r2', { sideDoorCost: 30 });
   assert.equal(doorOf(t), 'dm', '55 + 30 > 80');
   assert.equal(t.distance, 80, 'distance stays meters');
   // paid once per door: entering the alt door costs it, walking on from it does not (55 + 30 = 85)
-  assert.equal(P.findPath(campus({ withMainDoor: false }), 'o0', 'r2', { altDoorCost: 30 }).cost, 85);
-  // a route that starts at the alt door does not pay for it; a negative cost reads 0
-  assert.equal(P.findPath(g, 'da', 'r2').cost, 15);
-  assert.equal(P.findPath(campus({ withMainDoor: false }), 'o0', 'r2', { altDoorCost: -5 }).cost, 55);
+  assert.equal(P.findPath(campus({ withMainDoor: false }), 'o0', 'r2', { sideDoorCost: 30 }).cost, 85);
+  // v5.1: a route that starts at a side door (an automatic start by it) pays for it too; a negative cost reads 0
+  assert.equal(P.findPath(g, 'da', 'r2').cost, 300 + 15);
+  assert.equal(P.findPath(g, 'da', 'r2', { sideDoorCost: 0 }).cost, 15);
+  assert.equal(P.findPath(campus({ withMainDoor: false }), 'o0', 'r2', { sideDoorCost: -5 }).cost, 55);
   // alt hallways and alt paths are waypoints and edges, not doors: they take the factor only
   assert.equal(P.findPath(hallways({ withMain: false }), 'r1', 'r2').cost, 30);
 });
@@ -274,22 +275,23 @@ function panelApp({ config = [], emergencyOnly = false } = {}) {
 function planFrom(ctx, sideDoors) {
   const NAV = vm.runInContext('NAV', ctx);
   NAV.start = { kind: 'room', roomId: 'R1', label: 'Hall 101' };
-  NAV.useSideDoors = sideDoors;
+  NAV.entrance = sideDoors ? 'any' : 'best';
   NAV.avoidStairs = false;
   NAV.dest = { kind: 'room', roomId: 'R2' };
   return ctx.planRoute(NAV.dest);
 }
 const routeVia = (r) => r.steps.flatMap((s) => Array.from(s.nodeIds)).filter((id) => id !== 'r1' && id !== 'r2').join(',');
 
-test('route panel: "Use side doors and paths" switches the planned route onto the alt way; emergency never', () => {
+test('route panel: "Any door" switches the planned route onto the alt way; emergency never', () => {
   const ctx = panelApp();
   assert.equal(routeVia(planFrom(ctx, false)), 'm1', 'main 25 m beats alt 10 m at 3x');
-  assert.equal(routeVia(planFrom(ctx, true)), 'a1', 'toggle on: the shorter alt way');
+  assert.equal(routeVia(planFrom(ctx, true)), 'a1', 'Any door: the shorter alt way');
   assert.equal(ctx.routeOpts().altFactor, 1);
-  assert.equal(ctx.routeOpts().altDoorCost, 0, 'toggle on: no side-door cost either');
-  vm.runInContext('NAV', ctx).useSideDoors = false;
+  assert.equal(ctx.routeOpts().sideDoorCost, 0, 'Any door: no side-door cost either');
+  vm.runInContext('NAV', ctx).entrance = 'best';
   assert.equal(ctx.routeOpts().altFactor, 3);
-  assert.equal(ctx.routeOpts().altDoorCost, 300);
+  assert.equal(ctx.routeOpts().sideDoorCost, 300);
+  assert.equal(ctx.routeOpts().turnCost, 15, 'the confusion weights ride along');
 });
 
 test('route panel: routing.altFactor from the campus config, either config row shape', () => {
@@ -300,12 +302,19 @@ test('route panel: routing.altFactor from the campus config, either config row s
   assert.equal(panelApp({ config: [{ key: 'routing.altFactor', value: -2 }] }).configAltFactor(), 1);
 });
 
-test('route panel: routing.altDoorCost from the campus config, either config row shape', () => {
-  assert.equal(panelApp({ config: [{ key: 'routing.altDoorCost', value: '45' }] }).configAltDoorCost(), 45);
-  assert.equal(panelApp({ config: [{ key: 'routing', value: '{"altDoorCost": 0}' }] }).configAltDoorCost(), 0);
-  assert.equal(panelApp({ config: [{ key: 'routing.altDoorCost', value: 'nonsense' }] }).configAltDoorCost(), 300);
-  assert.equal(panelApp({ config: [{ key: 'routing.altDoorCost', value: -1 }] }).configAltDoorCost(), 300, 'below 0 is ignored');
-  assert.equal(panelApp({ config: [] }).routeOpts().altDoorCost, 300);
+test('route panel: routing.sideDoorCost and the confusion weights from the campus config, either config row shape', () => {
+  const w = (config) => ({ ...panelApp({ config }).configWeights() });
+  assert.equal(w([{ key: 'routing.sideDoorCost', value: '45' }]).sideDoorCost, 45);
+  assert.equal(w([{ key: 'routing', value: '{"sideDoorCost": 0, "turnCost": 4}' }]).sideDoorCost, 0);
+  assert.equal(w([{ key: 'routing', value: '{"sideDoorCost": 0, "turnCost": 4}' }]).turnCost, 4);
+  assert.equal(w([{ key: 'routing.sideDoorCost', value: 'nonsense' }]).sideDoorCost, 300);
+  assert.equal(w([{ key: 'routing.sideDoorCost', value: -1 }]).sideDoorCost, 300, 'below 0 is ignored');
+  assert.equal(w([{ key: 'routing.floorChangeCost', value: 0 }]).floorChangeCost, 0, 'zero turns a weight off');
+  assert.deepEqual(w([]), { turnCost: 15, floorChangeCost: 120, junctionCost: 8, roomCost: 15, sideDoorCost: 300 });
+  // data published before v5.1 carries routing.altDoorCost: it is the side-door cost until the new key is there
+  assert.equal(w([{ key: 'routing.altDoorCost', value: 200 }]).sideDoorCost, 200);
+  assert.equal(w([{ key: 'routing.altDoorCost', value: 200 }, { key: 'routing.sideDoorCost', value: 250 }]).sideDoorCost, 250);
+  assert.equal(panelApp({ config: [] }).routeOpts().sideDoorCost, 300);
 });
 
 test('route panel: no route without an emergency exit says so plainly', () => {
@@ -318,7 +327,7 @@ test('route panel: a code scanned at an emergency exit starts at the nearest hal
   const ctx = panelApp();
   const NAV = vm.runInContext('NAV', ctx);
   NAV.start = { kind: 'node', nodeId: 'e1', label: 'Scanned location' };
-  NAV.useSideDoors = false;
+  NAV.entrance = 'best';
   NAV.avoidStairs = false;
   NAV.dest = { kind: 'room', roomId: 'R2' };
   const r = ctx.planRoute(NAV.dest);

@@ -118,6 +118,10 @@ export function applyOverrides(base, overrides, headers) {
         if (!('access' in raw) && overrideAccess(raw)) o.access = overrideAccess(raw);
         delete o.primary;
       }
+      // v5's routing.altDoorCost is v5.1's routing.sideDoorCost (scripts/data/access.mjs publishRoutingWeights).
+      if (collection === 'config' && raw.key === 'routing.altDoorCost' && !(overrides.config || []).some((r) => r.key === 'routing.sideDoorCost')) {
+        o = { ...raw, key: 'routing.sideDoorCost' };
+      }
       const id = o[key];
       if (seen.has(id)) report.duplicates.push({ collection, id });
       seen.add(id);

@@ -168,8 +168,10 @@ test('EP 1322 (exterior door only): reachable from outside; from it, out its own
   await searchAndOpen(page, 'EP 1322', 'EP 1322');
   await page.getByRole('button', { name: 'Navigate here' }).click();
   const panel = page.locator('#route-panel');
-  await expect(panel).toContainText('From the building entrance');
+  // v5.1: the automatic start names a side door when it starts there (here the only way in)
+  await expect(panel).toContainText('From the side door (West entrance 2)');
   await expect(panel).toContainText('Arrive at EP 1322');
+  await expect(panel.locator('#route-why')).toHaveText('This side door is the only way in.');
   await page.locator('#route-close').click();
 
   // v4: its door (ep-1-n0365) is a sole door, joined to the paths, so EP 1322 -> EP 2321 walks outside and back in

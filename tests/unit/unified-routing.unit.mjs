@@ -2,8 +2,10 @@
 // indoor data (scripts/data/export-campus-data.mjs, what the site serves as data/campus.json) joined with the committed
 // outdoor graph (data/campus-map/outdoor-graph.json, npm run campus-map) by the app's own engine (MSCNPath). Also
 // MSCNGeo, the geodesy the map and GPS use. The main doors are the ones the primary-entrance heuristic chose (lane J,
-// plan mscn-v4-campus-map-2-5d); since v5 the other exterior doors are joined too, as alt (side) doors, and a route
-// takes one only when it saves more than the side-door cost or nothing main gets there.
+// plan mscn-v4-campus-map-2-5d); since v5 the other exterior doors are joined too, as alt (side) doors, and since v5.1
+// (plan mscn-v5-1-route-choice-and-private-floors) a route takes one when the confusion it saves indoors (stairs,
+// turns, junctions, rooms walked through) and the walking together outweigh the side-door cost, or nothing main gets
+// there. FRONT is Front door only: every joined side door avoided.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -38,6 +40,9 @@ const kinds = (list) => Array.from(list).map((s) => s.kind);
 const pathCost = (from, to, opts) => { const r = P.findPath(g, from, to, opts); return r ? r.distance : Infinity; };
 const pathWeight = (from, to, opts) => { const r = P.findPath(g, from, to, opts); return r ? r.cost : Infinity; };
 const isDoorOk = (graph, id) => P.accessOf(graph.nodes[id]) === 'main' || graph.nodes[id].soleDoor === true;
+const FRONT = { avoidNodes: Object.fromEntries(Object.values(g.entrances).flat().filter((id) => P.accessOf(g.nodes[id]) === 'alt').map((id) => [id, true])) };
+const W = P.DEFAULTS;
+const confusion = (r) => { const c = P.routeConfusion(g, r); return c.turns * W.turnCost + c.floorChanges * W.floorChangeCost + c.junctions * W.junctionCost + c.rooms * W.roomCost; };
 
 // ---------------- MSCNGeo ----------------
 
@@ -155,7 +160,7 @@ test('main doors: every one is reachable from the far corner, step-free too', ()
 });
 
 test('door to room: from the far corner to IT 241 is outdoor walk, door, indoor legs, arrival; one sentence', () => {
-  const r = P.findPath(g, FAR, room('room-it-2-0241'));
+  const r = P.findPath(g, FAR, room('room-it-2-0241'), FRONT);
   assert.ok(r);
   const st = steps(r, 'IT 241');
   const k = kinds(st);
@@ -173,14 +178,25 @@ test('door to room: from the far corner to IT 241 is outdoor walk, door, indoor 
   const inM = st.slice(2).reduce((t, s) => t + s.distance, 0);
   assert.ok(Math.abs(r.distance - outM - inM - stairCost(r)) < 0.01);
   // the step-free variant ends at a main door as well
-  const flat = P.findPath(g, FAR, room('room-it-2-0241'), { accessibleOnly: true });
+  const flat = P.findPath(g, FAR, room('room-it-2-0241'), { ...FRONT, accessibleOnly: true });
   assert.ok(flat && MAIN['bld-it'].includes(steps(flat, 'IT 241')[1].nodeId));
-  // with "Use side doors and paths" (factor 1, no door cost) the shorter walk by IT's side door it-2-n0551 wins
-  const side = P.findPath(g, FAR, room('room-it-2-0241'), { altFactor: 1, altDoorCost: 0 });
-  const sst = steps(side, 'IT 241');
-  assert.equal(sst[1].nodeId, 'it-2-n0551');
-  assert.match(sst[0].title, /^Walk to the side door \(entrance it-2-n0551\) of bld-it$/);
-  assert.ok(side.distance < r.distance, `${side.distance} < ${r.distance}`);
+  // Best entrance (the defaults) and Any door (factor 1, no side-door cost) both take IT's level-2 side door
+  // it-2-n0551: by a main door the walk climbs a stair (IT's level-1 doors are nearer the far corner) and turns more
+  const best = P.findPath(g, FAR, room('room-it-2-0241'));
+  const side = P.findPath(g, FAR, room('room-it-2-0241'), { altFactor: 1, sideDoorCost: 0 });
+  for (const x of [best, side]) {
+    const sst = steps(x, 'IT 241');
+    assert.equal(sst[1].nodeId, 'it-2-n0551');
+    assert.match(sst[0].title, /^Walk to the side door \(entrance it-2-n0551\) of bld-it$/);
+  }
+  assert.ok(best.distance < r.distance, `${best.distance} < ${r.distance}`);
+  const cb = P.routeConfusion(g, best);
+  const cf = P.routeConfusion(g, r);
+  assert.ok(cb.floorChanges < cf.floorChanges && cb.turns < cf.turns, `simpler: ${JSON.stringify(cb)} vs ${JSON.stringify(cf)}`);
+  // the side door wins on the confusion it saves: on walking alone (no confusion weights) the 300 m side-door cost
+  // keeps the main door
+  const plain = { turnCost: 0, floorChangeCost: 0, junctionCost: 0, roomCost: 0 };
+  assert.ok(MAIN['bld-it'].includes(steps(P.findPath(g, FAR, room('room-it-2-0241'), plain), 'IT 241')[1].nodeId), 'distance alone: a main door');
 });
 
 function stairCost(r) {
@@ -206,9 +222,10 @@ test('door to room: EP 1322 is entered by its own exterior door (the sole door),
   assert.equal(st[st.length - 1].title, 'Arrive at EP 1322');
 });
 
-test('the door chosen minimizes the WHOLE walk (outdoor + indoor, as priced by class), not the outdoor leg alone', () => {
+test('the door chosen minimizes the WHOLE walk (outdoor + indoor, as priced by class and confusion), not the outdoor leg alone', () => {
   const targets = ['room-ep-1-1332', 'room-ep-2-2321', 'room-ep-1-1104', 'room-it-1-0145', 'room-it-2-0241'];
   let checked = 0;
+  const checkedDoors = new Set();
   for (const t of targets) {
     const goal = room(t);
     if (!goal.length) continue;
@@ -217,20 +234,27 @@ test('the door chosen minimizes the WHOLE walk (outdoor + indoor, as priced by c
     const st = steps(r, t);
     const used = st.find((s) => s.kind === 'door').nodeId;
     const bid = P.buildingOfNode(g, used);
-    assert.equal(P.accessOf(g.nodes[used]), 'main', `${t}: enters by a main door (${used})`);
+    if (P.accessOf(g.nodes[used]) !== 'main') {
+      // a side door only where it is the simpler way: by a main door the indoor walk is more confusing
+      const front = P.findPath(g, FAR, goal, FRONT);
+      assert.ok(!front || confusion(front) > confusion(r), `${t}: ${used} saves confusion (${front && confusion(front)} vs ${confusion(r)})`);
+    }
     let best = Infinity;
     let bestDoor = null;
-    for (const d of P.mainEntrances(g, bid)) {
-      const total = pathWeight(FAR, d) + pathWeight(d, goal);
+    for (const d of P.mainEntrances(g, bid, true)) {
+      // the side-door cost is paid once on the whole route, but by both legs when it is split at that door
+      const total = pathWeight(FAR, d) + pathWeight(d, goal) - (P.isSideDoor(g, d) ? W.sideDoorCost : 0);
       if (total < best) { best = total; bestDoor = d; }
     }
     assert.ok(Math.abs(r.cost - best) < 0.01, `${t}: ${r.cost} vs best ${best} via ${bestDoor}`);
     // and the nearest door as the crow flies is not what decides it
     const crow = P.mainEntrances(g, bid).map((d) => [d, G.haversine(ll(g.nodes[d]), ll(g.nodes[FAR]))]).sort((x, y) => x[1] - y[1])[0][0];
     if (crow !== used) assert.ok(pathWeight(FAR, crow) + pathWeight(crow, goal) >= r.cost - 0.01);
+    checkedDoors.add(P.accessOf(g.nodes[used]));
     checked++;
   }
   assert.ok(checked >= 4, 'the sample rooms exist');
+  assert.deepEqual([...checkedDoors].sort(), ['alt', 'main'], 'the sample has both: main doors, and IT 241 by its side door');
 });
 
 test('avoid stairs applies outdoors: a steps shortcut is taken by default and refused step-free (synthetic steps edge)', () => {

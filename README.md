@@ -54,7 +54,8 @@ campus" links.
     is always shown. Without WebGL 2 the tab is a building list; routes still work.
   - **one route, door to room** (`WebApp_Pathfinding.html` + `WebApp_Route.html`): A* over the indoor graph and
     the outdoor footpath graph (`data/campus-map/outdoor-graph.json`), joined at entrance node ids, through the
-    building's main doors (side doors when they save a lot, never emergency exits; see Access classes below); one
+    building's main doors (a side door when it makes the way in clearly simpler, never emergency exits; see Access
+    classes and How a route is chosen below), with an entrance choice and Reroute on the route panel; one
     step list ("Walk 120 m along the path, enter by the east entrance, take the
     stairs up to Second Floor, arrive at IT 241"); the route panel is shared by the Map and Indoor tabs and each
     step switches to its view (the walk on the map, the door and the floors on the plan, back to the map when
@@ -122,7 +123,7 @@ floors and everything on them (rooms, nodes, the edges into them, indoor photos,
 anywhere (v4 draws its own map). It adds the map fields (`scripts/data/campus-geo.mjs`): entrance nodes gain `lat`,
 `lng` (through `data/georef` and `src/shared/georef.mjs`); doors, entrances, waypoints and hallways carry `access`
 (`scripts/data/access.mjs`: a hallway's class reaches the waypoints inside it); the config carries `routing.altFactor`
-and `routing.altDoorCost`; the indoor buildings' `entrances` become `[{nodeId, lat, lng, label, access}]` ("West
+and the route weights (`routing.sideDoorCost`, `turnCost`, `floorChangeCost`, `junctionCost`, `roomCost`); the indoor buildings' `entrances` become `[{nodeId, lat, lng, label, access}]` ("West
 entrance", "East entrance, level 2"), main first, and a building with entrances drawn on the map lists those; buildings carry `levels`
 (and `height` when set). It adds the plans of the published floors. The local admin reads `getAllCampusData`, so it shows and edits hidden floors when their private folder is present (see [Hidden floors](#hidden-floors)); the export never reads that folder. `version` is a content hash, so
 the same inputs give byte-identical files; `version.json` adds `builtAt` and `gitSha`. `npm run export:data`
@@ -275,21 +276,64 @@ Every door, entrance and hallway is **main**, **alt** or **emergency**; every ou
 
 - **main**: the normal way. Routes walk main doors, hallways and paths at their real length.
 - **alt** (a side door, a back hallway, a road with no sidewalk): usable, not preferred. An alt hallway or path costs
-  its length times `routing.altFactor` (default 3), and each alt door or entrance a route passes through adds
-  `routing.altDoorCost` meters (default 300). A route takes a side door only when it saves that much, or when nothing
-  main gets there (EP 1322 opens only to the outside, through an alt door). A step through an alt door names it: "Enter
-  by the side door (South entrance 2, level 2)".
+  its length times `routing.altFactor` (default 3), and each side door on a route adds `routing.sideDoorCost`
+  (default 300 m). A route takes a side door when it makes the way to the room clearly simpler (see How a route is
+  chosen), or when nothing main gets there (EP 1322 opens only to the outside, through an alt door). A step through an
+  alt door names it: "Enter by the side door (South entrance 2, level 2)".
 - **emergency** (doors and hallways only): drawn on the floor plan (a red EXIT marker, a hatched hallway) and never
   on a route, not even as its start or end. If the only way is through one, the app says "No route without an
   emergency exit". A QR code scanned at an emergency exit starts the route at the nearest hallway, and the first step
   says so.
 
-The route panel's **Use side doors and paths** switch (off by default, remembered on the phone) walks alt at its plain
-length with no side-door cost, so the shortest way wins. The two numbers live in the campus config (an alt factor
-below 1 reads as 1, in the export and the app alike); change them in
-`data/overrides/config.json`, for example `[{"key": "routing.altDoorCost", "value": 200}]`. Why 300: with the alt
-factor alone, or a small door cost, routes from across campus still entered IT by its northwest side door, because
-the main doors' approach walks more road (alt, 3x); below about 280 m that still happens.
+### How a route is chosen
+
+A route minimizes walked meters (alt hallways and paths at `routing.altFactor` times their length) plus, for every
+indoor stretch, what makes it hard to follow, priced in meters (v5.1, plan `mscn-v5-1-route-choice-and-private-floors`):
+
+| config key | default | paid for |
+|---|---|---|
+| `routing.turnCost` | 15 | each turn sharper than 45 degrees indoors (legs under 0.75 m do not count) |
+| `routing.floorChangeCost` | 120 | each stair or elevator ride (riding through several floors is one) |
+| `routing.junctionCost` | 8 | each hallway junction passed (three or more hallway ways meet; a door off a hallway is not one) |
+| `routing.roomCost` | 15 | each room walked through (not the start or the destination) |
+| `routing.sideDoorCost` | 300 | each side (alt) door or entrance on the route, its start and end included |
+
+So the walk inside also prefers fewer turns and junctions (on the real campus the median indoor route is unchanged,
+one in ten is up to 15 % longer), and a side door wins only when the confusion it saves and the walking together
+outweigh 300 m: in practice when it spares a stair ride and several turns, or opens right by a room that is a maze
+from the front. Saving distance alone almost never picks one. The weights live in the campus config (the export
+publishes them with these defaults, `scripts/data/access.mjs` `ROUTING_WEIGHTS`, one set with the app's
+`MSCNPath.DEFAULTS`); change them in `data/overrides/config.json`, for example
+`[{"key": "routing.sideDoorCost", "value": 200}]`; 0 turns one off. They replace v5's `routing.altDoorCost`: an override
+of that name is read as `routing.sideDoorCost`.
+
+Measured on the real campus (lane W, `.scratch/w-sweep.mjs`: 41 start points across campus plus the automatic start,
+times the 385 searchable IT and EP rooms, 15,785 routes): a side door is chosen on 15.3 % of routes, 2,401 of them
+for confusion and 19 (0.1 %) on distance alone; 41 more use EP 1322's sole door. Almost all are IT's level-2 Northwest
+entrance (`it-2-n0551`) for second-floor rooms approached from the west and north (by a main door the walk climbs a
+stair from IT's level-1 doors and turns three or four more times), its South entrance 2, level 2 (`it-2-n0557`) for
+some rooms in the 240s and 250s, and its South entrance 2 (`it-1-n0495`) for the 157 suite. EP never takes a side
+door but EP 1322's.
+
+The route panel's **Entrance** choice (remembered on the phone; v5's "Use side doors and paths" switch, if it was
+on, comes back as Any door):
+
+- **Best entrance** (default): the rule above. A side door step says why: "The side door is the simpler way in: by a
+  main door there would be a stair or elevator ride, 7 more turns, 3 more hallway junctions and 3 more rooms to walk
+  through, and about 85 m more walking."
+- **Front door only**: main doors only. A room no main door leads to (EP 1322) still gets its route, by the side
+  door, and the step says so.
+- **Any door**: side doors and side paths at their plain length (no factor, no side-door cost), so the shortest way
+  wins.
+
+**Reroute** on the route panel offers what fits the step on screen: at a door (or the walk to it, or an automatic
+start inside it) **This door is locked** (the route never uses that door again and starts from beside it, outside
+or inside, toward the next best door); on an outdoor walk **Path blocked** (the path ahead, from the blue dot or the
+start of the walk to the next junction, is avoided and the route walks around it); with the blue dot on campus
+**Reroute from here**; and **Clear marked doors and paths**. Marks last for the current route only (a new
+destination clears them) and never open an emergency exit; when they leave no way, the panel says "No route avoids
+the locked door you marked" with how to clear them. The connectivity check stays the data's guarantee for the
+default choices; under Front door only, Reroute marks or Avoid stairs the app reports "no route" honestly instead.
 
 The classes start automatic (entrances as described under [The campus map data](#the-campus-map-data); hallways are
 `main`; roads `alt`, other paths `main`) and the operator corrects them in the admin's Map Editor and Doors & Halls
@@ -455,8 +499,10 @@ gitignored.
   east doors are taken to open onto the terrace at grade, as the floor data suggests; not surveyed.
 - The IT footprint fit leaves 2.4 m RMS (mean 1.0 m): OpenStreetMap includes a one-storey structure at the
   southeast corner that no floor drawing has.
-- With the default costs, routes enter IT and EP by their main doors, plus a sole door such as EP 1322's (a door the
-  main doors cannot reach indoors); a visitor already standing at a side door is routed through it. A building
+- With the default costs, routes enter EP by its main doors (and EP 1322 by its sole door), and IT by its main doors
+  except where a side door is clearly simpler (above: mostly the level-2 Northwest entrance for second-floor rooms,
+  whose being at grade, like the terrace doors, is assumed, not surveyed); a visitor already standing at a side door
+  is routed through it. A building
   without indoor maps is reached at its drawn main entrance, else at the path point nearest its center. The real
   paths make some routes cut through a building (in by one main door, out by another); the main doors, the side and
   emergency doors, and the IT terrace assumption still need the operator's walk-through.

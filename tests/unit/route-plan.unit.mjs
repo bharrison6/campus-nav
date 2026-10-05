@@ -174,16 +174,21 @@ test('a point destination on an entrance connector, from inside: leave by that d
 // ---------------- finding 3: the automatic start ----------------
 
 const prim = (bid) => Array.from(P.mainEntrances(g, bid)).sort();
+const open = (bid) => Array.from(P.mainEntrances(g, bid, true)).sort();
+const isSide = (id) => P.accessOf(g.nodes[id]) === 'alt' && g.nodes[id].type === 'entrance';
 
-test('resolveStart, automatic: a room\'s route starts at its building\'s main doors (IT 101F)', () => {
+test('resolveStart, automatic: Front door only starts at the main doors; Best entrance offers every door, and IT 101F still starts at a main door', () => {
   const ctx = A;
   NAV.start = null;
   ctx.GPS = undefined;
   const goal = ctx.resolveGoal({ kind: 'room', roomId: 'room-it-1-0101F' });
-  const st = ctx.resolveStart(goal);
+  NAV.entrance = 'front';
+  const st = ctx.resolveStart(goal, 'front');
   assert.equal(st.kind, 'entrance');
   assert.deepEqual(Array.from(st.ids).sort(), prim('bld-it'));
-  assert.ok(!st.ids.includes('it-1-n0489'), 'not the side door beside 101F');
+  NAV.entrance = 'best';
+  assert.deepEqual(Array.from(ctx.resolveStart(goal, 'best').ids).sort(), open('bld-it'), 'priced by findPath');
+  // the side door beside 101F (1.49 m) saves only distance: the side-door cost keeps the main door
   const r = plan(A, { kind: 'room', roomId: 'room-it-1-0101F' });
   assert.equal(r.error, null);
   const doors = r.steps.flatMap((s) => s.nodeIds).filter((id) => g.nodes[id].type === 'entrance');
@@ -191,28 +196,46 @@ test('resolveStart, automatic: a room\'s route starts at its building\'s main do
   assert.ok(r.meters > 1.49 + 1, `longer than the 1.49 m side-door start (${r.meters.toFixed(2)} m)`);
 });
 
-test('resolveStart, automatic: no room of IT or EP starts at a side door (only main doors, or a sole door)', () => {
+test('resolveStart, automatic: a room starts at a side door only where that is simpler or the only way, and says why', () => {
   NAV.start = null;
   A.GPS = undefined;
+  let sideStarts = 0;
   for (const bid of ['bld-it', 'bld-ep']) {
-    const rooms = data.rooms.filter((rm) => A.APP.by.floors[rm.floorId].buildingId === bid);
+    const rooms = data.rooms.filter((rm) => A.APP.by.floors[rm.floorId].buildingId === bid && P.nodesForRoom(g, rm.id).length);
     for (const rm of rooms) {
-      const st = A.resolveStart(A.resolveGoal({ kind: 'room', roomId: rm.id }));
-      for (const id of st.ids) assert.ok(P.accessOf(g.nodes[id]) === 'main' || g.nodes[id].soleDoor === true, `${rm.id}: ${id}`);
+      NAV.entrance = 'front';
+      for (const id of A.resolveStart(A.resolveGoal({ kind: 'room', roomId: rm.id }, 'front'), 'front').ids) assert.equal(P.accessOf(g.nodes[id]), 'main', `${rm.id}: Front door only, ${id}`);
+      NAV.entrance = 'best';
+      const r = plan(A, { kind: 'room', roomId: rm.id });
+      if (r.error) continue;
+      const first = r.steps[0].nodeIds[0];
+      if (!isSide(first)) continue;
+      sideStarts++;
+      assert.match(r.steps[0].why || '', /^(The side door is the simpler way in: by a main door there would be |This side door is the only way in\.)/, `${rm.id} by ${first}`);
+      assert.match(r.fromLabel, /^the side door/);
     }
   }
+  assert.ok(sideStarts >= 2 && sideStarts < 20, `a few rooms sit right inside a side door (${sideStarts})`);
 });
 
-test('resolveStart, automatic: EP 1322 falls back to its sole door, which the main doors cannot reach indoors', () => {
+test('resolveStart, automatic: EP 1322 is entered by its sole door, which the main doors cannot reach indoors; the step says so', () => {
   NAV.start = null;
   A.GPS = undefined;
   const goal = A.resolveGoal({ kind: 'room', roomId: 'room-ep-1-1322' });
   assert.equal(P.findPath(g, P.mainEntrances(g, 'bld-ep'), goal.ids, { indoorOnly: true }), null);
-  const st = A.resolveStart(goal);
-  assert.deepEqual(Array.from(st.ids), ['ep-1-n0365']);
+  NAV.entrance = 'best';
   const r = plan(A, { kind: 'room', roomId: 'room-ep-1-1322' });
   assert.equal(r.error, null);
+  assert.equal(r.steps[0].nodeIds[0], 'ep-1-n0365');
+  assert.equal(r.steps[0].why, 'This side door is the only way in.');
   assert.equal(r.steps.at(-1).title, 'Arrive at EP 1322');
+  // Front door only: no main door leads there, so it is planned under Best entrance, and the step says so
+  NAV.entrance = 'front';
+  const f = plan(A, { kind: 'room', roomId: 'room-ep-1-1322' });
+  NAV.entrance = 'best';
+  assert.equal(f.error, null);
+  assert.ok(f.steps.flatMap((s) => s.nodeIds).includes('ep-1-n0365'));
+  assert.equal(f.steps.find((s) => s.why).why, 'Front door only: no main door leads to EP 1322 without going through a side door, so this route uses one.');
 });
 
 test('resolveStart: an explicit scanned or selected start is kept, even at a side door', () => {
@@ -223,7 +246,8 @@ test('resolveStart: an explicit scanned or selected start is kept, even at a sid
   NAV.start = { kind: 'room', roomId: 'room-it-1-0101F', label: 'IT 101F' };
   assert.deepEqual(Array.from(A.resolveStart(goal).ids), Array.from(P.nodesForRoom(g, 'room-it-1-0101F')));
   NAV.start = { kind: 'building', buildingId: 'bld-ep' };
-  assert.deepEqual(Array.from(A.resolveStart(goal).ids).sort(), prim('bld-ep'));
+  assert.deepEqual(Array.from(A.resolveStart(goal, 'front').ids).sort(), prim('bld-ep'));
+  assert.deepEqual(Array.from(A.resolveStart(goal, 'best').ids).sort(), open('bld-ep'));
   NAV.start = null;
 });
 
@@ -285,7 +309,7 @@ test('Start search "Engineering": the building starts the route at its main door
   const r = choose(s);
   assert.equal(r.error, null);
   assert.equal(r.startKind, 'building');
-  assert.deepEqual(Array.from(A.resolveStart(A.resolveGoal(NAV.dest)).ids).sort(), prim('bld-ep'));
+  assert.deepEqual(Array.from(A.resolveStart(A.resolveGoal(NAV.dest, 'front'), 'front').ids).sort(), prim('bld-ep'));
   const firstNode = g.nodes[r.steps[0].nodeIds[0]];
   assert.equal(firstNode.type, 'entrance');
   assert.equal(P.accessOf(firstNode), 'main', 'starts at an EP main door');
