@@ -1,13 +1,13 @@
 // The whole pipeline as a function: parse -> extract -> doors -> classify -> verticals -> svg -> graph -> emit-gas.
 import fs from 'node:fs';
 import path from 'node:path';
-import { BUILDINGS, FLOORS, planAssetName } from './config.mjs';
+import { BUILDINGS, FLOORS, planAssetName, privatePaths } from './config.mjs';
 import { parseAll } from './stages/parse.mjs';
 import { extractFloor } from './stages/extract.mjs';
 import { assembleOpenings, inferMissingOpenings } from './stages/doors.mjs';
 import { accessOf, buildFloorGraph, components, FLOOR_CHANGE_METERS } from './stages/graph.mjs';
 import { buildSvg } from './stages/svg.mjs';
-import { emitGas } from './stages/emit-gas.mjs';
+import { emitGas, PRIVATE_SEED } from './stages/emit-gas.mjs';
 import { carryEntrances, withEntrances } from './stages/primary-entrances.mjs';
 import { classifyBuilding, corridorCandidates, floorEvidence, isSearchable, polygonIoU, refineCirculation } from './lib/classify.mjs';
 import { findShaftXs, mergeCollinear, primsToSegments, SegmentIndex } from './lib/detect.mjs';
@@ -25,13 +25,46 @@ export function formatCandidates(candidates) {
   return JSON.stringify(head).slice(0, -1) + `,"candidates":[\n${lines.join(',\n')}${lines.length ? '\n' : ''}]}\n`;
 }
 
+/**
+ * Splits the outputs by audience: `pub` holds the public floors and the cross-floor edges between two of them (what the
+ * repository commits), `priv` the hidden floors and every cross-floor edge that touches one (the private location).
+ */
+export function splitByPublic(floors, crossEdges) {
+  const hiddenNodes = new Set(floors.filter((f) => !f.public).flatMap((f) => f.nav.nodes.map((n) => n.id)));
+  const touchesHidden = (e) => hiddenNodes.has(e.from) || hiddenNodes.has(e.to);
+  return {
+    pub: { floors: floors.filter((f) => f.public), crossEdges: crossEdges.filter((e) => !touchesHidden(e)) },
+    priv: { floors: floors.filter((f) => !f.public), crossEdges: crossEdges.filter(touchesHidden) },
+  };
+}
+
+/** The report without a row, id or count of a hidden floor (data/floorplans/pipeline-report.json). */
+export function publicReport(report, floors = FLOORS, publicCrossEdges = []) {
+  const pub = new Set(floors.filter((f) => f.public).map((f) => f.floorId));
+  const only = (o) => Object.fromEntries(Object.entries(o).filter(([id]) => pub.has(id)));
+  return {
+    ...report,
+    floors: only(report.floors),
+    verticalStacks: report.verticalStacks
+      .map((v) => ({ ...v, members: v.members.filter((m) => pub.has(m.floorId)) }))
+      .filter((v) => v.members.length),
+    frameChecks: Object.fromEntries(Object.entries(report.frameChecks).map(([b, list]) => [b, list.filter((c) => c.floors.every((id) => pub.has(id)))])),
+    crossFloorEdges: publicCrossEdges.length,
+    circulation: only(report.circulation),
+  };
+}
+
 function median(xs) {
   if (!xs.length) return null;
   const s = xs.slice().sort((a, b) => a - b);
   return s[Math.floor(s.length / 2)];
 }
 
-export function runPipeline({ inDir, outDir, gasDir, cacheDir, floors = FLOORS, forceParse = false, log = console.log, write = true, stableIds = true, reviewDir }) {
+export function runPipeline({ inDir, outDir, gasDir, privateDir, cacheDir, floors = FLOORS, forceParse = false, log = console.log, write = true, stableIds = true, reviewDir }) {
+  // A hidden floor's outputs live in the private location (config.mjs resolvePrivateDir), never in outDir.
+  const priv = privateDir ? privatePaths(privateDir) : null;
+  if (write && floors.some((f) => !f.public) && !priv) throw new Error('runPipeline: hidden floors need privateDir; their outputs never go to the repository');
+  const dirOf = (floor) => (floor.public ? outDir : priv && priv.floorplans);
   log('parse');
   const parsed = parseAll(floors, inDir, cacheDir, { force: forceParse, log });
 
@@ -93,7 +126,7 @@ export function runPipeline({ inDir, outDir, gasDir, cacheDir, floors = FLOORS, 
     x.inferred = inferMissingOpenings(fp, x.openings);
     // Node ids carry over from the committed floor JSON (stages/graph.mjs assignIds), so retyping a room does not
     // renumber the floor under the overrides, QR locations and outdoor graph that hold those ids.
-    const prevPath = outDir && path.join(outDir, `${floor.floorId}.json`);
+    const prevPath = dirOf(floor) && path.join(dirOf(floor), `${floor.floorId}.json`);
     const previous = stableIds && prevPath && fs.existsSync(prevPath) ? JSON.parse(fs.readFileSync(prevPath, 'utf8')).nav : null;
     const g = buildFloorGraph(fp, x.openings, x.wallIndex, { idPrefix: floor.floorId.replace(/^floor-/, ''), previous });
     x.graph = g;
@@ -201,7 +234,8 @@ export function runPipeline({ inDir, outDir, gasDir, cacheDir, floors = FLOORS, 
       heightPx: round(fp.height, 1),
       metersPerPixel: mpu,
       units,
-      frame: { ...fp.origin, sharedBuildingFrame: frameChecks[floor.bldg] },
+      // A public floor's JSON lists only the frame checks between public floors.
+      frame: { ...fp.origin, sharedBuildingFrame: floor.public ? frameChecks[floor.bldg].filter((c) => c.floors.every((id) => floors.find((f) => f.floorId === id).public)) : frameChecks[floor.bldg] },
       // The floor's gross outline (the drawing's GROSS layer) in this floor's SVG units: what the campus-map build fits
       // to the OpenStreetMap footprint (scripts/campus-map/georef-fit.mjs). null when the drawing has none.
       gross: fp.gross ? fp.gross.map((p) => [round(p[0], 1), round(p[1], 1)]) : null,
@@ -251,24 +285,33 @@ export function runPipeline({ inDir, outDir, gasDir, cacheDir, floors = FLOORS, 
     });
   }
 
+  const split = splitByPublic(outFloors, crossEdges);
   if (write) {
     fs.mkdirSync(outDir, { recursive: true });
+    if (split.priv.floors.length) fs.mkdirSync(priv.floorplans, { recursive: true });
     for (const f of outFloors) {
-      fs.writeFileSync(path.join(outDir, `${f.floorId}.svg`), f.svg);
+      const dir = dirOf(f);
+      fs.writeFileSync(path.join(dir, `${f.floorId}.svg`), f.svg);
       // The entrances block (primary-entrance scores) is written by npm run campus-map; carry it over.
-      const jsonPath = path.join(outDir, `${f.floorId}.json`);
+      const jsonPath = path.join(dir, `${f.floorId}.json`);
       const prev = fs.existsSync(jsonPath) ? JSON.parse(fs.readFileSync(jsonPath, 'utf8')) : null;
       const kept = carryEntrances(prev, f.json.nav.nodes);
       fs.writeFileSync(jsonPath, JSON.stringify(kept ? withEntrances(f.json, kept) : f.json, null, 1) + '\n');
     }
-    fs.writeFileSync(path.join(outDir, 'cross-floor-edges.json'), JSON.stringify(crossEdges, null, 1) + '\n');
-    const gas = emitGas(outFloors, crossEdges, gasDir, { unitName: 'inches' });
+    fs.writeFileSync(path.join(outDir, 'cross-floor-edges.json'), JSON.stringify(split.pub.crossEdges, null, 1) + '\n');
+    const gas = emitGas(split.pub.floors, split.pub.crossEdges, gasDir, { unitName: 'inches' });
     report.seedFloorDataBytes = gas.seedBytes;
-    fs.writeFileSync(path.join(outDir, 'pipeline-report.json'), JSON.stringify(report, null, 1) + '\n');
+    fs.writeFileSync(path.join(outDir, 'pipeline-report.json'), JSON.stringify(publicReport(report, floors, split.pub.crossEdges), null, 1) + '\n');
+    if (split.priv.floors.length) {
+      fs.writeFileSync(path.join(priv.floorplans, 'cross-floor-edges.json'), JSON.stringify(split.priv.crossEdges, null, 1) + '\n');
+      emitGas(split.priv.floors, split.priv.crossEdges, priv.gs, { unitName: 'inches', seed: PRIVATE_SEED });
+      // The private copy of the report is the whole report, hidden floors included.
+      fs.writeFileSync(path.join(priv.floorplans, 'pipeline-report.json'), JSON.stringify(report, null, 1) + '\n');
+    }
     const review = reviewDir || path.join(outDir, '..', 'review');
     fs.mkdirSync(review, { recursive: true });
     fs.writeFileSync(path.join(review, 'corridor-candidates.json'), formatCandidates(candidates));
   }
-  return { floors: outFloors, crossEdges, report, F, candidates };
+  return { floors: outFloors, crossEdges, split, report, F, candidates };
 }
 

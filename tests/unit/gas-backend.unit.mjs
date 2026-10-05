@@ -2,7 +2,9 @@
 // locally (build-time export, local admin): no PIN, no settings writes, no floor import or reseed.
 // Part 1 runs on a tiny synthetic floor seed (defined after the real files, so it overrides
 // SeedFloorData.gs) to check contract shapes and admin operations by hand-countable numbers.
-// Part 2 runs on the real generated SeedFloorData.gs and data/floorplans/*.json.
+// Part 2 runs on the real generated SeedFloorData.gs and data/floorplans/*.json (public floors only: the hidden
+// floors are never in the repository), plus a synthetic private seed (tests/unit/fixtures/private) for the hidden-floor
+// paths.
 // Adopted from lane B's mock-runtime suite (2026-10-03).
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -16,6 +18,8 @@ const ROOT = join(here, '..', '..');
 const FLOORPLANS = join(ROOT, 'data', 'floorplans');
 const require = createRequire(import.meta.url);
 const { makeRuntime, CELL_LIMIT, GS_DIR: SRC } = require('../../dev/gas-runtime.cjs');
+// The synthetic private location: SeedFloorDataPrivate.gs and FP_floor_it_9.html for a made-up hidden floor.
+const PRIVATE_GS = join(here, 'fixtures', 'private', 'gs');
 
 const GEN = `
 function getGeneratedFloorsSeed() { return [
@@ -153,7 +157,9 @@ test('CRUD: floors, buildings, entrances, nav nodes/edges (updateNavEdge as the 
 test('getFloorPlanSvg errors clearly', () => {
   assert.throws(() => g.getFloorPlanSvg('floor-it-9'), /FP_floor_it_9 not found for floor floor-it-9/);
   assert.throws(() => g.getFloorPlanSvg('../x'), /floorId is required/);
-  assert.ok(g.getFloorPlanSvg('floor-it-3').includes('<svg'));
+  // A plan asset in a further folder (the private location's gs/) is found after the backend's own.
+  const R3 = makeRuntime(SRC, '', { gsDirs: [PRIVATE_GS], htmlDirs: [PRIVATE_GS] });
+  assert.ok(R3.run('getFloorPlanSvg', ['floor-it-9']).includes('data-floor-id="floor-it-9"'));
 });
 
 test('seed validation rejects wrong-width generated rows before writing', () => {
@@ -199,7 +205,18 @@ test('real seed: init writes every generated floor, room, node and edge (pipelin
     NavNodes: sum((f) => f.nav.nodes.length),
     NavEdges: sum((f) => f.nav.edges.length) + crossFloor.length,
   });
-  assert.deepEqual(realInit.seeded, { Buildings: 89, Floors: 6, Rooms: 491, NavNodes: 1845, NavEdges: 1965 });
+  assert.deepEqual(realInit.seeded, { Buildings: 89, Floors: 4, Rooms: 486, NavNodes: 1820, NavEdges: 1940 });
+  // The committed data holds no hidden floor: those live in the private location, outside the repository.
+  assert.deepEqual(floorsJson.filter((f) => f.public === false).map((f) => f.floorId), []);
+});
+
+test('a private seed (the hidden floors) is appended to the generated rows when its folder is loaded', () => {
+  const P = makeRuntime(SRC, '', { gsDirs: [PRIVATE_GS], htmlDirs: [PRIVATE_GS] });
+  const seeded = js(P.ctx.initSystem()).seeded;
+  assert.deepEqual(seeded, { ...realInit.seeded, Floors: realInit.seeded.Floors + 1, Rooms: realInit.seeded.Rooms + 2, NavNodes: realInit.seeded.NavNodes + 3, NavEdges: realInit.seeded.NavEdges + 3 });
+  const all = P.run('getAllCampusData', []);
+  assert.deepEqual(all.floors.filter((f) => f.public === false).map((f) => f.id), ['floor-it-9']);
+  assert.equal(all.navEdges.find((e) => e.id === 'it-x901').fromNodeId, 'it-2-n0064');
 });
 
 test('real seed: the largest cell is far under the Sheets limit, and the runtime enforces the limit', () => {
@@ -215,12 +232,17 @@ test('real seed: the largest cell is far under the Sheets limit, and the runtime
   assert.throws(() => REAL.ss().getSheetByName('Config').appendRow(['big', 'x'.repeat(CELL_LIMIT + 1)]), /maximum of 50000/);
 });
 
-test('real seed: the public payload drops only the mezzanine and the penthouse', () => {
-  const all = REAL.run('getAllCampusData', []);
-  const pub = REAL.run('getPublicCampusData', []);
-  assert.deepEqual(all.floors.filter((f) => f.public === false).map((f) => f.id).sort(), ['floor-ep-3', 'floor-it-3']);
+test('real seed with a private seed: the public payload drops only the hidden floor and what touches it', () => {
+  const P = makeRuntime(SRC, '', { gsDirs: [PRIVATE_GS], htmlDirs: [PRIVATE_GS] });
+  P.ctx.initSystem();
+  const all = P.run('getAllCampusData', []);
+  const pub = P.run('getPublicCampusData', []);
+  assert.deepEqual(all.floors.filter((f) => f.public === false).map((f) => f.id), ['floor-it-9']);
   assert.deepEqual(pub.floors.map((f) => f.id).sort(), ['floor-ep-1', 'floor-ep-2', 'floor-it-1', 'floor-it-2']);
-  const stats = REAL.run('getCampusDataStats', []);
+  const bare = makeRuntime(SRC);
+  bare.ctx.initSystem();
+  assert.deepEqual(pub, bare.run('getPublicCampusData', []), 'the same public payload as without the private seed');
+  const stats = P.run('getCampusDataStats', []);
   // Measured 2026-10-03: 620,517 vs 612,283 bytes (1.3 %). Not material, so the exported campus.json is the full
   // getAllCampusData payload and the web app filters hidden floors itself.
   assert.ok(stats.public.jsonBytes < stats.full.jsonBytes);

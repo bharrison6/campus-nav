@@ -11,6 +11,8 @@ import { FLOORS } from '../config.mjs';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const readJson = (p) => JSON.parse(fs.readFileSync(path.join(repo, p), 'utf8'));
+// Only the public floors are committed (the hidden ones live in the private location, config.mjs).
+const PUBLIC = FLOORS.filter((f) => f.public);
 
 // A room of `sf` square feet whose inscribed circle has radius `inr` inches.
 const room = (number, sf, inr, extra = {}) => ({ number, areaSf: sf, inradius: inr, kind: 'room', type: 'other', polygon: [[0, 0], [10, 0], [10, 10], [0, 10]], ...extra });
@@ -81,7 +83,7 @@ test('access of graph nodes: entrances carry their own, doors and waypoints main
 
 test('committed floor data: corridors are main, doors/entrances/waypoints classed, candidates listed with evidence', () => {
   const counts = {};
-  for (const f of FLOORS) {
+  for (const f of PUBLIC) {
     const j = readJson(`data/floorplans/${f.floorId}.json`);
     for (const r of j.rooms) {
       counts[r.type] = (counts[r.type] || 0) + 1;
@@ -98,7 +100,7 @@ test('committed floor data: corridors are main, doors/entrances/waypoints classe
   assert.equal(Object.values(report.circulation).flat().length, 14);
   const c = readJson('data/review/corridor-candidates.json');
   assert.ok(c.candidates.length >= 10);
-  const rooms = new Map(FLOORS.flatMap((f) => readJson(`data/floorplans/${f.floorId}.json`).rooms.map((r) => [r.id, r])));
+  const rooms = new Map(PUBLIC.flatMap((f) => readJson(`data/floorplans/${f.floorId}.json`).rooms.map((r) => [r.id, r])));
   for (const x of c.candidates) {
     assert.deepEqual(Object.keys(x), ['roomId', 'number', 'label', 'floorId', 'areaSqFt', 'confidence', 'evidence']);
     assert.equal(rooms.get(x.roomId).type, 'other', `${x.roomId} is still other`);

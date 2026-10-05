@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import { FLOORPLANS_DIR, GEOREF_DIR, buildExport, exportCampusData, isPublicFloor } from '../../scripts/data/export-campus-data.mjs';
 import { addCampusGeo, readEntranceFacing, readGeoref } from '../../scripts/data/campus-geo.mjs';
 import { applyAccess, publishAltDoorCost, publishAltFactor } from '../../scripts/data/access.mjs';
@@ -14,6 +15,10 @@ import { COLLECTIONS } from '../../scripts/data/overrides.mjs';
 
 const require = createRequire(import.meta.url);
 const { makeRuntime } = require('../../dev/gas-runtime.cjs');
+// The real hidden floors are never in the repository (the local admin reads them from the private location outside
+// it). The hidden-floor filter is checked on a synthetic private location: one made-up hidden floor, floor-it-9,
+// wired to the real IT stair by a cross-floor edge.
+const PRIVATE = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'private');
 
 // Scratch folders under the OS temp dir, removed when the file's tests end (only what this run created).
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'acc-mscn-export-'));
@@ -30,9 +35,11 @@ const EMPTY = dir();
 // The v2 backend's own answer, no overrides layer involved.
 const plain = makeRuntime();
 plain.ctx.initSystem();
-const full = plain.run('getAllCampusData', []); // what the local admin sees, hidden floors included
 const reference = plain.run('getPublicCampusData', []); // what the site publishes
-// Only public floors are published (the IT mezzanine and the EP penthouse are hidden).
+const withPrivate = makeRuntime(undefined, '', { gsDirs: [path.join(PRIVATE, 'gs')], htmlDirs: [path.join(PRIVATE, 'gs')] });
+withPrivate.ctx.initSystem();
+const full = withPrivate.run('getAllCampusData', []); // what the local admin sees, hidden floors included
+// Only public floors are published.
 const PUBLIC_FLOORS = full.floors.filter(isPublicFloor).map((f) => f.id);
 const HIDDEN_FLOORS = full.floors.filter((f) => !isPublicFloor(f)).map((f) => f.id);
 
@@ -112,7 +119,7 @@ test('deterministic: the same inputs give byte-identical files (version.json too
 
 test('hidden floors are not published: no floor, room, node, edge, photo, QR location or plan of theirs', () => {
   assert.deepEqual(PUBLIC_FLOORS, ['floor-it-1', 'floor-it-2', 'floor-ep-1', 'floor-ep-2']);
-  assert.deepEqual(HIDDEN_FLOORS, ['floor-it-3', 'floor-ep-3']);
+  assert.deepEqual(HIDDEN_FLOORS, ['floor-it-9']);
   const hidden = new Set(HIDDEN_FLOORS);
   // Positive controls: the full data the admin sees does carry hidden-floor records and edges into them.
   const fullHiddenNodes = new Set(full.navNodes.filter((n) => hidden.has(n.floorId)).map((n) => n.id));
@@ -122,8 +129,16 @@ test('hidden floors are not published: no floor, room, node, edge, photo, QR loc
     'full data has cross-floor edges from a public floor into a hidden one');
 
   const out = dir();
-  exportCampusData({ outDir: out, overridesDir: EMPTY });
+  exportCampusData({ outDir: out, overridesDir: EMPTY, privateDir: PRIVATE });
   assert.deepEqual(fs.readdirSync(path.join(out, 'floors')).sort(), PUBLIC_FLOORS.map((id) => `${id}.svg`).sort());
+  // The same files as an export that never saw the hidden floor (the build's own case).
+  const bare = dir();
+  const env = { SOURCE_DATE_EPOCH: '1759572000', GITHUB_SHA: 'abc123' };
+  exportCampusData({ outDir: out, overridesDir: EMPTY, privateDir: PRIVATE, env });
+  exportCampusData({ outDir: bare, overridesDir: EMPTY, env });
+  for (const f of ['campus.json', 'version.json', ...PUBLIC_FLOORS.map((id) => `floors/${id}.svg`)]) {
+    assert.ok(fs.readFileSync(path.join(out, f)).equals(fs.readFileSync(path.join(bare, f))), f);
+  }
   const campus = JSON.parse(fs.readFileSync(path.join(out, 'campus.json'), 'utf8'));
   assert.deepEqual(campus.floors.map((f) => f.id), PUBLIC_FLOORS);
   assert.ok(campus.floors.every(isPublicFloor), 'no floor with public false');
@@ -141,11 +156,12 @@ test('hidden floors are not published: no floor, room, node, edge, photo, QR loc
   assert.ok(campus.rooms.length < full.rooms.length && campus.navEdges.length < full.navEdges.length);
 
   // A floor made public by an override is published with its rooms and plan.
-  const ov = dir({ floors: [{ id: 'floor-it-3', public: true }] });
-  const x = buildExport({ overridesDir: ov });
-  assert.ok(x.campus.floors.some((f) => f.id === 'floor-it-3'));
-  assert.ok(x.campus.rooms.some((r) => r.floorId === 'floor-it-3'));
-  assert.ok(x.floors.some((f) => f.id === 'floor-it-3'));
+  const ov = dir({ floors: [{ id: 'floor-it-9', public: true }] });
+  const x = buildExport({ overridesDir: ov, privateDir: PRIVATE });
+  assert.ok(x.campus.floors.some((f) => f.id === 'floor-it-9'));
+  assert.ok(x.campus.rooms.some((r) => r.floorId === 'floor-it-9'));
+  assert.ok(x.campus.navEdges.some((e) => e.id === 'it-x901'));
+  assert.ok(x.floors.some((f) => f.id === 'floor-it-9'));
   for (const v of [false, 'false', 'FALSE']) assert.equal(isPublicFloor({ public: v }), false, String(v));
   for (const v of [true, 'true', undefined, '']) assert.equal(isPublicFloor({ public: v }), true, String(v));
 });

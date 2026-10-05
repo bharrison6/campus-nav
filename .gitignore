@@ -54,3 +54,11 @@ scripts/floorplan-pipeline/.cache/
 .transcripts/
 # ...nor the campus-map raw downloads (OSM JSON, aerial source); only the derived layers in data/campus-map are committed
 scripts/campus-map/.cache/
+
+# Non-public floors (scripts/floorplan-pipeline/config.mjs public: false): the pipeline writes their outputs to the
+# private location outside the repository (MSCN_PRIVATE_DIR, default <scope>/drawings/derived); never commit a copy here
+data/floorplans/floor-it-3.*
+data/floorplans/floor-ep-3.*
+tools/admin/gs/FP_floor_it_3.html
+tools/admin/gs/FP_floor_ep_3.html
+tools/admin/gs/SeedFloorDataPrivate.gs

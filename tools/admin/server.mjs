@@ -30,12 +30,16 @@
 //   MSCN_CAMPUS_MAP_DIR the campus-map directory the Map tab reads and whose overrides.geojson it writes (default
 //                      data/campus-map; a copy elsewhere keeps a trial run off the committed files)
 //   MSCN_REVIEW_DIR    where corridor-candidates.json is read (default data/review)
+//   MSCN_PRIVATE_DIR   the hidden floors' private location (default `derived` beside the drawings folder,
+//                      floorplan-pipeline/config.mjs): the admin shows the hidden floors when it exists and works
+//                      without them. The save check and the export never read it.
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { OVERRIDES_DIR, REPO, describeReport, openCampus, writeFileAtomic } from '../../scripts/data/campus-engine.mjs';
+import { resolvePrivateDir } from '../../scripts/floorplan-pipeline/config.mjs';
 import { COLLECTIONS, canonical } from '../../scripts/data/overrides.mjs';
 import { buildExport } from '../../scripts/data/export-campus-data.mjs';
 import { validateOverridesGeo } from '../../scripts/campus-map/validate-geo.mjs';
@@ -123,6 +127,8 @@ const truthy = (v) => v === true || String(v).toLowerCase() === 'true';
  *   data/overrides and data/campus-map/overrides.geojson), else none
  * @param {string} [o.campusMapDir]  basemap, outdoor graph and overrides.geojson (default data/campus-map)
  * @param {string} [o.reviewDir]     corridor-candidates.json (default data/review)
+ * @param {string} [o.privateDir]    the hidden floors' private location, loaded when it exists (default none; the
+ *   command line passes resolvePrivateDir)
  * @param {{check: Function, source: string}|null} [o.connectivity]  the save check (default: the shared check,
  *   scripts/data/connectivity.mjs); null turns the check off
  * @param {Function} [o.mapBuild]  ({overridesDir, overrides, geo, pathAccess}) -> {graph, files}: the campus-map
@@ -130,9 +136,9 @@ const truthy = (v) => v === true || String(v).toLowerCase() === 'true';
  */
 export function createAdmin({
   overridesDir = OVERRIDES_DIR, gsDir, extraCode, env = process.env, log = console.log, rebuildMap,
-  campusMapDir = CAMPUS_MAP_DIR, reviewDir = REVIEW_DIR, connectivity = CONNECTIVITY, mapBuild = mapBuildInMemory,
+  campusMapDir = CAMPUS_MAP_DIR, reviewDir = REVIEW_DIR, connectivity = CONNECTIVITY, mapBuild = mapBuildInMemory, privateDir,
 } = {}) {
-  const open = () => openCampus({ gsDir, overridesDir, extraCode });
+  const open = () => openCampus({ gsDir, overridesDir, extraCode, privateDir });
   let campus = open();
   const rebuild = rebuildMap !== undefined ? rebuildMap
     : (path.resolve(overridesDir) === path.resolve(OVERRIDES_DIR) && path.resolve(campusMapDir) === path.resolve(CAMPUS_MAP_DIR) && !gsDir ? () => runCampusMap() : null);
@@ -464,9 +470,11 @@ if (isMain) {
   const overridesDir = process.env.MSCN_OVERRIDES_DIR ? path.resolve(process.env.MSCN_OVERRIDES_DIR) : OVERRIDES_DIR;
   const campusMapDir = process.env.MSCN_CAMPUS_MAP_DIR ? path.resolve(process.env.MSCN_CAMPUS_MAP_DIR) : CAMPUS_MAP_DIR;
   const reviewDir = process.env.MSCN_REVIEW_DIR ? path.resolve(process.env.MSCN_REVIEW_DIR) : REVIEW_DIR;
-  const admin = createAdmin({ overridesDir, campusMapDir, reviewDir });
+  const privateDir = resolvePrivateDir(REPO);
+  const admin = createAdmin({ overridesDir, campusMapDir, reviewDir, privateDir });
   admin.server.listen(port, '127.0.0.1', () => {
     console.log(`[admin] MSCN local admin on http://localhost:${port}/`);
+    console.log(admin.campus().hiddenFloorsLoaded ? `[admin] hidden floors loaded from ${privateDir}` : `[admin] no hidden floors (none at ${privateDir})`);
     console.log(`[admin] edits are saved to ${overridesDir}; QR codes link to ${admin.siteUrl}`);
   });
 }

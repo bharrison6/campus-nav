@@ -3,7 +3,9 @@
 // SeedFloorData.gs is seeded (built here by running the .gs files in dev/gas-runtime.cjs).
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import { loadInclude } from './load-include.mjs';
 
 const require = createRequire(import.meta.url);
@@ -12,7 +14,13 @@ const { makeRuntime } = require('../../dev/gas-runtime.cjs');
 const gas = makeRuntime(); // the backend in tools/admin/gs (GS_DIR)
 gas.ctx.initSystem();
 const data = gas.run('getPublicCampusData', []);
-const full = gas.run('getAllCampusData', []); // the admin's view, hidden floors included
+// The admin's view, hidden floors included. The real hidden floors are never in the repository, so the local admin's
+// private location is stood in for by a synthetic one (tests/unit/fixtures/private: a made-up hidden floor wired to
+// the real IT stair).
+const PRIVATE_GS = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'private', 'gs');
+const withPrivate = makeRuntime(undefined, '', { gsDirs: [PRIVATE_GS], htmlDirs: [PRIVATE_GS] });
+withPrivate.ctx.initSystem();
+const full = withPrivate.run('getAllCampusData', []);
 
 const P = loadInclude('WebApp_Pathfinding.html', 'MSCNPath');
 const S = loadInclude('WebApp_Search.html', 'MSCNSearch');

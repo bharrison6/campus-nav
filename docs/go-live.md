@@ -23,7 +23,8 @@ campus map is drawn by the site itself (MapLibre on OpenStreetMap data committed
 
 The facilities drawings are never published and never in the repository; only the plans derived from them
 are. Hidden floors (`public: false`, today the IT mezzanine and the EP penthouse) are left out entirely: no plan,
-rooms, nodes or QR locations of theirs are published; the local admin still shows them. Every URL inside the app is relative, so one build works at `https://bharrison6.github.io/campus-nav/`
+rooms, nodes or QR locations of theirs are published, and since v5.1 none of their data is in the repository
+either (it lives in the private folder beside the drawings; the local admin shows it when that folder is present). Every URL inside the app is relative, so one build works at `https://bharrison6.github.io/campus-nav/`
 and at a domain root.
 
 ## 1. Turn on Pages (once)

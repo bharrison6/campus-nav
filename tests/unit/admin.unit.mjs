@@ -14,6 +14,8 @@ import { buildExport } from '../../scripts/data/export-campus-data.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ADMIN_HTML = fs.readFileSync(path.join(here, '..', '..', 'tools', 'admin', 'Admin.html'), 'utf8');
+// A synthetic private location (the real hidden floors live outside the repository): one made-up hidden floor.
+const PRIVATE = path.join(here, 'fixtures', 'private');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'acc-mscn-admin-'));
 after(() => fs.rmSync(tmp, { recursive: true, force: true }));
@@ -57,7 +59,7 @@ test('every server function the page calls is one the admin answers', () => {
 
 test('writes land in data/overrides as the difference from the seed and pipeline data, and the export shows them', () => {
   const dir = freshDir();
-  const admin = createAdmin({ overridesDir: dir, log: quiet });
+  const admin = createAdmin({ overridesDir: dir, log: quiet, privateDir: PRIVATE });
   admin.call('updateRoom', [{ id: 'room-it-1-0141', label: 'Dean of Engineering' }]);
   assert.deepEqual(readOv(dir, 'rooms'), [{ id: 'room-it-1-0141', label: 'Dean of Engineering' }]);
   for (const c of ['buildings', 'floors', 'navNodes', 'navEdges', 'photos', 'qrLocations', 'config']) assert.deepEqual(readOv(dir, c), [], c);
@@ -70,7 +72,7 @@ test('writes land in data/overrides as the difference from the seed and pipeline
   assert.equal(q[0].description, 'Main lobby');
 
   // A node delete cascades to its edges: the node and each edge become _delete records.
-  const node = admin.call('getAllCampusData', []).navNodes.find((x) => x.floorId === 'floor-ep-3');
+  const node = admin.call('getAllCampusData', []).navNodes.find((x) => x.floorId === 'floor-it-9');
   const touching = admin.call('getAllCampusData', []).navEdges.filter((e) => e.fromNodeId === node.id || e.toNodeId === node.id);
   const res = admin.call('deleteNavNode', [{ id: node.id }]);
   assert.equal(res.edgesRemoved, touching.length);
@@ -78,11 +80,11 @@ test('writes land in data/overrides as the difference from the seed and pipeline
   assert.deepEqual(readOv(dir, 'navEdges').map((e) => e.id).sort(), touching.map((e) => e.id).sort());
 
   // A restart (a new admin over the same files) and the export both see the edits.
-  const again = createAdmin({ overridesDir: dir, log: quiet });
+  const again = createAdmin({ overridesDir: dir, log: quiet, privateDir: PRIVATE });
   const data = again.call('getAllCampusData', []);
   assert.equal(data.rooms.find((r) => r.id === 'room-it-1-0141').label, 'Dean of Engineering');
   assert.equal(data.navNodes.find((x) => x.id === node.id), undefined);
-  const x = buildExport({ overridesDir: dir });
+  const x = buildExport({ overridesDir: dir, privateDir: PRIVATE });
   assert.equal(x.campus.rooms.find((r) => r.id === 'room-it-1-0141').label, 'Dean of Engineering');
   assert.deepEqual(x.campus.qrLocations.map((r) => r.id), [qr.id]);
   assert.deepEqual(x.report.orphans, []);
@@ -91,6 +93,18 @@ test('writes land in data/overrides as the difference from the seed and pipeline
   const base = buildExport({ overridesDir: freshDir() }).campus.rooms.find((r) => r.id === 'room-it-1-0141').label;
   again.call('updateRoom', [{ id: 'room-it-1-0141', label: base }]);
   assert.deepEqual(readOv(dir, 'rooms'), []);
+});
+
+test('the admin shows the hidden floors from the private location when it exists and works without them', () => {
+  const bare = createAdmin({ overridesDir: freshDir(), log: quiet, privateDir: path.join(tmp, 'no-such-private-dir') });
+  assert.equal(bare.campus().hiddenFloorsLoaded, false);
+  assert.deepEqual(bare.call('getAllCampusData', []).floors.filter((f) => f.public === false), []);
+  const admin = createAdmin({ overridesDir: freshDir(), log: quiet, privateDir: PRIVATE });
+  assert.equal(admin.campus().hiddenFloorsLoaded, true);
+  assert.deepEqual(admin.call('getAllCampusData', []).floors.filter((f) => f.public === false).map((f) => f.id), ['floor-it-9']);
+  assert.match(admin.call('getFloorPlanSvg', ['floor-it-9']), /data-floor-id="floor-it-9"/);
+  // The public data the save check builds is the same either way.
+  assert.deepEqual(admin.call('checkConnectivityNow', []), bare.call('checkConnectivityNow', []));
 });
 
 test('a save that changes an entrance class, levels or height reruns the campus-map build in the background; others do not', async () => {

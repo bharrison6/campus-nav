@@ -9,8 +9,8 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 import { runPipeline } from '../pipeline.mjs';
-import { buildSeedGs, HEADERS } from '../stages/emit-gas.mjs';
-import { DWG_DIR_ENV, FLOORS, hasDrawings, planAssetName, resolveDwgDir } from '../config.mjs';
+import { buildSeedGs, HEADERS, PRIVATE_SEED } from '../stages/emit-gas.mjs';
+import { DWG_DIR_ENV, FLOORS, HIDDEN_FLOORS, hasDrawings, planAssetName, privatePaths, resolveDwgDir, resolvePrivateDir } from '../config.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '..', '..', '..');
@@ -20,15 +20,17 @@ const SKIP = `drawings not found at ${dwgDir} (set ${DWG_DIR_ENV}); DWG-dependen
 if (!present) console.log(`# ${SKIP}`);
 /** Every test here needs the drawings: skipped, with the reason, when they are absent. */
 const test = (name, fn) => nodeTest(name, present ? {} : { skip: SKIP }, fn);
+const privateDir = resolvePrivateDir(repo);
 const result = present ? runPipeline({
   inDir: dwgDir,
   outDir: path.join(repo, 'data/floorplans'),
   gasDir: path.join(repo, 'tools/admin/gs'),
+  privateDir,
   cacheDir: path.join(repo, 'scripts/floorplan-pipeline/.cache'),
   log: () => {},
   write: false,
-}) : { floors: [], crossEdges: [], report: {} };
-const { floors, crossEdges, report } = result;
+}) : { floors: [], crossEdges: [], report: {}, split: { pub: { floors: [], crossEdges: [] }, priv: { floors: [], crossEdges: [] } } };
+const { floors, crossEdges, report, split } = result;
 
 /** Adjacency over every floor graph plus the cross-floor edges. */
 function adjacency() {
@@ -181,14 +183,36 @@ test('SeedFloorData.gs evaluates, rows follow the contract headers, under 2 MB',
     for (const r of rows) assert.equal(r.length, HEADERS[name].length, `${name} row width`);
   }
   for (const r of sets.Rooms) assert.ok(Array.isArray(JSON.parse(r[5])));
-  assert.deepEqual(sets.Floors.filter((f) => f[8] === false).map((f) => f[0]), ['floor-it-3', 'floor-ep-3']);
+  assert.deepEqual(sets.Floors.filter((f) => f[8] === false).map((f) => f[0]), HIDDEN_FLOORS.map((f) => f.floorId));
+});
+
+test('the outputs split by audience: hidden floors and every edge touching them go to the private side only', () => {
+  assert.deepEqual(split.pub.floors.map((f) => f.floorId), FLOORS.filter((f) => f.public).map((f) => f.floorId));
+  assert.deepEqual(split.priv.floors.map((f) => f.floorId), HIDDEN_FLOORS.map((f) => f.floorId));
+  assert.equal(split.pub.crossEdges.length + split.priv.crossEdges.length, crossEdges.length);
+  const hiddenNodes = new Set(split.priv.floors.flatMap((f) => f.nav.nodes.map((n) => n.id)));
+  for (const e of split.pub.crossEdges) assert.ok(!hiddenNodes.has(e.from) && !hiddenNodes.has(e.to), e.id);
+  for (const e of split.priv.crossEdges) assert.ok(hiddenNodes.has(e.from) || hiddenNodes.has(e.to), e.id);
 });
 
 test('committed generated files are up to date with the DWGs and the pipeline', () => {
   const committed = fs.readFileSync(path.join(repo, 'tools/admin/gs/SeedFloorData.gs'), 'utf8');
-  assert.equal(committed, buildSeedGs(floors, crossEdges, { unitName: 'inches' }), 'run `npm run pipeline` and commit');
-  for (const f of floors) {
+  assert.equal(committed, buildSeedGs(split.pub.floors, split.pub.crossEdges, { unitName: 'inches' }), 'run `npm run pipeline` and commit');
+  for (const f of split.pub.floors) {
     assert.equal(fs.readFileSync(path.join(repo, 'tools/admin/gs', `${f.planAsset}.html`), 'utf8'), f.svg, f.floorId);
     assert.equal(fs.readFileSync(path.join(repo, 'data/floorplans', `${f.floorId}.svg`), 'utf8'), f.svg, f.floorId);
+  }
+});
+
+test('the private location, when present, holds the hidden floors up to date (never the repository)', (t) => {
+  const priv = privatePaths(privateDir);
+  if (!fs.existsSync(path.join(priv.gs, PRIVATE_SEED.file))) return t.skip(`no private outputs at ${privateDir} (run npm run pipeline)`);
+  assert.equal(fs.readFileSync(path.join(priv.gs, PRIVATE_SEED.file), 'utf8'), buildSeedGs(split.priv.floors, split.priv.crossEdges, { unitName: 'inches', seed: PRIVATE_SEED }));
+  for (const f of split.priv.floors) {
+    assert.equal(fs.readFileSync(path.join(priv.gs, `${f.planAsset}.html`), 'utf8'), f.svg, f.floorId);
+    assert.equal(fs.readFileSync(path.join(priv.floorplans, `${f.floorId}.svg`), 'utf8'), f.svg, f.floorId);
+    for (const p of [`data/floorplans/${f.floorId}.json`, `data/floorplans/${f.floorId}.svg`, `tools/admin/gs/${f.planAsset}.html`]) {
+      assert.ok(!fs.existsSync(path.join(repo, p)), `${p} is a hidden floor's output inside the repository`);
+    }
   }
 });

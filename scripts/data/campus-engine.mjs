@@ -12,6 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import { privatePaths } from '../floorplan-pipeline/config.mjs';
 import { COLLECTIONS, applyOverrides, diffOverrides, formatOverrides, keyOf, orphanRecords, validateOverrides } from './overrides.mjs';
 
 const require = createRequire(import.meta.url);
@@ -121,9 +122,14 @@ function checkOverrideRecords(gas, overrides, merged, dir) {
  * @param {string} [o.overridesDir]  default data/overrides
  * @param {string} [o.extraCode]     code evaluated after the .gs files (tests replace the generated seed this way)
  * @param {Object} [o.props]         Script Properties to preset (for example a local mapsApiKey for the admin map)
+ * @param {string} [o.privateDir]    the hidden floors' private location (floorplan-pipeline/config.mjs
+ *   resolvePrivateDir): its gs/ seed and plan assets are loaded when it exists. Only the local admin passes one; the
+ *   export never does, so what is published never depends on it.
  */
-export function openCampus({ gsDir, overridesDir = OVERRIDES_DIR, extraCode, props } = {}) {
-  const gas = makeRuntime(gsDir, extraCode);
+export function openCampus({ gsDir, overridesDir = OVERRIDES_DIR, extraCode, props, privateDir } = {}) {
+  const privGs = privateDir ? privatePaths(privateDir).gs : null;
+  const extra = privGs && fs.existsSync(privGs) ? { gsDirs: [privGs], htmlDirs: [privGs] } : undefined;
+  const gas = makeRuntime(gsDir, extraCode, extra);
   if (props) for (const [k, v] of Object.entries(props)) if (v) gas.props[k] = String(v);
   gas.ctx.initSystem();
   const headers = tabHeaders(gas);
@@ -135,6 +141,7 @@ export function openCampus({ gsDir, overridesDir = OVERRIDES_DIR, extraCode, pro
   const keep = orphanRecords(overrides, report);
   return {
     gas,
+    hiddenFloorsLoaded: !!extra,
     base,
     headers,
     report,
