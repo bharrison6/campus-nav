@@ -12,8 +12,8 @@ operator's one-time steps: [`docs/go-live.md`](docs/go-live.md).
 
 Indoor coverage today: **Collins Industry and Technology Center (IT, building 0135)** and **Engineering and
 Physics (EP, building 0174)**, floors 1 and 2 of each, drawn from the university's AutoCAD floor plans. The
-IT mezzanine and the EP penthouse are in the admin's data but not published: neither their plans nor anything
-on them reaches the site.
+IT mezzanine and the EP penthouse are not published and not in this repository: the pipeline writes them to a
+private folder beside the drawings, and the local admin shows them when that folder is present.
 The campus map (MapLibre, drawing OpenStreetMap data committed to this repository) covers the campus; 89 buildings
 are in the directory. It works offline after the first visit; Google or Apple Maps appear only as "Directions to
 campus" links.
@@ -84,7 +84,7 @@ campus" links.
 | `scripts/build/` | the site build: `build-site.mjs` (`npm run build`), `render-page.mjs` (inlines the modules) |
 | `scripts/data/` | the build-time export (`export-campus-data.mjs`) and the overrides merge it shares with the admin |
 | `scripts/floorplan-pipeline/` | the DWG to SVG / JSON / nav-graph / seed pipeline (Node); reads the drawings from outside the repo |
-| `data/floorplans/` | generated per-floor JSON and SVG, `cross-floor-edges.json`, `pipeline-report.json` (committed) |
+| `data/floorplans/` | generated per-floor JSON and SVG, `cross-floor-edges.json`, `pipeline-report.json` (committed; public floors only) |
 | `scripts/campus-map/` | the campus map build (`npm run campus-map`): OpenStreetMap extract to map layers, georeference, entrance classes, outdoor walking graph with path classes, optional aerial tiles |
 | `data/campus-map/` | the campus map data (OpenStreetMap-derived, ODbL): `buildings.geojson`, `layers/*.geojson`, `outdoor-graph.json`, `manifest.json`, `aerial/` + `aerial.json`; inputs `source/osm-extract.json` and `overrides.geojson` (committed) |
 | `data/georef/` | one georeference per indoor building: its floor plans' frame fitted to its map footprint (committed) |
@@ -124,7 +124,7 @@ anywhere (v4 draws its own map). It adds the map fields (`scripts/data/campus-ge
 (`scripts/data/access.mjs`: a hallway's class reaches the waypoints inside it); the config carries `routing.altFactor`
 and `routing.altDoorCost`; the indoor buildings' `entrances` become `[{nodeId, lat, lng, label, access}]` ("West
 entrance", "East entrance, level 2"), main first, and a building with entrances drawn on the map lists those; buildings carry `levels`
-(and `height` when set). It adds the plans of the published floors. The local admin reads `getAllCampusData`, so it still shows and edits hidden floors. `version` is a content hash, so
+(and `height` when set). It adds the plans of the published floors. The local admin reads `getAllCampusData`, so it shows and edits hidden floors when their private folder is present (see [Hidden floors](#hidden-floors)); the export never reads that folder. `version` is a content hash, so
 the same inputs give byte-identical files; `version.json` adds `builtAt` and `gitSha`. `npm run export:data`
 writes it to `build/data` for a look.
 
@@ -146,7 +146,24 @@ WebAssembly, `@mlightcad/libredwg-web`), and writes:
 
 - `data/floorplans/floor-<bldg>-<level>.json` and `.svg` for each floor;
 - `data/floorplans/cross-floor-edges.json` (stair and elevator links) and `pipeline-report.json`;
-- `tools/admin/gs/FP_floor_*.html` (the SVGs as the backend's plan assets) and `SeedFloorData.gs`.
+- `tools/admin/gs/FP_floor_*.html` (the SVGs as the backend's plan assets) and `SeedFloorData.gs`;
+- for the hidden floors, all of the above in the private folder instead (next section).
+
+### Hidden floors
+
+A floor with `public: false` in `scripts/floorplan-pipeline/config.mjs` (the IT mezzanine `floor-it-3` and the EP
+penthouse `floor-ep-3`) is never committed. The repository is public, so the pipeline writes everything of a
+hidden floor outside it, to `MSCN_PRIVATE_DIR` or by default `derived/` beside the drawings folder
+(`../drawings/derived/`, next to `../drawings/dwg/`; `--private <dir>` on the command line):
+`floorplans/<floorId>.json|svg`, `floorplans/cross-floor-edges.json` (the stair and elevator links that touch a hidden
+floor), `floorplans/pipeline-report.json` (the whole report), `gs/FP_<floorId>.html` and `gs/SeedFloorDataPrivate.gs`.
+The committed outputs carry no row, id or geometry of a hidden floor (the public floors' frame checks and the
+report's vertical stacks leave them out too), and `tests/unit/hidden-floors-guard.unit.mjs` fails if a committed file
+under `data/`, `tools/admin/gs/` or `dist/` names one. `npm run admin` loads the private folder when it exists
+(`SeedData.gs` appends the private seed rows) and works without it; the export and the build never read it, so the
+published site is the same on every machine. A fresh clone and CI have no private folder. Copies committed before
+v5.1 remain in the git history. An admin edit to a hidden floor is saved to `data/overrides` like any other edit and so
+names that floor's ids; the guard test then fails, so leave such edits out of a commit.
 
 How it reads the drawings: rooms are the `AREA-ROOM` polylines, numbered by the `FMGRM1` room tags; units come
 from `$INSUNITS` (inches, checked against the tags' room areas); door swings and gaps in the walls between
