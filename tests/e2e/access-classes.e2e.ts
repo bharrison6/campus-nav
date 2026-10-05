@@ -4,12 +4,14 @@ import { expect, test, type Page } from '@playwright/test';
 // v5 access classes (plan mscn-v5-access-classes-and-editors) in the app, on the real campus data: IT's "South entrance
 // 2, level 2" (it-2-n0557) is a side (alt) door joined to the paths, EP's "West entrance 3" (ep-1-n0359, out of stair
 // tower 1300K) an emergency exit the campus-map build leaves off the paths. The real data has no emergency hallway yet,
-// so one page.route patch marks IT room 250C one. EP 1332 -> IT 203: the main doors win by default; with "Use side
-// doors and paths" on, IT's side door saves about 250 m and wins. (The router refusing a joined emergency door that
-// would be the shortest way is proven on synthetic graphs, tests/unit/access-classes.unit.mjs.)
+// so one page.route patch marks IT room 250C one. EP 1332 -> IT 203: the main doors win by default (v5.1 Best entrance:
+// IT 203 is no simpler by a side door); with "Any door", IT's Northwest side door (it-2-n0551) saves about 240 m and
+// wins. (The router refusing a joined emergency door that would be the shortest way is proven on synthetic graphs,
+// tests/unit/access-classes.unit.mjs; the entrance choice and Reroute in route-choice.e2e.ts.)
 
 const SIDE = 'it-2-n0557';
-const SIDE_LABEL = 'South entrance 2, level 2';
+const ANY_DOOR = 'it-2-n0551';
+const ANY_DOOR_LABEL = 'Northwest entrance, level 2';
 const EXIT = 'ep-1-n0359';
 const EXIT_ROOM = 'room-it-2-0250C';
 
@@ -107,32 +109,32 @@ test('an emergency exit is drawn on the floor plan and never on a route; the rou
   await expect(page.locator('#route-legend')).toContainText('Side door');
 });
 
-test('"Use side doors and paths" flips the route onto the side door, says so, and is remembered', async ({ page }) => {
+test('"Any door" flips the route onto the side door, says so, and is remembered; Best entrance brings the main door back', async ({ page }) => {
   test.slow(); // a cross-building route: its outdoor steps fly the software-rendered (SwiftShader) map
   await patchClasses(page);
   await boot(page);
   await routeEpToIt203(page);
-  expect((await routeFacts(page)).ids).not.toContain(SIDE);
+  expect((await routeFacts(page)).ids).not.toContain(ANY_DOOR);
+  await expect(page.locator('#entrance-best')).toBeChecked();
 
-  const toggle = page.locator('label.switch', { hasText: 'Use side doors and paths' });
-  await toggle.click();
-  await expect(page.locator('#use-side-doors')).toBeChecked();
-  await expect.poll(async () => (await routeFacts(page)).ids.includes(SIDE)).toBe(true);
+  await page.locator('#route-entrance label', { hasText: 'Any door' }).click();
+  await expect(page.locator('#entrance-any')).toBeChecked();
+  await expect.poll(async () => (await routeFacts(page)).ids.includes(ANY_DOOR)).toBe(true);
   const f = await routeFacts(page);
   expect(f.ids).not.toContain(EXIT);
-  const side = f.doors.find((d) => d.id === SIDE)!;
+  const side = f.doors.find((d) => d.id === ANY_DOOR)!;
   expect(side.access).toBe('alt');
-  expect(side.title).toBe(`Enter by the side door (${SIDE_LABEL})`);
-  expect(await page.evaluate(() => window.localStorage.getItem('mscnUseSideDoors'))).toBe('1');
+  expect(side.title).toBe(`Enter by the side door (${ANY_DOOR_LABEL})`);
+  expect(await page.evaluate(() => window.localStorage.getItem('mscnEntrance'))).toBe('any');
 
   // the step shows the side door on the plan
   await toItSecondFloor(page);
   await expect(page.locator('#route-step .title')).toHaveText(/side door|Arrive at IT 203|Take the/);
 
-  // off again: back on the main door
-  await toggle.click();
-  await expect.poll(async () => (await routeFacts(page)).ids.includes(SIDE)).toBe(false);
-  expect(await page.evaluate(() => window.localStorage.getItem('mscnUseSideDoors'))).toBe('0');
+  // Best entrance again: back on the main door
+  await page.locator('#route-entrance label', { hasText: 'Best entrance' }).click();
+  await expect.poll(async () => (await routeFacts(page)).ids.includes(ANY_DOOR)).toBe(false);
+  expect(await page.evaluate(() => window.localStorage.getItem('mscnEntrance'))).toBe('best');
 });
 
 // The phone screenshots for the lane record (light): MSCN_SHOT=1, desktop project only (each sets its own Pixel 7 page).

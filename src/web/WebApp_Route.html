@@ -440,7 +440,8 @@ function planRoute(dest) {
     var r = plan.r;
     route.steps = MSCNPath.buildRouteSteps(g, MSCNPath.segmentRoute(g, MSCNPath.snapEnds(r, st.snap, goal.snap)), routeNames(goal.label));
     route.meters = r.distance;
-    if (st.kind === 'entrance' && g.nodes[r.nodeIds[0]] && g.nodes[r.nodeIds[0]].type === 'entrance') {
+    /* An automatic start by a side door names it: the visitor is not at the usual entrance. */
+    if (st.kind === 'entrance' && MSCNPath.isSideDoor(g, r.nodeIds[0])) {
       route.fromLabel = 'the ' + classedDoorName(g.nodes[r.nodeIds[0]], st.buildingId);
     }
     finishEnds(route, st, goal);
