@@ -175,7 +175,10 @@ function floorSeedSource_() {
   return floors && floors.length ? 'generated' : 'placeholder-empty';
 }
 
-/** Calls a generated seed function by name when it exists; [] otherwise. */
+/**
+ * Calls a generated seed function by name when it exists ([] otherwise), followed by its private counterpart from
+ * SeedFloorDataPrivate.gs (the hidden floors, never committed) when the local admin has loaded that file.
+ */
 function generatedRows_(fnName) {
   var fns = {
     getGeneratedFloorsSeed: typeof getGeneratedFloorsSeed === 'function' ? getGeneratedFloorsSeed : null,
@@ -183,8 +186,16 @@ function generatedRows_(fnName) {
     getGeneratedNavNodesSeed: typeof getGeneratedNavNodesSeed === 'function' ? getGeneratedNavNodesSeed : null,
     getGeneratedNavEdgesSeed: typeof getGeneratedNavEdgesSeed === 'function' ? getGeneratedNavEdgesSeed : null
   };
+  var privateFns = {
+    getGeneratedFloorsSeed: typeof getPrivateFloorsSeed === 'function' ? getPrivateFloorsSeed : null,
+    getGeneratedRoomsSeed: typeof getPrivateRoomsSeed === 'function' ? getPrivateRoomsSeed : null,
+    getGeneratedNavNodesSeed: typeof getPrivateNavNodesSeed === 'function' ? getPrivateNavNodesSeed : null,
+    getGeneratedNavEdgesSeed: typeof getPrivateNavEdgesSeed === 'function' ? getPrivateNavEdgesSeed : null
+  };
   var fn = fns[fnName];
-  return fn ? (fn() || []) : [];
+  var more = privateFns[fnName];
+  var rows = fn ? (fn() || []) : [];
+  return more ? rows.concat(more() || []) : rows;
 }
 
 /**

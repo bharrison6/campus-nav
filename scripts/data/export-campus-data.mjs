@@ -10,7 +10,9 @@
 //                                floors (public = false) and everything on them (rooms, nodes, edges touching those
 //                                nodes, indoor photos, QR locations); config is key/value rows and never holds
 //                                mapsApiKey (the site's config.json carries the key). The local admin still reads
-//                                getAllCampusData, hidden floors included. v4 map fields (campus-geo.mjs): entrance
+//                                getAllCampusData, hidden floors included (from the private location outside the
+//                                repository; this export never reads it, so the published files never depend on
+//                                it; tests pass a synthetic one as privateDir to check the filter). v4 map fields (campus-geo.mjs): entrance
 //                                nodes gain lat/lng from data/georef, indoor buildings' entrances are derived
 //                                from them, buildings carry levels (and height when set).
 //   <dir>/floors/<floorId>.svg   each public floor's plan (the FP_<floorId>.html asset, via getFloorPlanSvg)
@@ -36,8 +38,8 @@ export const CAMPUS_MAP_DIR = path.join(REPO, 'data', 'campus-map');
 export const isPublicFloor = (f) => !(f && (f.public === false || String(f.public).toLowerCase() === 'false'));
 
 /** The export as data (no files): { campus, floors: [{ id, svg }] (public floors only), missingPlans, report }. */
-export function buildExport({ gsDir, overridesDir = OVERRIDES_DIR, georefDir = GEOREF_DIR, campusMapDir = CAMPUS_MAP_DIR, extraCode, props } = {}) {
-  const engine = openCampus({ gsDir, overridesDir, extraCode, props });
+export function buildExport({ gsDir, overridesDir = OVERRIDES_DIR, georefDir = GEOREF_DIR, campusMapDir = CAMPUS_MAP_DIR, extraCode, props, privateDir } = {}) {
+  const engine = openCampus({ gsDir, overridesDir, extraCode, props, privateDir });
   const campus = engine.gas.run('getPublicCampusData', []);
   campus.config = campus.config.filter((c) => c.key !== 'mapsApiKey');
   const altFactor = publishAltFactor(campus);
@@ -80,8 +82,8 @@ function gitSha(env) {
 }
 
 /** Writes the export into outDir; returns { version, files, report, missingPlans, counts }. */
-export function exportCampusData({ outDir, overridesDir = OVERRIDES_DIR, georefDir = GEOREF_DIR, gsDir, extraCode, env = process.env, now = new Date() }) {
-  const x = buildExport({ gsDir, overridesDir, georefDir, extraCode });
+export function exportCampusData({ outDir, overridesDir = OVERRIDES_DIR, georefDir = GEOREF_DIR, gsDir, extraCode, privateDir, env = process.env, now = new Date() }) {
+  const x = buildExport({ gsDir, overridesDir, georefDir, extraCode, privateDir });
   const builtAt = env.SOURCE_DATE_EPOCH ? new Date(Number(env.SOURCE_DATE_EPOCH) * 1000).toISOString() : now.toISOString();
   fs.mkdirSync(path.join(outDir, 'floors'), { recursive: true });
   const files = [];

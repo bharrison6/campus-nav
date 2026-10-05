@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 // Regenerate floor-plan SVGs, floor JSON, the GAS floor-plan assets and SeedFloorData.gs from the DWGs.
 //   node scripts/floorplan-pipeline/run.mjs [--in <dwg dir>] [--out data/floorplans] [--gas tools/admin/gs]
-//        [--cache scripts/floorplan-pipeline/.cache] [--force-parse]
+//        [--private <dir>] [--cache scripts/floorplan-pipeline/.cache] [--force-parse]
 // The drawings are not in the repository: --in, else $MSCN_DWG_DIR, else <repo>/../drawings/dwg (config.mjs).
+// Nor are the hidden floors' outputs: --private, else $MSCN_PRIVATE_DIR, else `derived` beside the drawings folder.
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runPipeline } from './pipeline.mjs';
-import { DWG_DIR_ENV, hasDrawings, resolveDwgDir } from './config.mjs';
+import { DWG_DIR_ENV, HIDDEN_FLOORS, hasDrawings, resolveDwgDir, resolvePrivateDir } from './config.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '..', '..');
@@ -21,13 +22,16 @@ if (!hasDrawings(inDir)) {
   console.error(`DWG directory ${inDir} is missing or incomplete. Point ${DWG_DIR_ENV} (or --in) at the folder holding the drawings.`);
   process.exit(2);
 }
+const privateDir = opt('--private') ? path.resolve(repo, opt('--private')) : resolvePrivateDir(repo);
 console.log(`drawings: ${inDir}`);
+console.log(`hidden floors (${HIDDEN_FLOORS.map((f) => f.floorId).join(', ')}): ${privateDir}`);
 
 const started = Date.now();
 const { report } = runPipeline({
   inDir,
   outDir: path.resolve(repo, opt('--out', 'data/floorplans')),
   gasDir: path.resolve(repo, opt('--gas', 'tools/admin/gs')),
+  privateDir,
   cacheDir: path.resolve(repo, opt('--cache', 'scripts/floorplan-pipeline/.cache')),
   forceParse: argv.includes('--force-parse'),
 });

@@ -5,10 +5,12 @@
 //   gas.ctx.initSystem();                      // creates the in-memory spreadsheet and seeds it
 //   gas.run('getAllCampusData', []);           // what google.script.run would return (JSON-shaped)
 //
-//   makeRuntime(srcDir = GS_DIR, extraCode, { htmlDirs })
+//   makeRuntime(srcDir = GS_DIR, extraCode, { htmlDirs, gsDirs })
 //     srcDir    folder of .gs files (and the FP_*.html floor-plan assets HtmlService reads)
 //     extraCode code evaluated after the .gs files (tests override generated seeds this way)
 //     htmlDirs  further folders HtmlService looks in, after srcDir, for project HTML files
+//     gsDirs    further folders whose .gs files are evaluated after srcDir's, before extraCode (the hidden floors'
+//               private seed, SeedFloorDataPrivate.gs, for the local admin)
 //
 // Models what the backend relies on: SpreadsheetApp (tabs, ranges, getValues/setValues with the
 // Sheets coercion of numeric and boolean strings unless the column is plain text '@', the
@@ -172,6 +174,11 @@ function makeRuntime(srcDir, extraCode, opts) {
     throw new Error('gas-runtime: no .gs files in ' + srcDir + '. The backend lives in ' + GS_DIR + ' (GS_DIR) since v3.');
   }
   for (const f of files) vm.runInContext(fs.readFileSync(path.join(srcDir, f), 'utf8'), ctx, { filename: f });
+  for (const dir of (opts && opts.gsDirs) || []) {
+    for (const f of fs.readdirSync(dir).filter((x) => x.endsWith('.gs')).sort()) {
+      vm.runInContext(fs.readFileSync(path.join(dir, f), 'utf8'), ctx, { filename: path.join(dir, f) });
+    }
+  }
   if (extraCode) vm.runInContext(extraCode, ctx, { filename: 'extra.js' });
 
   /** Calls a server function the way google.script.run does: public names only, JSON-shaped result. */

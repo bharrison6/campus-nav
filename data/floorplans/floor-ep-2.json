@@ -33,13 +33,6 @@
      "floor-ep-2"
     ],
     "grossIoU": 0.997
-   },
-   {
-    "floors": [
-     "floor-ep-2",
-     "floor-ep-3"
-    ],
-    "grossIoU": 0.158
    }
   ]
  },

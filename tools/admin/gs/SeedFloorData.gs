@@ -4,29 +4,28 @@
  *
  * Coordinates are per-floor SVG units (DWG inches, origin at the floor's extents, y down).
  * metersPerPixel = meters per SVG unit. polygon is a JSON string of [x, y] pairs.
- * Floors 3 (IT mezzanine, EP penthouse) are public: false.
+ * The public floors only: the hidden ones (config.mjs public: false) are written to the private location
+ * (SeedFloorDataPrivate.gs, outside the repository).
  */
 
 /**
  * Floors rows.
  * Columns: id, buildingId, level, label, planAsset, widthPx, heightPx, metersPerPixel, public
- * @return {Array<Array>} 6 rows
+ * @return {Array<Array>} 4 rows
  */
 function getGeneratedFloorsSeed() {
   return [
     ["floor-it-1","bld-it",1,"First Floor","FP_floor_it_1",5172.1,3674.7,0.0254,true],
     ["floor-it-2","bld-it",2,"Second Floor","FP_floor_it_2",5184.9,3701.5,0.0254,true],
-    ["floor-it-3","bld-it",3,"Mezzanine","FP_floor_it_3",806.7,795.6,0.0254,false],
     ["floor-ep-1","bld-ep",1,"First Floor","FP_floor_ep_1",3375.8,3489.4,0.0254,true],
-    ["floor-ep-2","bld-ep",2,"Second Floor","FP_floor_ep_2",3405.4,3499.6,0.0254,true],
-    ["floor-ep-3","bld-ep",3,"Penthouse","FP_floor_ep_3",2070.8,1174.6,0.0254,false]
+    ["floor-ep-2","bld-ep",2,"Second Floor","FP_floor_ep_2",3405.4,3499.6,0.0254,true]
   ];
 }
 
 /**
  * Rooms rows (every AREA-ROOM and AREA-CHAS polygon).
  * Columns: id, floorId, number, label, type, polygon, centerX, centerY, searchable, access
- * @return {Array<Array>} 491 rows
+ * @return {Array<Array>} 486 rows
  */
 function getGeneratedRoomsSeed() {
   return [
@@ -346,7 +345,6 @@ function getGeneratedRoomsSeed() {
     ["room-it-2-0250M","floor-it-2","0250M","250M","mechanical","[[2031.2,3318.8],[2042.4,3312.3],[2042.4,3333.9],[2031.2,3333.9]]",2036.8,3323.1,false,""],
     ["room-it-2-0250N","floor-it-2","0250N","250N","mechanical","[[1816.3,3007.2],[1863.4,3007.2],[1863.4,2983.2],[1816.3,2983.2]]",1839.9,2995.2,false,""],
     ["room-it-2-0250R","floor-it-2","0250R","250R","mechanical","[[3577.9,3320.6],[3700.9,3320.6],[3700.9,3314.4],[3577.9,3314.4]]",3639.4,3317.5,false,""],
-    ["room-it-3-0301","floor-it-3","0301","301","other","[[465.9,752.3],[340.8,752.3],[223.4,709.5],[127.6,629.2],[65.1,520.9],[43.4,397.8],[65.1,274.7],[127.6,166.4],[223.4,86],[340.8,43.3],[465.9,43.3],[583.4,86],[679.1,166.4],[741.7,274.7],[763.4,397.8],[741.7,520.9],[679.1,629.2],[583.4,709.5],[465.9,752.3],[420.5,558.9],[415.2,498.5],[502.3,448.2],[547.7,471.3],[557.2,448.4],[563.2,424.3],[565.4,399.6],[563.7,374.8],[558.3,350.6],[549.3,327.4],[536.8,306],[521.2,286.6],[502.9,269.9],[482.1,256.2],[459.6,245.9],[435.7,239],[411.1,236],[386.3,236.7],[391.5,297.1],[304.5,347.4],[259,324.2],[249.5,347.2],[243.5,371.3],[241.4,396],[243,420.8],[248.4,445],[257.4,468.1],[269.9,489.6],[285.5,508.9],[303.9,525.6],[324.6,539.3],[347.1,549.7],[371,556.5],[395.6,559.6],[420.5,558.9]]",270.5,203.9,true,""],
     ["room-ep-1-1315","floor-ep-1","1315","1315","other","[[517.9,903.7],[527,903.7],[527,873.4],[541.8,873.4],[541.8,858.7],[572,858.7],[572,849.5],[699.8,849.5],[699.8,858.7],[729.8,858.7],[729.8,873.4],[745.7,873.4],[745.8,984.1],[729.8,984.1],[729.8,992.1],[753.8,992.1],[753.8,1137.4],[541.8,1137.4],[541.8,1121.4],[527,1121.4],[527,1113.4],[517.9,1113.4]]",626.6,1028.3,true,""],
     ["room-ep-1-1300E","floor-ep-1","1300E","1300E","other","[[873.8,858.7],[873.8,986.6],[753.8,986.6],[753.8,858.7]]",813.8,922.7,true,""],
     ["room-ep-1-1311F","floor-ep-1","1311F","1311F","other","[[881.8,1036.4],[1020.3,1036.4],[1020.3,858.7],[897.8,858.7],[897.8,873.4],[881.8,873.4]]",951,947.5,true,""],
@@ -516,18 +514,14 @@ function getGeneratedRoomsSeed() {
     ["room-ep-2-2300S","floor-ep-2","2300S","2300S","storage","[[1808.9,1650.8],[1863.9,1650.8],[1863.9,1682.8],[1808.9,1682.8]]",1836.4,1666.8,true,""],
     ["room-ep-2-2300P","floor-ep-2","2300P","2300P","other","[[1007.4,1314.8],[1097.4,1314.8],[1097.4,1387.3],[1007.4,1387.3]]",1052.4,1351.1,true,""],
     ["room-ep-2-2300T","floor-ep-2","2300T","2300T","other","[[2659.5,2756.3],[2729.4,2756.3],[2729.4,2844.8],[2659.5,2844.8]]",2694.4,2800.6,true,""],
-    ["room-ep-2-2311C","floor-ep-2","2311C","2311C","other","[[598.7,222.7],[598.7,372.2],[634.7,372.2],[698.4,357.5],[695.3,350.1],[726.7,337.1],[726.7,257.8],[695.3,244.7],[698.4,237.4],[634.7,202.7],[634.7,222.7]]",661.7,297.7,true,""],
-    ["room-ep-3-3300F","floor-ep-3","3300F","3300F","stair","[[405.4,282.5],[405.4,187.1],[387.9,187.1],[387.9,118.8],[70.9,118.8],[70.9,282.5]]",238.1,200.6,true,""],
-    ["room-ep-3-3300","floor-ep-3","3300","3300","other","[[411.4,181.6],[411.4,366.6],[540,366.6],[540,398.6],[532,398.6],[532,454.6],[540,454.6],[540,486.6],[532,486.6],[532,622.6],[608,622.6],[608,770.6],[808,770.6],[808,756.6],[820,756.6],[820,736.6],[892,736.6],[892,768.6],[1596,768.6],[1832,768.6],[1832,756.6],[1847.4,756.6],[1847.4,184.6],[1832,184.6],[1832,172.6],[608,172.6],[608,318.6],[524,318.6],[524,181.6]]",1325.9,470.5,true,""],
-    ["room-ep-3-3300Z","floor-ep-3","3300Z","3300Z","elevator","[[773,796.2],[790.2,796.2],[790.2,890.5],[724,890.5],[724,796.2],[725,796.2],[725,791.4],[773,791.4]]",757.1,840.9,true,""],
-    ["room-ep-3-3300A","floor-ep-3","3300A","3300A","storage","[[828,744.6],[828,768.6],[884,768.6],[884,744.6]]",856,756.6,true,""]
+    ["room-ep-2-2311C","floor-ep-2","2311C","2311C","other","[[598.7,222.7],[598.7,372.2],[634.7,372.2],[698.4,357.5],[695.3,350.1],[726.7,337.1],[726.7,257.8],[695.3,244.7],[698.4,237.4],[634.7,202.7],[634.7,222.7]]",661.7,297.7,true,""]
   ];
 }
 
 /**
  * NavNodes rows.
  * Columns: id, floorId, x, y, type, roomId, linkId, access
- * @return {Array<Array>} 1845 rows
+ * @return {Array<Array>} 1820 rows
  */
 function getGeneratedNavNodesSeed() {
   return [
@@ -1598,7 +1592,6 @@ function getGeneratedNavNodesSeed() {
     ["it-2-n0573","floor-it-2",1523,1958.4,"waypoint","","","main"],
     ["it-2-n0562","floor-it-2",4122.6,2846.5,"door","","","main"],
     ["it-2-n0563","floor-it-2",3705.7,3325.5,"door","","","main"],
-    ["it-3-n0001","floor-it-3",270.5,203.9,"room","room-it-3-0301","",""],
     ["ep-1-n0001","floor-ep-1",626.6,1028.3,"room","room-ep-1-1315","",""],
     ["ep-1-n0002","floor-ep-1",813.8,922.7,"room","room-ep-1-1300E","",""],
     ["ep-1-n0003","floor-ep-1",951,947.5,"room","room-ep-1-1311F","",""],
@@ -2351,38 +2344,14 @@ function getGeneratedNavNodesSeed() {
     ["ep-2-n0364","floor-ep-2",2321.4,2800.4,"door","","","main"],
     ["ep-2-n0365","floor-ep-2",2271.4,2800.4,"waypoint","","","main"],
     ["ep-2-n0366","floor-ep-2",1099.4,1823.6,"door","","","main"],
-    ["ep-2-n0367","floor-ep-2",2415.4,1348.8,"door","","","main"],
-    ["ep-3-n0001","floor-ep-3",238.1,200.6,"stair","room-ep-3-3300F","ep-stair-2",""],
-    ["ep-3-n0002","floor-ep-3",1325.9,470.5,"room","room-ep-3-3300","",""],
-    ["ep-3-n0003","floor-ep-3",757.1,840.9,"elevator","room-ep-3-3300Z","ep-elevator-1",""],
-    ["ep-3-n0004","floor-ep-3",856,756.6,"room","room-ep-3-3300A","",""],
-    ["ep-3-n0005","floor-ep-3",152.9,200.8,"waypoint","","","main"],
-    ["ep-3-n0006","floor-ep-3",356.9,232.8,"waypoint","","","main"],
-    ["ep-3-n0007","floor-ep-3",304.9,200.8,"waypoint","","","main"],
-    ["ep-3-n0008","floor-ep-3",336.9,232.8,"waypoint","","","main"],
-    ["ep-3-n0009","floor-ep-3",465.4,238.6,"waypoint","","","main"],
-    ["ep-3-n0010","floor-ep-3",1557.4,470.6,"waypoint","","","main"],
-    ["ep-3-n0011","floor-ep-3",465.4,306.6,"waypoint","","","main"],
-    ["ep-3-n0012","floor-ep-3",497.4,338.6,"waypoint","","","main"],
-    ["ep-3-n0013","floor-ep-3",561.4,338.6,"waypoint","","","main"],
-    ["ep-3-n0014","floor-ep-3",689.4,466.6,"waypoint","","","main"],
-    ["ep-3-n0015","floor-ep-3",931.4,460.6,"waypoint","","","main"],
-    ["ep-3-n0016","floor-ep-3",1173.4,454.6,"waypoint","","","main"],
-    ["ep-3-n0017","floor-ep-3",1189.4,470.6,"waypoint","","","main"],
-    ["ep-3-n0018","floor-ep-3",1373.4,470.6,"waypoint","","","main"],
-    ["ep-3-n0019","floor-ep-3",408.4,206.8,"door","","","main"],
-    ["ep-3-n0020","floor-ep-3",856,740.6,"door","","","main"],
-    ["ep-3-n0021","floor-ep-3",849.1,462.7,"waypoint","","","main"],
-    ["ep-3-n0022","floor-ep-3",1855.5,704.6,"entrance","","","alt"],
-    ["ep-3-n0023","floor-ep-3",770,791.4,"door","","","main"],
-    ["ep-3-n0024","floor-ep-3",761.9,464.8,"waypoint","","","main"]
+    ["ep-2-n0367","floor-ep-2",2415.4,1348.8,"door","","","main"]
   ];
 }
 
 /**
  * NavEdges rows (distance in meters; cross-floor edges last).
  * Columns: id, fromNodeId, toNodeId, distance, floorChange, accessible
- * @return {Array<Array>} 1965 rows
+ * @return {Array<Array>} 1940 rows
  */
 function getGeneratedNavEdgesSeed() {
   return [
@@ -4318,38 +4287,13 @@ function getGeneratedNavEdgesSeed() {
     ["ep-2-e0381","ep-2-n0366","ep-2-n0051",1.46,false,true],
     ["ep-2-e0382","ep-2-n0367","ep-2-n0056",0.77,false,true],
     ["ep-2-e0383","ep-2-n0367","ep-2-n0187",1.07,false,true],
-    ["ep-3-e0001","ep-3-n0007","ep-3-n0008",1.15,false,true],
-    ["ep-3-e0002","ep-3-n0008","ep-3-n0006",0.51,false,true],
-    ["ep-3-e0003","ep-3-n0009","ep-3-n0011",1.73,false,true],
-    ["ep-3-e0004","ep-3-n0011","ep-3-n0012",1.15,false,true],
-    ["ep-3-e0005","ep-3-n0012","ep-3-n0013",1.63,false,true],
-    ["ep-3-e0006","ep-3-n0013","ep-3-n0014",4.6,false,true],
-    ["ep-3-e0007","ep-3-n0015","ep-3-n0016",6.15,false,true],
-    ["ep-3-e0008","ep-3-n0016","ep-3-n0017",0.57,false,true],
-    ["ep-3-e0009","ep-3-n0018","ep-3-n0010",4.67,false,true],
-    ["ep-3-e0010","ep-3-n0005","ep-3-n0001",2.17,false,true],
-    ["ep-3-e0011","ep-3-n0001","ep-3-n0007",1.7,false,true],
-    ["ep-3-e0012","ep-3-n0017","ep-3-n0002",3.47,false,true],
-    ["ep-3-e0013","ep-3-n0002","ep-3-n0018",1.21,false,true],
-    ["ep-3-e0014","ep-3-n0019","ep-3-n0006",1.47,false,true],
-    ["ep-3-e0015","ep-3-n0019","ep-3-n0009",1.66,false,true],
-    ["ep-3-e0016","ep-3-n0021","ep-3-n0015",2.09,false,true],
-    ["ep-3-e0017","ep-3-n0020","ep-3-n0021",7.06,false,true],
-    ["ep-3-e0018","ep-3-n0020","ep-3-n0004",0.41,false,true],
-    ["ep-3-e0019","ep-3-n0022","ep-3-n0010",9.63,false,true],
-    ["ep-3-e0020","ep-3-n0014","ep-3-n0024",1.84,false,true],
-    ["ep-3-e0021","ep-3-n0024","ep-3-n0021",2.22,false,true],
-    ["ep-3-e0022","ep-3-n0023","ep-3-n0024",8.3,false,true],
-    ["ep-3-e0023","ep-3-n0023","ep-3-n0003",1.3,false,true],
     ["it-x001","it-1-n0047","it-2-n0064",10,true,false],
     ["it-x002","it-1-n0030","it-2-n0052",10,true,false],
     ["it-x003","it-1-n0050","it-2-n0062",14,true,true],
     ["it-x004","it-1-n0106","it-2-n0050",14,true,true],
     ["ep-x005","ep-1-n0070","ep-2-n0052",10,true,false],
     ["ep-x006","ep-1-n0074","ep-2-n0062",10,true,false],
-    ["ep-x007","ep-2-n0062","ep-3-n0001",10,true,false],
     ["ep-x008","ep-1-n0067","ep-2-n0047",10,true,false],
-    ["ep-x009","ep-1-n0069","ep-2-n0051",14,true,true],
-    ["ep-x010","ep-2-n0051","ep-3-n0003",14,true,true]
+    ["ep-x009","ep-1-n0069","ep-2-n0051",14,true,true]
   ];
 }

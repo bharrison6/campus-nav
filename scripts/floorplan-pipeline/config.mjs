@@ -43,3 +43,43 @@ export function resolveDwgDir(repoRoot, env = process.env) {
 export function hasDrawings(dir, floors = FLOORS) {
   return fs.existsSync(dir) && floors.every((f) => fs.existsSync(path.join(dir, f.file)));
 }
+
+/** The floors the site never serves (public: false). */
+export const HIDDEN_FLOORS = FLOORS.filter((f) => !f.public);
+
+/**
+ * Where the non-public floors' outputs live. The repository is public, so the pipeline writes everything of a hidden
+ * floor (its plan JSON and SVG, its plan asset, its seed rows, the cross-floor edges that touch it and the full report)
+ * outside it: MSCN_PRIVATE_DIR, else `derived` beside the drawings folder (`<scope>/drawings/derived`, next to
+ * `<scope>/drawings/dwg`). A fresh clone and CI have no such folder, and nothing needs it there: the public build never
+ * reads it; the local admin shows the hidden floors when it is present.
+ *   <private>/floorplans/<floorId>.json|svg, cross-floor-edges.json, pipeline-report.json
+ *   <private>/gs/FP_<floorId>.html, SeedFloorDataPrivate.gs
+ */
+export const PRIVATE_DIR_ENV = 'MSCN_PRIVATE_DIR';
+
+export function resolvePrivateDir(repoRoot, env = process.env) {
+  const v = env[PRIVATE_DIR_ENV];
+  return v ? path.resolve(repoRoot, v) : path.resolve(resolveDwgDir(repoRoot, env), '..', 'derived');
+}
+
+/** The two folders of the private location. */
+export function privatePaths(privateDir) {
+  return { floorplans: path.join(privateDir, 'floorplans'), gs: path.join(privateDir, 'gs') };
+}
+
+/**
+ * Patterns that name a hidden floor or anything on it: the floor id, its plan asset, its room ids
+ * (room-<bldg>-<level>-...) and its node ids (<bldg>-<level>-n0001). The committed-files guard uses them.
+ */
+export function hiddenFloorPatterns(floors = HIDDEN_FLOORS) {
+  return floors.flatMap((f) => {
+    const tag = `${f.bldg}-${f.level}`;
+    return [
+      new RegExp(`\\b${f.floorId}\\b`),
+      new RegExp(`\\b${planAssetName(f.floorId)}\\b`),
+      new RegExp(`\\broom-${tag}-`),
+      new RegExp(`(?<![\\w-])${tag}-n\\d`),
+    ];
+  });
+}

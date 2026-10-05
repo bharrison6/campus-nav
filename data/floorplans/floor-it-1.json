@@ -33,13 +33,6 @@
      "floor-it-2"
     ],
     "grossIoU": 0.841
-   },
-   {
-    "floors": [
-     "floor-it-2",
-     "floor-it-3"
-    ],
-    "grossIoU": 0.047
    }
   ]
  },

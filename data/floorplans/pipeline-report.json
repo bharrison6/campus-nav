@@ -117,43 +117,6 @@
     "tagAreaAgreement": "170/170 rooms match their RMAREA tag (computed with inches)"
    }
   },
-  "floor-it-3": {
-   "counts": {
-    "rooms": 1,
-    "roomsByType": {
-     "other": 1
-    },
-    "matchedLabels": 1,
-    "doors": 0,
-    "openings": 0,
-    "areaLines": 0,
-    "inferredPassages": 0,
-    "entrances": 0,
-    "verticals": 0,
-    "nodes": 1,
-    "edges": 0,
-    "blindCorridorAttachments": 0,
-    "unreachableRooms": 1,
-    "isolatedEntrances": 0,
-    "svgBytes": 3268,
-    "wallSegments": 58,
-    "fixtureSegments": 0,
-    "droppedSegments": 0
-   },
-   "unreachable": [
-    {
-     "room": "room-it-3-0301",
-     "number": "0301"
-    }
-   ],
-   "isolatedEntrances": [],
-   "inferredPassages": [],
-   "units": {
-    "medianDoorLeafUnits": 0,
-    "medianRoomAreaSqFt": 0,
-    "tagAreaAgreement": "1/1 rooms match their RMAREA tag (computed with inches)"
-   }
-  },
   "floor-ep-1": {
    "counts": {
     "rooms": 88,
@@ -264,46 +227,6 @@
     "medianDoorLeafUnits": 36,
     "medianRoomAreaSqFt": 151,
     "tagAreaAgreement": "82/82 rooms match their RMAREA tag (computed with inches)"
-   }
-  },
-  "floor-ep-3": {
-   "counts": {
-    "rooms": 4,
-    "roomsByType": {
-     "stair": 1,
-     "other": 1,
-     "elevator": 1,
-     "storage": 1
-    },
-    "matchedLabels": 4,
-    "doors": 2,
-    "openings": 0,
-    "areaLines": 0,
-    "inferredPassages": 1,
-    "entrances": 1,
-    "verticals": 2,
-    "nodes": 24,
-    "edges": 23,
-    "blindCorridorAttachments": 1,
-    "unreachableRooms": 0,
-    "isolatedEntrances": 0,
-    "svgBytes": 19407,
-    "wallSegments": 366,
-    "fixtureSegments": 222,
-    "droppedSegments": 14
-   },
-   "unreachable": [],
-   "isolatedEntrances": [],
-   "inferredPassages": [
-    {
-     "room": "3300Z",
-     "to": "3300"
-    }
-   ],
-   "units": {
-    "medianDoorLeafUnits": 36,
-    "medianRoomAreaSqFt": 372,
-    "tagAreaAgreement": "4/4 rooms match their RMAREA tag (computed with inches)"
    }
   }
  },
@@ -419,12 +342,6 @@
      "level": 2,
      "number": "2300F",
      "why": "footprint stacked on stair 1300F (IoU 0.96)"
-    },
-    {
-     "floorId": "floor-ep-3",
-     "level": 3,
-     "number": "3300F",
-     "why": "footprint stacked on stair 1300F (IoU 0.99)"
     }
    ]
   },
@@ -463,12 +380,6 @@
      "level": 2,
      "number": "2300Z",
      "why": "stacked 40-110 sf shaft on every floor with no door swing (sliding doors)"
-    },
-    {
-     "floorId": "floor-ep-3",
-     "level": 3,
-     "number": "3300Z",
-     "why": "stacked 40-110 sf shaft on every floor with no door swing (sliding doors)"
     }
    ]
   }
@@ -481,13 +392,6 @@
      "floor-it-2"
     ],
     "grossIoU": 0.841
-   },
-   {
-    "floors": [
-     "floor-it-2",
-     "floor-it-3"
-    ],
-    "grossIoU": 0.047
    }
   ],
   "ep": [
@@ -497,17 +401,10 @@
      "floor-ep-2"
     ],
     "grossIoU": 0.997
-   },
-   {
-    "floors": [
-     "floor-ep-2",
-     "floor-ep-3"
-    ],
-    "grossIoU": 0.158
    }
   ]
  },
- "crossFloorEdges": 10,
+ "crossFloorEdges": 8,
  "circulation": {
   "floor-it-1": [
    {
@@ -545,7 +442,6 @@
     "why": "open link between 2 hallways (area lines or openings, no door)"
    }
   ],
-  "floor-it-3": [],
   "floor-ep-1": [
    {
     "number": "1311",
@@ -573,8 +469,7 @@
     "number": "2300",
     "why": "circulation number 2300 with passages to 3 spaces, 2 of them hallways"
    }
-  ],
-  "floor-ep-3": []
+  ]
  },
- "seedFloorDataBytes": 387178
+ "seedFloorDataBytes": 382051
 }
