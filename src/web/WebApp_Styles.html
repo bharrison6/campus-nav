@@ -514,6 +514,37 @@
   .route-nav .btn { flex: 1; }
   .route-options { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0 12px; margin-top: 4px; }
   .route-options .switch { font-size: 0.9rem; }
+  .route-step .why { font-size: 0.85rem; margin-top: 4px; padding-left: 8px; border-left: 3px solid var(--door-alt); color: var(--text); }
+  /* Reroute: a button beside "Avoid stairs" opening the choices that fit the step on screen. */
+  .route-reroute {
+    display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 12px; border-radius: 10px;
+    border: 1px solid var(--border); background: var(--surface-2); color: var(--link); font: inherit; font-size: 0.9rem; font-weight: 700;
+  }
+  .route-reroute svg { width: 18px; height: 18px; fill: currentColor; }
+  .route-reroute[aria-expanded="true"] { background: var(--link); border-color: var(--link); color: var(--surface); }
+  .route-reroute:disabled { color: var(--muted); opacity: 0.6; }
+  .route-reroute-menu { display: grid; gap: 6px; margin: 6px 0 2px; }
+  .route-reroute-menu[hidden] { display: none; }
+  .reroute-opt {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 1px; width: 100%; min-height: 44px; padding: 6px 12px;
+    border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font: inherit; text-align: left;
+  }
+  .reroute-opt strong { font-size: 0.9rem; }
+  .reroute-opt span { font-size: 0.8rem; color: var(--muted); }
+  .reroute-opt:hover { background: var(--surface-2); }
+  /* The entrance choice: three radios as one segmented control. */
+  .route-entrance { border: 0; margin: 6px 0 0; padding: 0; min-width: 0; }
+  .route-entrance legend { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 700; padding: 0; margin-bottom: 2px; }
+  .route-entrance .seg { display: flex; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--surface-2); }
+  .route-entrance label { flex: 1 1 0; min-width: 0; position: relative; display: flex; }
+  .route-entrance label + label { border-left: 1px solid var(--border); }
+  .route-entrance input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  .route-entrance span {
+    flex: 1; display: flex; align-items: center; justify-content: center; text-align: center; min-height: 40px; padding: 2px 6px;
+    font-size: 0.82rem; font-weight: 650; line-height: 1.15; cursor: pointer; color: var(--text);
+  }
+  .route-entrance input:checked + span { background: var(--link); color: var(--surface); }
+  .route-entrance input:focus-visible + span { outline: 3px solid var(--focus); outline-offset: -3px; }
   .route-options-links { margin-top: 0; font-size: 0.85rem; align-items: flex-start; }
   .route-legend { flex: 1 1 auto; min-width: 0; }
   .route-legend summary { cursor: pointer; min-height: 32px; display: flex; align-items: center; color: var(--link); font-weight: 650; }

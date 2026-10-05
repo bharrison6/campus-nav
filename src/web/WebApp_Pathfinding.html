@@ -19,8 +19,14 @@
  *
  * v5 access classes (plan mscn-v5-access-classes-and-editors): doors, entrances, waypoints (and so hallways) and outdoor
  * edges are main, alt or emergency (accessOf). A route walks main at its length, alt at its length times
- * opts.altFactor (default 3), pays opts.altDoorCost meters (default 300) once for each alt door or entrance it passes
- * through, and never walks through emergency. The "Use side doors and paths" toggle passes factor 1 and door cost 0.
+ * opts.altFactor (default 3), and never walks through emergency.
+ *
+ * v5.1 confusion (plan mscn-v5-1-route-choice-and-private-floors): an indoor walk also pays, in meters, for what makes
+ * it hard to follow: opts.turnCost per turn sharper than 45 degrees, opts.floorChangeCost per stair or elevator ride,
+ * opts.junctionCost per hallway junction passed, opts.roomCost per room walked through; and each side (alt) door or
+ * entrance passed through costs opts.sideDoorCost. So a side door wins when it makes the way to the room simpler, not
+ * when it only saves a little walking. opts.avoidNodes / opts.avoidEdges ({id: true}) keep a route off doors and path
+ * segments (Front door only, a locked door, a blocked path); nothing ever opens emergency.
  */
 var MSCNPath = (function () {
   'use strict';
@@ -28,7 +34,12 @@ var MSCNPath = (function () {
   var DEFAULT_MPP = 0.0254;
   var WALK_SPEED_MPS = 1.3;
   var DEFAULT_ALT_FACTOR = 3;
-  var DEFAULT_ALT_DOOR_COST = 300;
+  /* The v5.1 cost model in meters, one set with the export (scripts/data/access.mjs ROUTING_WEIGHTS; README "How a route
+     is chosen"), measured on the real campus. */
+  var DEFAULTS = { turnCost: 15, floorChangeCost: 120, junctionCost: 8, roomCost: 15, sideDoorCost: 300 };
+  var TURN_DEGREES = 45;
+  /* An indoor edge shorter than this has no direction worth calling a turn (door swings, snapped hub links). */
+  var TURN_MIN_METERS = 0.75;
 
   function toBool(v, dflt) {
     if (v === true || v === false) { return v; }
@@ -94,9 +105,16 @@ var MSCNPath = (function () {
     return f >= 1 ? f : 1;
   }
 
-  function altDoorCostOf(opts) {
-    var c = num(opts && opts.altDoorCost, DEFAULT_ALT_DOOR_COST);
+  /* A cost-model weight from opts (meters, at least 0), else its default. */
+  function weightOf(opts, key) {
+    var c = num(opts && opts[key], DEFAULTS[key]);
     return c > 0 ? c : 0;
+  }
+
+  function weightsOf(opts) {
+    var w = {};
+    for (var k in DEFAULTS) { if (DEFAULTS.hasOwnProperty(k)) { w[k] = weightOf(opts, k); } }
+    return w;
   }
 
   function floorMpp(floors, floorId) {
@@ -227,6 +245,140 @@ var MSCNPath = (function () {
 
   var GOAL = '\u0000goal';
 
+  /* A hallway point: a waypoint, stair or elevator node indoors. */
+  function isHallPoint(n) { return !!n && !n.outdoor && (n.type === 'waypoint' || n.type === 'stair' || n.type === 'elevator'); }
+
+  /* A hallway junction: a waypoint where three or more hallway ways meet (doors into rooms do not count). */
+  function junctionAt(graph, nid) {
+    var n = graph.nodes[nid];
+    if (!n || n.outdoor || n.type !== 'waypoint') { return false; }
+    if (!graph.junctions) { graph.junctions = {}; }
+    if (graph.junctions.hasOwnProperty(nid)) { return graph.junctions[nid]; }
+    var seen = {};
+    var c = 0;
+    var a = graph.adj[nid] || [];
+    for (var i = 0; i < a.length; i++) {
+      var m = graph.nodes[a[i].to];
+      if (a[i].outdoor || seen[a[i].to] || !isHallPoint(m) || m.floorId !== n.floorId) { continue; }
+      seen[a[i].to] = true;
+      c++;
+    }
+    graph.junctions[nid] = c >= 3;
+    return graph.junctions[nid];
+  }
+
+  /* Is a -> b -> c a turn: sharper than TURN_DEGREES, on one floor, both legs long enough to have a direction? */
+  function turnAt(graph, aId, bId, cId) {
+    var a = graph.nodes[aId];
+    var b = graph.nodes[bId];
+    var c = graph.nodes[cId];
+    if (!a || !b || !c || a.outdoor || b.outdoor || c.outdoor || a.floorId !== b.floorId || b.floorId !== c.floorId) { return false; }
+    var m = floorMpp(graph.floors, b.floorId);
+    var x1 = (num(b.x, 0) - num(a.x, 0)) * m;
+    var y1 = (num(b.y, 0) - num(a.y, 0)) * m;
+    var x2 = (num(c.x, 0) - num(b.x, 0)) * m;
+    var y2 = (num(c.y, 0) - num(b.y, 0)) * m;
+    var l1 = Math.sqrt(x1 * x1 + y1 * y1);
+    var l2 = Math.sqrt(x2 * x2 + y2 * y2);
+    if (l1 < TURN_MIN_METERS || l2 < TURN_MIN_METERS) { return false; }
+    return (x1 * x2 + y1 * y2) / (l1 * l2) < Math.cos(TURN_DEGREES * Math.PI / 180);
+  }
+
+  function floorChange(graph, aId, bId) {
+    var a = graph.nodes[aId];
+    var b = graph.nodes[bId];
+    return !!a && !!b && !a.outdoor && !b.outdoor && a.floorId !== b.floorId;
+  }
+
+  /* An alt door or entrance (a side door). */
+  function isSideDoor(graph, nid) {
+    var n = graph.nodes[nid];
+    return !!n && (n.type === 'door' || n.type === 'entrance') && accessOf(n) === 'alt';
+  }
+
+  /*
+   * The confusion of stepping from cur to next, having come from prev (null at the start), as counts
+   * {turns, floorChanges, junctions, rooms}. A stair or elevator ride through several floors is one floor change.
+   */
+  function stepConfusion(graph, prev, cur, next) {
+    var out = { turns: 0, floorChanges: 0, junctions: 0, rooms: 0 };
+    if (floorChange(graph, cur, next)) {
+      if (!(prev && floorChange(graph, prev, cur))) { out.floorChanges = 1; }
+      return out;
+    }
+    if (!prev) { return out; }
+    if (turnAt(graph, prev, cur, next)) { out.turns = 1; }
+    if (junctionAt(graph, cur)) { out.junctions = 1; }
+    var c = graph.nodes[cur];
+    if (c && !c.outdoor && c.type === 'room') { out.rooms = 1; }
+    return out;
+  }
+
+  /*
+   * routeConfusion(graph, route) -> {turns, floorChanges, junctions, rooms, sideDoors, indoorMeters}
+   *   What findPath priced along a route, as counts (for the step that says why a side door was chosen).
+   */
+  function routeConfusion(graph, route) {
+    var ids = route && route.nodeIds ? route.nodeIds : [];
+    var t = { turns: 0, floorChanges: 0, junctions: 0, rooms: 0, sideDoors: 0, indoorMeters: 0 };
+    for (var i = 0; i < ids.length; i++) {
+      if (isSideDoor(graph, ids[i])) { t.sideDoors++; }
+      if (i === ids.length - 1) { break; }
+      var c = stepConfusion(graph, i > 0 ? ids[i - 1] : null, ids[i], ids[i + 1]);
+      t.turns += c.turns; t.floorChanges += c.floorChanges; t.junctions += c.junctions; t.rooms += c.rooms;
+      var e = stepEdge(graph, ids[i], ids[i + 1]);
+      if (e && !e.outdoor) { t.indoorMeters += e.cost; }
+    }
+    return t;
+  }
+
+  /*
+   * The graph as arrays for findPath (built once, rebuilt when nodes or edges are added): per node its id, floor,
+   * position in meters and what the confusion score asks of it (classes are read per search); per directed edge (node n's adjacency entries
+   * base[n] .. base[n + 1] - 1) its ends, the adjacency entry and its direction in meters.
+   */
+  function indexed(graph) {
+    var count = 0;
+    var nid;
+    for (nid in graph.adj) { if (graph.adj.hasOwnProperty(nid)) { count += graph.adj[nid].length + 1; } }
+    var ix = graph._ix;
+    if (ix && ix.sig === count && ix.nodesRef === graph.nodes) { return ix; }
+    ix = { sig: count, nodesRef: graph.nodes, ids: [], at: {}, base: [], to: [], from: [], edge: [], len: [], dx: [], dy: [],
+      floor: [], xm: [], ym: [], outdoor: [], junction: [], room: [] };
+    for (nid in graph.nodes) {
+      if (!graph.nodes.hasOwnProperty(nid)) { continue; }
+      var n = graph.nodes[nid];
+      var m = n.outdoor ? 0 : floorMpp(graph.floors, n.floorId);
+      ix.at[nid] = ix.ids.length;
+      ix.ids.push(nid);
+      ix.floor.push(n.outdoor ? null : n.floorId);
+      ix.xm.push(num(n.x, 0) * m);
+      ix.ym.push(num(n.y, 0) * m);
+      ix.outdoor.push(!!n.outdoor);
+      ix.junction.push(junctionAt(graph, nid));
+      ix.room.push(!n.outdoor && n.type === 'room');
+    }
+    for (var i = 0; i < ix.ids.length; i++) {
+      ix.base.push(ix.to.length);
+      var a = graph.adj[ix.ids[i]] || [];
+      for (var k = 0; k < a.length; k++) {
+        var t = ix.at[a[k].to];
+        if (t === undefined) { continue; }
+        var dx = ix.xm[t] - ix.xm[i];
+        var dy = ix.ym[t] - ix.ym[i];
+        ix.to.push(t);
+        ix.from.push(i);
+        ix.edge.push(a[k]);
+        ix.dx.push(dx);
+        ix.dy.push(dy);
+        ix.len.push(ix.floor[t] === ix.floor[i] ? Math.sqrt(dx * dx + dy * dy) : 0);
+      }
+    }
+    ix.base.push(ix.to.length);
+    graph._ix = ix;
+    return ix;
+  }
+
   /*
    * findPath(graph, starts, goals, opts) -> route | null
    *   starts / goals: a node id, an array of ids, or an array of {id, cost} (multi-source / multi-goal; cost is the
@@ -234,95 +386,150 @@ var MSCNPath = (function () {
    *   opts.accessibleOnly: skip edges with accessible === false (indoor stairs, outdoor steps).
    *   opts.indoorOnly: skip the outdoor edges (can these doors reach the goal without going outside?).
    *   opts.altFactor: the weight of an alt edge or an edge touching an alt node (default 3, at least 1).
-   *   opts.altDoorCost: meters added once for each alt door or entrance node the route enters (default 300, at least 0),
-   *   on top of the factor, so a route takes a side door only when it saves that much or nothing main gets there.
+   *   opts.turnCost, floorChangeCost, junctionCost, roomCost: meters added per indoor turn, floor change, hallway
+   *   junction passed and room walked through (defaults in DEFAULTS; 0 turns that part off).
+   *   opts.sideDoorCost: meters added once for each alt door or entrance on the route, its start and end included.
+   *   opts.avoidNodes / opts.avoidEdges: {id: true}, never walked (Front door only, a locked door, a blocked path).
    *   opts.allowEmergency: walk emergency nodes and edges too (only to tell "no route without an emergency exit").
    *   Without allowEmergency no emergency node or edge is ever on a route, not even as its start or goal (a code
    *   scanned at an emergency door starts from nearestOpenNode instead).
    *   route = { nodeIds, nodes, distance (meters, including both end costs), cost (the weighted search cost),
    *             startCost, goalCost }
+   * The search runs over directed edges (where the walk came from) so that a turn can be priced; with no turn, floor
+   * change, junction or room cost it is the plain search over nodes. Outdoor nodes are one state each either way.
    */
   function findPath(graph, startIds, goalIds, opts) {
     opts = opts || {};
     var starts = toEndpoints(graph, startIds);
     var goals = toEndpoints(graph, goalIds);
     if (!starts || !goals) { return null; }
+    var ix = indexed(graph);
+    var N = ix.ids.length;
+    var D = ix.to.length;
     var goalList = [];
     var id;
     for (id in goals) { if (goals.hasOwnProperty(id)) { goalList.push(id); } }
     var single = goalList.length === 1 ? graph.nodes[goalList[0]] : null;
     var factor = altFactorOf(opts);
-    var doorCost = altDoorCostOf(opts);
-    var memo = {};
-    function cls(nid) {
-      if (!memo.hasOwnProperty(nid)) { memo[nid] = accessOf(graph.nodes[nid]); }
-      return memo[nid];
+    var w = weightsOf(opts);
+    var shaped = w.turnCost > 0 || w.floorChangeCost > 0 || w.junctionCost > 0 || w.roomCost > 0;
+    var cosTurn = Math.cos(TURN_DEGREES * Math.PI / 180);
+    var avoidN = opts.avoidNodes || {};
+    var avoidE = opts.avoidEdges || {};
+    var emergencyOk = !!opts.allowEmergency;
+    var blocked = [];
+    var goalAt = [];
+    var cls = [];
+    var side = [];
+    var i;
+    for (i = 0; i < N; i++) {
+      cls.push(accessOf(graph.nodes[ix.ids[i]]));
+      side.push(isSideDoor(graph, ix.ids[i]));
+      blocked.push((!emergencyOk && cls[i] === 'emergency') || (avoidN.hasOwnProperty(ix.ids[i]) && !!avoidN[ix.ids[i]]));
+      goalAt.push(-1);
     }
-    function altDoor(nid) {
-      var t = graph.nodes[nid] && graph.nodes[nid].type;
-      return (t === 'door' || t === 'entrance') && cls(nid) === 'alt';
-    }
+    for (id in goals) { if (goals.hasOwnProperty(id)) { goalAt[ix.at[id]] = goals[id]; } }
 
     /* Planar distance on the goal's own floor, else 0: consistent across floors and the outdoor graph. */
-    function h(nid) {
-      if (!single || single.outdoor) { return 0; }
-      var n = graph.nodes[nid];
-      if (!n || n.outdoor || n.floorId !== single.floorId) { return 0; }
-      return planarMeters(graph.floors, n, single);
+    var gi = single && !single.outdoor ? ix.at[single.id] : -1;
+    function h(n) {
+      if (gi < 0 || ix.outdoor[n] || ix.floor[n] !== ix.floor[gi]) { return 0; }
+      var dx = ix.xm[n] - ix.xm[gi];
+      var dy = ix.ym[n] - ix.ym[gi];
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+    /* State s < D: at to[s], having walked directed edge s; state D + n: at node n (a start, an outdoor node, or any
+       node when the shape is not priced). */
+    function stateOf(d) { var n = ix.to[d]; return shaped && !ix.outdoor[n] ? d : D + n; }
+    function confusion(d, cur, next, nd) {
+      /* d: the directed edge into cur (-1 at a start); nd: the directed edge cur -> next. */
+      if (ix.outdoor[cur] || ix.outdoor[next]) { return 0; }
+      var c = 0;
+      var from = d >= 0 ? ix.from[d] : -1;
+      if (ix.floor[cur] !== ix.floor[next]) {
+        return from >= 0 && !ix.outdoor[from] && ix.floor[from] !== ix.floor[cur] ? 0 : w.floorChangeCost;
+      }
+      if (from < 0) { return 0; }
+      if (w.turnCost && !ix.outdoor[from] && ix.floor[from] === ix.floor[cur] && ix.len[d] >= TURN_MIN_METERS && ix.len[nd] >= TURN_MIN_METERS &&
+          (ix.dx[d] * ix.dx[nd] + ix.dy[d] * ix.dy[nd]) / (ix.len[d] * ix.len[nd]) < cosTurn) { c += w.turnCost; }
+      if (ix.junction[cur]) { c += w.junctionCost; }
+      if (ix.room[cur]) { c += w.roomCost; }
+      return c;
     }
 
-    var g = {};
-    var came = {};
-    var cameEdge = {};
-    var closed = {};
+    var S = D + N;
+    var g = new Array(S);
+    var came = new Array(S);
+    var cameVia = new Array(S);
+    var closed = new Array(S);
     var heap = new MinHeap();
     for (id in starts) {
-      if (starts.hasOwnProperty(id) && (opts.allowEmergency || cls(id) !== 'emergency')) {
-        g[id] = starts[id];
-        heap.push(id, starts[id] + h(id));
-      }
+      if (!starts.hasOwnProperty(id)) { continue; }
+      var sn = ix.at[id];
+      if (blocked[sn]) { continue; }
+      var sg = starts[id] + (w.sideDoorCost && side[sn] ? w.sideDoorCost : 0);
+      g[D + sn] = sg;
+      came[D + sn] = -1;
+      heap.push(D + sn, sg + h(sn));
     }
-
+    var bestGoal = Infinity;
+    var bestState = -1;
     while (heap.size() > 0) {
-      var cur = heap.pop().id;
-      if (closed[cur]) { continue; }
-      closed[cur] = true;
-      if (cur === GOAL) {
-        var last = came[GOAL];
-        var ids = [last];
-        var k = last;
-        while (came.hasOwnProperty(k)) { k = came[k]; ids.unshift(k); }
-        var nodes = [];
-        var meters = starts[ids[0]] + goals[last];
-        for (var j = 0; j < ids.length; j++) {
-          nodes.push(graph.nodes[ids[j]]);
-          if (j > 0) { meters += cameEdge[ids[j]].cost; }
-        }
-        return { nodeIds: ids, nodes: nodes, distance: meters, cost: g[GOAL], startCost: starts[ids[0]], goalCost: goals[last] };
+      var top = heap.pop();
+      var st = top.id;
+      if (st === S) { break; }
+      if (closed[st]) { continue; }
+      closed[st] = true;
+      var cur = st >= D ? st - D : ix.to[st];
+      var into = st < D ? st : -1;
+      if (goalAt[cur] >= 0 && g[st] + goalAt[cur] < bestGoal) {
+        bestGoal = g[st] + goalAt[cur];
+        bestState = st;
+        heap.push(S, bestGoal);
       }
-      if (goals.hasOwnProperty(cur) && (opts.allowEmergency || cls(cur) !== 'emergency')) {
-        var gg = g[cur] + goals[cur];
-        if (!g.hasOwnProperty(GOAL) || gg < g[GOAL]) { g[GOAL] = gg; came[GOAL] = cur; heap.push(GOAL, gg); }
-      }
-      var nbrs = graph.adj[cur] || [];
-      for (var i = 0; i < nbrs.length; i++) {
-        var nb = nbrs[i];
+      var prevNode = st < D ? ix.from[st] : (came[st] >= 0 ? (came[st] < D ? ix.to[came[st]] : came[st] - D) : -1);
+      var lo = ix.base[cur];
+      var hi = ix.base[cur + 1];
+      for (var d = lo; d < hi; d++) {
+        var nb = ix.edge[d];
+        var to = ix.to[d];
+        if (to === prevNode || blocked[to]) { continue; }
         if (opts.accessibleOnly && !nb.accessible) { continue; }
         if (opts.indoorOnly && nb.outdoor) { continue; }
-        if (closed[nb.to]) { continue; }
-        var to = cls(nb.to);
-        if (!opts.allowEmergency && (to === 'emergency' || nb.access === 'emergency')) { continue; }
-        var alt = nb.access === 'alt' || to === 'alt' || cls(cur) === 'alt';
-        var ng = g[cur] + (alt ? nb.cost * factor : nb.cost) + (doorCost && altDoor(nb.to) ? doorCost : 0);
-        if (!g.hasOwnProperty(nb.to) || ng < g[nb.to]) {
-          g[nb.to] = ng;
-          came[nb.to] = cur;
-          cameEdge[nb.to] = nb;
-          heap.push(nb.to, ng + h(nb.to));
+        if (!emergencyOk && nb.access === 'emergency') { continue; }
+        if (nb.edgeId && avoidE.hasOwnProperty(nb.edgeId) && avoidE[nb.edgeId]) { continue; }
+        var ns = stateOf(d);
+        if (closed[ns]) { continue; }
+        var alt = nb.access === 'alt' || cls[to] === 'alt' || cls[cur] === 'alt';
+        var ng = g[st] + (alt ? nb.cost * factor : nb.cost) + (w.sideDoorCost && side[to] ? w.sideDoorCost : 0) +
+          (shaped && !nb.outdoor ? confusion(into, cur, to, d) : 0);
+        if (g[ns] === undefined || ng < g[ns]) {
+          g[ns] = ng;
+          came[ns] = st;
+          cameVia[ns] = d;
+          heap.push(ns, ng + h(to));
         }
       }
     }
-    return null;
+    if (bestState < 0) { return null; }
+    var nodesRev = [];
+    var edgesRev = [];
+    var s2 = bestState;
+    while (s2 >= 0) {
+      nodesRev.push(s2 >= D ? s2 - D : ix.to[s2]);
+      edgesRev.push(cameVia[s2] === undefined ? -1 : cameVia[s2]);
+      s2 = came[s2];
+    }
+    var ids = [];
+    var nodes = [];
+    var meters = 0;
+    for (var j = nodesRev.length - 1; j >= 0; j--) {
+      ids.push(ix.ids[nodesRev[j]]);
+      nodes.push(graph.nodes[ix.ids[nodesRev[j]]]);
+      if (edgesRev[j] >= 0) { meters += ix.edge[edgesRev[j]].cost; }
+    }
+    meters += starts[ids[0]] + goals[ids[ids.length - 1]];
+    return { nodeIds: ids, nodes: nodes, distance: meters, cost: bestGoal, startCost: starts[ids[0]], goalCost: goals[ids[ids.length - 1]] };
   }
 
   /*
@@ -891,7 +1098,7 @@ var MSCNPath = (function () {
     num: num,
     accessOf: accessOf,
     DEFAULT_ALT_FACTOR: DEFAULT_ALT_FACTOR,
-    DEFAULT_ALT_DOOR_COST: DEFAULT_ALT_DOOR_COST,
+    DEFAULTS: DEFAULTS,
     MinHeap: MinHeap,
     buildGraph: buildGraph,
     addOutdoorGraph: addOutdoorGraph,
@@ -899,6 +1106,8 @@ var MSCNPath = (function () {
     hasLngLat: hasLngLat,
     geoMeters: geoMeters,
     findPath: findPath,
+    routeConfusion: routeConfusion,
+    isSideDoor: isSideDoor,
     nearestOpenNode: nearestOpenNode,
     segmentPath: segmentPath,
     snapEnds: snapEnds,

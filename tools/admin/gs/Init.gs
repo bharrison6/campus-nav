@@ -174,13 +174,15 @@ function applyTextFormats_(sheet, def) {
 
 /**
  * Seeds the Config tab: dataVersion, routing.altFactor (v5: an alt door, hallway or path costs its length times this)
- * and routing.altDoorCost (meters added once per alt door passed through); data/overrides/config.json may change them.
+ * and the v5.1 route weights in meters (scripts/data/access.mjs ROUTING_WEIGHTS: per side door, indoor turn, floor
+ * change, hallway junction and room walked through); data/overrides/config.json may change them.
  * No secrets ever live in seed code.
  */
 function seedConfig_(ss) {
   var configSheet = ss.getSheetByName('Config');
   if (configSheet && configSheet.getLastRow() <= 1) {
-    configSheet.getRange(2, 1, 3, 2).setValues([['dataVersion', '1'], ['routing.altFactor', '3'], ['routing.altDoorCost', '300']]);
+    configSheet.getRange(2, 1, 7, 2).setValues([['dataVersion', '1'], ['routing.altFactor', '3'], ['routing.sideDoorCost', '300'],
+      ['routing.turnCost', '15'], ['routing.floorChangeCost', '120'], ['routing.junctionCost', '8'], ['routing.roomCost', '15']]);
   }
 }
 

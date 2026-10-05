@@ -136,10 +136,28 @@ export function publishAltFactor(campus, dflt = 3) {
 }
 
 /**
- * routing.altDoorCost in the config rows: the meters a route pays once for each alt door or entrance it passes through,
- * on top of altFactor (0 or more, default 300; measured on the real campus: below about 280 routes from across campus
- * still enter IT by its side door it-2-n0551, because the main doors' approach walks more road, which is alt).
+ * The v5.1 route cost model (plan mscn-v5-1-route-choice-and-private-floors; the app's MSCNPath.DEFAULTS, README "How a
+ * route is chosen"), in meters a route pays on top of its walking, all 0 or more:
+ *   routing.turnCost         per turn sharper than 45 degrees indoors (15)
+ *   routing.floorChangeCost  per stair or elevator ride (120)
+ *   routing.junctionCost     per hallway junction passed (8)
+ *   routing.roomCost         per room walked through (15)
+ *   routing.sideDoorCost     per side (alt) door or entrance on the route (300): with it, saving distance alone almost
+ *                            never takes a side door, while a simpler way in (no stairs, fewer turns) can
+ * Measured on the real campus with .scratch/w-sweep.mjs (lane W). It replaces v5's routing.altDoorCost: a config row
+ * of that name (data/overrides/config.json, or an older seed) becomes routing.sideDoorCost when that is not set, and
+ * the old row is dropped.
  */
-export function publishAltDoorCost(campus, dflt = 300) {
-  return publishRoutingNumber(campus, 'altDoorCost', dflt, (v) => v >= 0);
+export const ROUTING_WEIGHTS = { turnCost: 15, floorChangeCost: 120, junctionCost: 8, roomCost: 15, sideDoorCost: 300 };
+
+export function publishRoutingWeights(campus, defaults = ROUTING_WEIGHTS) {
+  const legacy = campus.config.findIndex((c) => c.key === 'routing.altDoorCost');
+  if (legacy !== -1) {
+    const old = campus.config[legacy];
+    campus.config.splice(legacy, 1);
+    if (!campus.config.some((c) => c.key === 'routing.sideDoorCost')) campus.config.push({ key: 'routing.sideDoorCost', value: old.value });
+  }
+  const out = {};
+  for (const [name, dflt] of Object.entries(defaults)) out[name] = publishRoutingNumber(campus, name, dflt, (v) => v >= 0);
+  return out;
 }

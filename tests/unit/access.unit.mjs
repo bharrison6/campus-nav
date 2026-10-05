@@ -8,7 +8,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildExport } from '../../scripts/data/export-campus-data.mjs';
-import { applyAccess, publishAltDoorCost, publishAltFactor } from '../../scripts/data/access.mjs';
+import { ROUTING_WEIGHTS, applyAccess, publishAltFactor, publishRoutingWeights } from '../../scripts/data/access.mjs';
+import { loadInclude } from './load-include.mjs';
 import { applyOverrides, overrideAccess } from '../../scripts/data/overrides.mjs';
 import { checkConnectivity } from '../../scripts/data/connectivity.mjs';
 import { autoEntranceAccess, buildCampusMap, drawnEntrances } from '../../scripts/campus-map/build.mjs';
@@ -139,19 +140,44 @@ test('applyAccess: a waypoint takes its hallway\'s class, the strictest on a sha
   assert.equal(publishAltFactor(campus), 1);
   campus.config[1].value = 'nonsense';
   assert.equal(publishAltFactor(campus), 3);
-  assert.equal(publishAltDoorCost(campus), 300);
-  assert.deepEqual(campus.config[2], { key: 'routing.altDoorCost', value: 300 });
-  campus.config[2].value = '0';
-  assert.equal(publishAltDoorCost(campus), 0, 'zero is allowed: no side-door cost');
-  campus.config[2].value = '-4';
-  assert.equal(publishAltDoorCost(campus), 300);
+  assert.deepEqual(publishRoutingWeights(campus), { turnCost: 15, floorChangeCost: 120, junctionCost: 8, roomCost: 15, sideDoorCost: 300 });
+  assert.deepEqual(campus.config.find((c) => c.key === 'routing.sideDoorCost'), { key: 'routing.sideDoorCost', value: 300 });
+  const row = (k) => campus.config.find((c) => c.key === 'routing.' + k);
+  row('sideDoorCost').value = '0';
+  row('turnCost').value = '4.5';
+  assert.equal(publishRoutingWeights(campus).sideDoorCost, 0, 'zero is allowed: no side-door cost');
+  assert.equal(row('turnCost').value, 4.5);
+  row('sideDoorCost').value = '-4';
+  row('roomCost').value = 'nonsense';
+  assert.equal(publishRoutingWeights(campus).sideDoorCost, 300);
+  assert.equal(row('roomCost').value, 15);
 });
 
-test('export: routing.altFactor (3) and routing.altDoorCost (300) are published and editable through config.json', () => {
-  const { campus } = buildExport({ overridesDir: dir({ 'config.json': [{ key: 'routing.altFactor', value: '2' }, { key: 'routing.altDoorCost', value: '120' }] }) });
-  assert.deepEqual(campus.config.find((c) => c.key === 'routing.altFactor'), { key: 'routing.altFactor', value: 2 });
-  assert.deepEqual(campus.config.find((c) => c.key === 'routing.altDoorCost'), { key: 'routing.altDoorCost', value: 120 });
-  assert.deepEqual(buildExport().campus.config.find((c) => c.key === 'routing.altDoorCost'), { key: 'routing.altDoorCost', value: 300 });
+test('routing weights: one set of defaults in the export and the app (MSCNPath.DEFAULTS)', () => {
+  const P = loadInclude('WebApp_Pathfinding.html', 'MSCNPath');
+  assert.deepEqual({ ...P.DEFAULTS }, ROUTING_WEIGHTS);
+});
+
+test('routing weights: v5 routing.altDoorCost becomes routing.sideDoorCost (unless that is set) and is dropped', () => {
+  const legacy = { config: [{ key: 'dataVersion', value: 'x' }, { key: 'routing.altDoorCost', value: '200' }] };
+  assert.equal(publishRoutingWeights(legacy).sideDoorCost, 200);
+  assert.deepEqual(legacy.config.map((c) => c.key), ['dataVersion', 'routing.sideDoorCost', 'routing.turnCost', 'routing.floorChangeCost', 'routing.junctionCost', 'routing.roomCost']);
+  const both = { config: [{ key: 'routing.sideDoorCost', value: 250 }, { key: 'routing.altDoorCost', value: 200 }] };
+  assert.equal(publishRoutingWeights(both).sideDoorCost, 250, 'the new key wins');
+  assert.ok(!both.config.some((c) => c.key === 'routing.altDoorCost'));
+});
+
+test('export: routing.altFactor (3) and the route weights are published and editable through config.json', () => {
+  const { campus } = buildExport({ overridesDir: dir({ 'config.json': [{ key: 'routing.altFactor', value: '2' }, { key: 'routing.sideDoorCost', value: '120' }, { key: 'routing.turnCost', value: 0 }] }) });
+  const row = (c, k) => c.config.find((r) => r.key === k);
+  assert.deepEqual(row(campus, 'routing.altFactor'), { key: 'routing.altFactor', value: 2 });
+  assert.deepEqual(row(campus, 'routing.sideDoorCost'), { key: 'routing.sideDoorCost', value: 120 });
+  assert.deepEqual(row(campus, 'routing.turnCost'), { key: 'routing.turnCost', value: 0 });
+  assert.deepEqual(row(buildExport().campus, 'routing.sideDoorCost'), { key: 'routing.sideDoorCost', value: 300 });
+  // an operator's v5 override keeps working: routing.altDoorCost in config.json is the side-door cost
+  const old = buildExport({ overridesDir: dir({ 'config.json': [{ key: 'routing.altDoorCost', value: 180 }] }) }).campus;
+  assert.deepEqual(row(old, 'routing.sideDoorCost'), { key: 'routing.sideDoorCost', value: 180 });
+  assert.equal(row(old, 'routing.altDoorCost'), undefined);
 });
 
 // ---- outdoor paths ----

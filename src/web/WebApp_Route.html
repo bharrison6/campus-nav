@@ -11,23 +11,53 @@
  *              | {kind: 'gps'} | {kind: 'building', buildingId}
  *   NAV.dest   {kind: 'room', roomId} | {kind: 'building', buildingId} | {kind: 'point', lng, lat, label}
  */
-var NAV = { start: null, dest: null, route: null, stepIndex: 0, avoidStairs: false, useSideDoors: false, offPath: null, reroutes: 0 };
+var NAV = { start: null, dest: null, route: null, stepIndex: 0, avoidStairs: false, entrance: 'best', avoid: null, rerouteOpen: false,
+  offPath: null, reroutes: 0 };
 
 var OFF_PATH_METERS = 15;
 var OFF_PATH_DEBOUNCE_MS = 3000;
 var AT_DOOR_METERS = 12;
 
+/* The route panel's entrance choice (plan mscn-v5-1-route-choice-and-private-floors). */
+var ENTRANCE_CHOICES = [
+  { id: 'best', label: 'Best entrance' },
+  { id: 'front', label: 'Front door only' },
+  { id: 'any', label: 'Any door' }
+];
+
 function initRoute() {
   NAV.avoidStairs = lsGet(LS_KEYS.avoidStairs) === '1';
-  NAV.useSideDoors = lsGet(LS_KEYS.useSideDoors) === '1';
+  NAV.entrance = loadEntranceChoice();
+  NAV.avoid = emptyAvoid();
   if (window.GPS) { GPS.listeners.push(updateStartField); }
 }
 
+/* The visitor's entrance choice, remembered on the phone. v5's "Use side doors and paths" switch is read once: on
+   becomes Any door, off Best entrance. */
+function loadEntranceChoice() {
+  var v = lsGet(LS_KEYS.entrance);
+  if (v === 'best' || v === 'front' || v === 'any') { return v; }
+  var old = lsGet(LS_KEYS.useSideDoors);
+  var choice = old === '1' ? 'any' : 'best';
+  if (old !== null) {
+    lsSet(LS_KEYS.entrance, choice);
+    lsRemove(LS_KEYS.useSideDoors);
+  }
+  return choice;
+}
+
+/* Doors and path segments the visitor marked during this route (Reroute): locked doors, blocked paths. */
+function emptyAvoid() { return { nodes: {}, edges: {}, doors: [], paths: [] }; }
+
+function hasAvoid() { return !!NAV.avoid && (NAV.avoid.doors.length > 0 || NAV.avoid.paths.length > 0); }
+
 /*
- * Access classes (plan mscn-v5-access-classes-and-editors): a route prefers main doors, hallways and paths; an alt one
- * costs its length times routing.altFactor (campus config, default 3), and each alt door or entrance passed through adds
- * routing.altDoorCost meters (default 300); with "Use side doors and paths" on, alt costs its plain length and no door
- * cost. Emergency exits and hallways are drawn but never routed.
+ * How a route is chosen (plan mscn-v5-1-route-choice-and-private-floors; README "How a route is chosen"): walked meters,
+ * alt hallways and paths at routing.altFactor times their length, plus the confusion of the indoor walk
+ * (routing.turnCost per turn, routing.floorChangeCost per stair or elevator ride, routing.junctionCost per hallway
+ * junction, routing.roomCost per room walked through) and routing.sideDoorCost for each side door. Best entrance uses
+ * them all; Front door only also keeps off side doors (unless a room has no other way in); Any door walks side doors
+ * and paths at their plain length. Emergency exits and hallways are drawn but never routed.
  */
 function configRoutingNumber(key, min, dflt) {
   var v = getConfigValue('routing.' + key);
@@ -42,28 +72,80 @@ function configRoutingNumber(key, min, dflt) {
 /* One rule with the export (scripts/data/access.mjs publishAltFactor) and findPath: a factor below 1 reads as 1. */
 function configAltFactor() { return Math.max(1, configRoutingNumber('altFactor', -Infinity, MSCNPath.DEFAULT_ALT_FACTOR)); }
 
-function configAltDoorCost() { return configRoutingNumber('altDoorCost', 0, MSCNPath.DEFAULT_ALT_DOOR_COST); }
+/* The confusion weights and the side-door cost, in meters; data published before v5.1 has routing.altDoorCost. */
+function configWeights() {
+  var d = MSCNPath.DEFAULTS;
+  var side = configRoutingNumber('sideDoorCost', 0, null);
+  return {
+    turnCost: configRoutingNumber('turnCost', 0, d.turnCost),
+    floorChangeCost: configRoutingNumber('floorChangeCost', 0, d.floorChangeCost),
+    junctionCost: configRoutingNumber('junctionCost', 0, d.junctionCost),
+    roomCost: configRoutingNumber('roomCost', 0, d.roomCost),
+    sideDoorCost: side !== null ? side : configRoutingNumber('altDoorCost', 0, d.sideDoorCost)
+  };
+}
 
-/* The findPath options of the current route: stairs and side doors as the visitor set them. */
+/* The joined side (alt) entrances of every building, {id: true}. */
+function sideEntrances() {
+  var g = APP.graph;
+  var out = {};
+  var ents = (g && g.entrances) || {};
+  for (var b in ents) {
+    if (!ents.hasOwnProperty(b)) { continue; }
+    for (var i = 0; i < ents[b].length; i++) {
+      if (MSCNPath.accessOf(g.nodes[ents[b][i]]) === 'alt') { out[ents[b][i]] = true; }
+    }
+  }
+  return out;
+}
+
+/*
+ * The findPath options of the current route: stairs and entrance as the visitor chose them, and the doors and paths
+ * marked during this route. extra.entrance plans for another choice; extra.marks false leaves the marks out (to tell
+ * the visitor that they are what blocks the way); any other extra key is passed to findPath.
+ */
 function routeOpts(extra) {
-  var side = NAV.useSideDoors;
-  var o = { accessibleOnly: NAV.avoidStairs, altFactor: side ? 1 : configAltFactor(), altDoorCost: side ? 0 : configAltDoorCost() };
-  for (var k in (extra || {})) { if (extra.hasOwnProperty(k)) { o[k] = extra[k]; } }
+  extra = extra || {};
+  var mode = extra.entrance || NAV.entrance;
+  var any = mode === 'any';
+  var w = configWeights();
+  var marks = extra.marks !== false && NAV.avoid ? NAV.avoid : emptyAvoid();
+  var avoidNodes = {};
+  var k;
+  for (k in marks.nodes) { if (marks.nodes.hasOwnProperty(k)) { avoidNodes[k] = true; } }
+  if (mode === 'front') {
+    var side = sideEntrances();
+    for (k in side) { if (side.hasOwnProperty(k)) { avoidNodes[k] = true; } }
+  }
+  var o = { accessibleOnly: NAV.avoidStairs, altFactor: any ? 1 : configAltFactor(), turnCost: w.turnCost, floorChangeCost: w.floorChangeCost,
+    junctionCost: w.junctionCost, roomCost: w.roomCost, sideDoorCost: any ? 0 : w.sideDoorCost, avoidNodes: avoidNodes, avoidEdges: marks.edges };
+  for (k in extra) { if (extra.hasOwnProperty(k) && k !== 'entrance' && k !== 'marks') { o[k] = extra[k]; } }
   return o;
 }
 
 /* A map position onto the nearest walkable outdoor edge: the edge's two ends with the meters to each, and the snapped
-   point (MSCNPath.snapEnds draws and counts the walk from there to the end the route takes). */
+   point (MSCNPath.snapEnds draws and counts the walk from there to the end the route takes). Paths marked blocked are
+   not snapped to. */
 function snapToPaths(p) {
   var g = APP.graph;
   if (!g || !g.hasOutdoor || !p) { return null; }
-  var accept = function (e) { return e.access !== 'emergency' && (!NAV.avoidStairs || e.accessible); };
+  var marked = NAV.avoid ? NAV.avoid.edges : {};
+  var accept = function (e) { return e.access !== 'emergency' && (!NAV.avoidStairs || e.accessible) && !marked[e.id]; };
   var s = MSCNGeo.nearestEdge(g.outdoorEdges, [Number(p.lng), Number(p.lat)], accept);
   if (!s) { return null; }
   return { ids: [{ id: s.edge.from, cost: s.dFrom }, { id: s.edge.to, cost: s.dTo }], point: s.point, dist: s.dist, edge: s.edge };
 }
 
-function resolveGoal(dest) {
+/* A building's doors a route may start or end at for an entrance choice: its main doors (Front door only), else its
+   main and side doors (findPath prices a side door by the choice); doors marked locked left out. */
+function buildingDoors(bid, mode) {
+  var all = MSCNPath.mainEntrances(APP.graph, bid, mode !== 'front');
+  var out = [];
+  for (var i = 0; i < all.length; i++) { if (!(NAV.avoid && NAV.avoid.nodes[all[i]])) { out.push(all[i]); } }
+  return out;
+}
+
+function resolveGoal(dest, mode) {
   var g = APP.graph;
   if (dest.kind === 'room') {
     var room = APP.by.rooms[dest.roomId];
@@ -74,7 +156,7 @@ function resolveGoal(dest) {
   if (dest.kind === 'building') {
     var bid = dest.buildingId;
     var label = buildingName(bid);
-    var doors = MSCNPath.mainEntrances(g, bid, NAV.useSideDoors);
+    var doors = buildingDoors(bid, mode);
     if (doors.length) { return { kind: 'building', ids: doors, label: label, buildingId: bid }; }
     var c = buildingCenter(bid);
     var sn = c ? snapToPaths(c) : null;
@@ -88,7 +170,7 @@ function resolveGoal(dest) {
 
 function gpsOnCampus() { return !!(window.GPS && GPS.fix && GPS.state === 'on'); }
 
-function resolveStart(goal) {
+function resolveStart(goal, mode) {
   var g = APP.graph;
   var s = NAV.start;
   if (s && s.kind === 'room') {
@@ -108,8 +190,14 @@ function resolveStart(goal) {
       error: ok ? 'Your scanned location is an emergency exit, and no hallway is mapped from it. Search for a room or building to start from.'
         : 'Your scanned location is not on the public map.' };
   }
+  /* Where a reroute left the visitor: outside a locked door, inside it, or where a path is blocked. */
+  if (s && s.kind === 'spot') {
+    var here = [];
+    for (var i = 0; i < s.ids.length; i++) { if (g.nodes[s.ids[i].id]) { here.push(s.ids[i]); } }
+    return { kind: 'spot', ids: here, label: s.label, buildingId: s.buildingId || null, error: 'No route was found from ' + s.label + '.' };
+  }
   if (s && s.kind === 'building') {
-    var doors = MSCNPath.mainEntrances(g, s.buildingId, NAV.useSideDoors);
+    var doors = buildingDoors(s.buildingId, mode);
     if (doors.length) { return { kind: 'building', ids: doors, label: buildingName(s.buildingId), buildingId: s.buildingId }; }
     var c = buildingCenter(s.buildingId);
     var sn = c ? snapToPaths(c) : null;
@@ -127,30 +215,24 @@ function resolveStart(goal) {
     return { kind: 'gps', ids: sp.ids, label: 'your location', buildingId: null, snap: sp, lead: [[fix.lng, fix.lat], sp.point] };
   }
   if (goal.kind === 'room' && goal.buildingId) {
-    return { kind: 'entrance', ids: automaticEntrances(goal), label: 'the building entrance', buildingId: goal.buildingId,
+    return { kind: 'entrance', ids: automaticEntrances(goal, mode), label: 'the building entrance', buildingId: goal.buildingId,
       error: 'No entrance is mapped for this building yet. Set a starting room with "Set as start" instead.' };
   }
   return { kind: 'none', ids: [], label: 'a starting point', error: 'Choose where you are starting from: your location, or search for a room or building.' };
 }
 
 /*
- * The automatic start for a room (no blue dot, no chosen start): the building's common doors (main, joined to the
- * paths; main and side doors with "Use side doors and paths" on). A sole door (an alt door the main doors cannot reach
- * indoors, EP 1322's) is used only when the main doors cannot reach the room without going outside. Without a campus map (no joined
- * entrances) every mapped entrance, as in v3.
+ * The automatic start for a room (no blue dot, no chosen start): the building's doors joined to the paths, but those
+ * marked locked. Best entrance and Any door offer every main and side door and let findPath price them (a side door
+ * starts at routing.sideDoorCost under Best entrance), so the simplest way in wins; Front door only offers the main
+ * doors (a room no main door reaches is planned again under Best entrance, see planRoute). Without a campus map (no
+ * joined entrances) every mapped entrance, as in v3.
  */
-function automaticEntrances(goal) {
+function automaticEntrances(goal, mode) {
   var g = APP.graph;
-  var bid = goal.buildingId;
-  var joined = (g.entrances && g.entrances[bid]) || [];
-  if (!joined.length) { return MSCNPath.entranceIds(g, bid); }
-  var prim = MSCNPath.mainEntrances(g, bid, NAV.useSideDoors);
-  var opts = routeOpts({ indoorOnly: true });
-  if (MSCNPath.findPath(g, prim, goal.ids, opts)) { return prim; }
-  var sole = [];
-  for (var i = 0; i < joined.length; i++) { if (g.nodes[joined[i]].soleDoor) { sole.push(joined[i]); } }
-  if (sole.length && MSCNPath.findPath(g, sole, goal.ids, opts)) { return sole; }
-  return prim;
+  var joined = (g.entrances && g.entrances[goal.buildingId]) || [];
+  if (!joined.length) { return MSCNPath.entranceIds(g, goal.buildingId); }
+  return buildingDoors(goal.buildingId, mode);
 }
 
 function gpsStartProblem() {
@@ -217,10 +299,23 @@ function legacyCrossBuildingRoute(route, st, goal) {
   route.meters += leg2.distance;
 }
 
-/* Why there is no route: stairs the visitor asked to avoid, else an emergency exit (never routed through; the data's
-   connectivity check should keep this from happening on real data), else nothing connects. */
+/* What the visitor marked during this route, in words: "locked door", "2 blocked paths", "locked door and blocked path". */
+function marksText() {
+  var a = NAV.avoid || emptyAvoid();
+  var parts = [];
+  if (a.doors.length) { parts.push(a.doors.length === 1 ? 'locked door' : a.doors.length + ' locked doors'); }
+  if (a.paths.length) { parts.push(a.paths.length === 1 ? 'blocked path' : a.paths.length + ' blocked paths'); }
+  return parts.join(' and ');
+}
+
+/* Why there is no route: the doors and paths the visitor marked, else stairs the visitor asked to avoid, else an
+   emergency exit (never routed through; the data's connectivity check keeps this from happening on real data with
+   the default choices), else nothing connects. */
 function noRouteMessage(fromIds, toIds) {
   var g = APP.graph;
+  if (hasAvoid() && MSCNPath.findPath(g, fromIds, toIds, routeOpts({ marks: false }))) {
+    return 'No route avoids the ' + marksText() + ' you marked. Choose Reroute, then "Clear marked doors and paths", to see the route again.';
+  }
   if (NAV.avoidStairs && MSCNPath.findPath(g, fromIds, toIds, routeOpts({ accessibleOnly: false }))) {
     return 'No step-free route was found. Turn off "Avoid stairs" to include stairs.';
   }
@@ -230,31 +325,128 @@ function noRouteMessage(fromIds, toIds) {
   return 'No route was found between these points.';
 }
 
-/* The route to dest from NAV.start (no UI): steps, meters, lead / tail, or an error. */
+/* The ends and the found route (or null) for dest under an entrance choice; legacy: the v3 cross-building case. */
+function planWith(dest, mode) {
+  var g = APP.graph;
+  var goal = resolveGoal(dest, mode);
+  var st = resolveStart(goal, mode);
+  var p = { mode: mode, goal: goal, st: st, r: null, searched: false, legacy: false };
+  if (!goal.ids.length || !st.ids.length) { return p; }
+  if (!g.hasOutdoor && st.buildingId && goal.buildingId && st.buildingId !== goal.buildingId) { p.legacy = true; return p; }
+  p.searched = true;
+  p.r = MSCNPath.findPath(g, st.ids, goal.ids, routeOpts({ entrance: mode }));
+  return p;
+}
+
+/* A door's name as the steps say it: "side door (North entrance)" for an alt door. */
+function classedDoorName(node, bid) {
+  var nm = doorName(node, bid);
+  if (MSCNPath.accessOf(node) !== 'alt') { return nm; }
+  return nm && nm !== 'entrance' ? 'side door (' + nm + ')' : 'side door';
+}
+
+function joinWords(list) {
+  if (list.length < 2) { return list.join(''); }
+  return list.slice(0, -1).join(', ') + ' and ' + list[list.length - 1];
+}
+
+function plural(n, one, many) { return n === 1 ? one : n + ' ' + many; }
+
+/*
+ * Why a side door: the route against the best one by main doors only (front, null when there is none), in the counts
+ * findPath priced. "The side door is the simpler way in: by a main door there would be a stair or elevator ride and
+ * 3 more turns, and about 60 m more walking."
+ */
+function sideDoorReason(r, front, inward) {
+  var way = inward ? 'in' : 'out';
+  if (!front) { return 'This side door is the only way ' + way + '.'; }
+  var g = APP.graph;
+  var a = MSCNPath.routeConfusion(g, r);
+  var b = MSCNPath.routeConfusion(g, front);
+  var parts = [];
+  var df = b.floorChanges - a.floorChanges;
+  var dt = b.turns - a.turns;
+  var dj = b.junctions - a.junctions;
+  var dr = b.rooms - a.rooms;
+  if (df > 0) { parts.push(plural(df, 'a stair or elevator ride', 'more stair or elevator rides')); }
+  if (dt > 0) { parts.push(plural(dt, '1 more turn', 'more turns')); }
+  if (dj > 0) { parts.push(plural(dj, '1 more hallway junction', 'more hallway junctions')); }
+  if (dr > 0) { parts.push(plural(dr, '1 more room to walk through', 'more rooms to walk through')); }
+  var dm = front.distance - r.distance;
+  if (!parts.length) {
+    return dm >= 5 ? 'The side door saves about ' + MSCNPath.formatMeters(dm) + ' of walking.' : 'The side door is the simpler way ' + way + '.';
+  }
+  return 'The side door is the simpler way ' + way + ': by a main door there would be ' + joinWords(parts) +
+    (dm >= 10 ? ', and about ' + MSCNPath.formatMeters(dm) + ' more walking' : '') + '.';
+}
+
+/*
+ * The side doors on a planned route get a "why" (step.why): under Best entrance, how much simpler the side door is
+ * than the main doors; under Front door only (planned again under Best entrance because no main door gets there),
+ * that there is no way by a main door. Any door says nothing: there every door is equal.
+ */
+function explainSideDoors(route, plan, frontFallback) {
+  var g = APP.graph;
+  var side = sideEntrances();
+  var used = {};
+  var any = false;
+  for (var i = 0; i < plan.r.nodeIds.length; i++) { if (side[plan.r.nodeIds[i]]) { used[plan.r.nodeIds[i]] = true; any = true; } }
+  if (!any || plan.mode === 'any') { return; }
+  var front = frontFallback ? null : planWith(route.dest, 'front').r;
+  var dest = route.destLabel;
+  function why(inward) {
+    if (frontFallback) {
+      return 'Front door only: no main door leads ' + (inward ? 'to ' + dest : 'out of here') + ' without going through a side door, so this route uses one.';
+    }
+    return sideDoorReason(plan.r, front, inward);
+  }
+  for (var k = 0; k < route.steps.length; k++) {
+    var s = route.steps[k];
+    var last = s.nodeIds && s.nodeIds.length ? s.nodeIds[s.nodeIds.length - 1] : null;
+    if (s.kind === 'door' && used[s.nodeId]) {
+      s.why = why(true);
+    } else if (s.kind === 'walk' && s.exitType === 'door' && used[last]) {
+      s.why = why(false);
+    }
+  }
+  /* An automatic start begins inside its door: the first step carries the why. */
+  if (plan.st.kind === 'entrance' && used[plan.r.nodeIds[0]] && route.steps.length && !route.steps[0].why) { route.steps[0].why = why(true); }
+}
+
+/* The route to dest from NAV.start (no UI): steps, meters, lead / tail, or an error. Front door only that finds no
+   route (a room behind a side door only) is planned again under Best entrance, and its side door step says so. */
 function planRoute(dest) {
   var g = APP.graph;
-  var goal = resolveGoal(dest);
-  var st = resolveStart(goal);
+  var plan = planWith(dest, NAV.entrance);
+  var frontFallback = false;
+  if (plan.searched && !plan.r && NAV.entrance === 'front') {
+    var best = planWith(dest, 'best');
+    if (best.r) { plan = best; frontFallback = true; }
+  }
+  var goal = plan.goal;
+  var st = plan.st;
   var route = {
     dest: dest, destLabel: goal.label, fromLabel: st.label, startKind: st.kind, steps: [], meters: 0, error: null,
     lead: null, tail: null, sentence: '', waitingForGps: !!st.waiting, destBuildingId: goal.buildingId,
-    destRoomId: dest.kind === 'room' ? dest.roomId : null
+    destRoomId: dest.kind === 'room' ? dest.roomId : null, entrance: plan.mode, marks: hasAvoid() ? marksText() : ''
   };
   if (!goal.ids.length) {
     route.error = goal.error;
   } else if (!st.ids.length) {
     route.error = st.error;
-  } else if (!g.hasOutdoor && st.buildingId && goal.buildingId && st.buildingId !== goal.buildingId) {
+  } else if (plan.legacy) {
     legacyCrossBuildingRoute(route, st, goal);
-  } else {
-    var r = MSCNPath.findPath(g, st.ids, goal.ids, routeOpts());
-    if (r) {
-      route.steps = MSCNPath.buildRouteSteps(g, MSCNPath.segmentRoute(g, MSCNPath.snapEnds(r, st.snap, goal.snap)), routeNames(goal.label));
-      route.meters = r.distance;
-      finishEnds(route, st, goal);
-    } else {
-      route.error = noRouteMessage(st.ids, goal.ids);
+  } else if (plan.r) {
+    var r = plan.r;
+    route.steps = MSCNPath.buildRouteSteps(g, MSCNPath.segmentRoute(g, MSCNPath.snapEnds(r, st.snap, goal.snap)), routeNames(goal.label));
+    route.meters = r.distance;
+    if (st.kind === 'entrance' && g.nodes[r.nodeIds[0]] && g.nodes[r.nodeIds[0]].type === 'entrance') {
+      route.fromLabel = 'the ' + classedDoorName(g.nodes[r.nodeIds[0]], st.buildingId);
     }
+    finishEnds(route, st, goal);
+    explainSideDoors(route, plan, frontFallback);
+  } else {
+    route.error = noRouteMessage(st.ids, goal.ids);
   }
   route.sentence = route.error ? '' : MSCNPath.routeSentence(route.steps);
   return route;
@@ -318,21 +510,32 @@ function navigateToRoom(roomId) {
   var dest = APP.by.rooms[roomId];
   var destB = dest ? buildingOfFloor(dest.floorId) : null;
   MSCNAnalytics.track('route_start', destB ? destB.id : 'room');
-  NAV.dest = { kind: 'room', roomId: roomId };
-  computeRoute();
+  newRoute({ kind: 'room', roomId: roomId });
 }
 
 function navigateToBuilding(buildingId) {
   if (!APP.by.buildings[buildingId]) { return; }
   MSCNAnalytics.track('route_start', buildingId);
-  NAV.dest = { kind: 'building', buildingId: buildingId };
-  computeRoute();
+  newRoute({ kind: 'building', buildingId: buildingId });
 }
 
 function navigateToPoint(lng, lat, label) {
   MSCNAnalytics.track('route_start', 'point');
-  NAV.dest = { kind: 'point', lng: Number(lng), lat: Number(lat), label: label || 'the marked spot' };
+  newRoute({ kind: 'point', lng: Number(lng), lat: Number(lat), label: label || 'the marked spot' });
+}
+
+/* A new destination is a new route: the doors and paths marked on the last one no longer apply. */
+function newRoute(dest) {
+  NAV.dest = dest;
+  clearMarks();
   computeRoute();
+}
+
+/* Forget the marked doors and paths, and the reroute start they left (the visitor is somewhere else now). */
+function clearMarks() {
+  NAV.avoid = emptyAvoid();
+  NAV.rerouteOpen = false;
+  if (NAV.start && NAV.start.kind === 'spot') { NAV.start = null; }
 }
 
 function stepWhere(step) {
@@ -373,6 +576,7 @@ function goToStep(i) {
 function endRoute() {
   NAV.route = null;
   NAV.dest = null;
+  clearMarks();
   NAV.stepIndex = 0;
   NAV.offPath = null;
   var p = $('route-panel');
@@ -412,6 +616,7 @@ function startFieldText() {
   if (!s) { return { value: '', placeholder: auto, kind: '' }; }
   if (s.kind === 'gps') { return { value: 'My location', placeholder: auto, kind: 'gps' }; }
   if (s.kind === 'building') { return { value: buildingName(s.buildingId), placeholder: auto, kind: 'building' }; }
+  if (s.kind === 'spot') { return { value: 'At ' + s.label, placeholder: auto, kind: 'spot' }; }
   return { value: String(s.label || ''), placeholder: auto, kind: s.kind };
 }
 
@@ -490,9 +695,160 @@ function routeCampusTarget(r) {
 /* The three door and path classes in plain words (the floor plan and map draw them with these same marks). */
 var DOOR_LEGEND_HTML = '<details class="route-legend" id="route-legend"><summary>Door types</summary><ul>' +
   '<li><span class="legend-mark legend-main" aria-hidden="true"></span><span><strong>Main door</strong>: directions use these and the main paths and hallways.</span></li>' +
-  '<li><span class="legend-mark legend-alt" aria-hidden="true"></span><span><strong>Side door</strong>: used only when it saves a long walk, or always with "Use side doors and paths" on. Side paths are drawn lighter.</span></li>' +
+  '<li><span class="legend-mark legend-alt" aria-hidden="true"></span><span><strong>Side door</strong>: used when it makes the way to the room clearly simpler (no stairs, fewer turns), or with "Any door". Side paths are drawn lighter.</span></li>' +
   '<li><span class="legend-mark legend-emergency" aria-hidden="true"></span><span><strong>Emergency exit</strong>: for emergencies only; directions never go through it or its hallway.</span></li>' +
   '</ul></details>';
+
+/* The entrance choice: three radio buttons drawn as one segmented control (arrow keys move between them). */
+function entranceChoiceHtml() {
+  var html = '<fieldset class="route-entrance" id="route-entrance"><legend>Entrance</legend><div class="seg">';
+  for (var i = 0; i < ENTRANCE_CHOICES.length; i++) {
+    var c = ENTRANCE_CHOICES[i];
+    html += '<label><input type="radio" name="route-entrance" id="entrance-' + c.id + '" value="' + c.id + '"' +
+      (NAV.entrance === c.id ? ' checked' : '') + '><span>' + escapeHtml(c.label) + '</span></label>';
+  }
+  return html + '</div></fieldset>';
+}
+
+/*
+ * Reroute (plan mscn-v5-1-route-choice-and-private-floors): what fits the step on screen. A step at or toward a door:
+ * "This door is locked" (the route avoids it and finds the next best door, from where the visitor stands); an outdoor
+ * step: "Path blocked" (the stretch of path ahead, to the next junction, is avoided); with the blue dot on: "Reroute
+ * from here". Marks last for this route only; nothing ever opens an emergency exit.
+ */
+function stepDoor(step) {
+  if (!step || !step.nodeIds || !step.nodeIds.length) { return null; }
+  var last = step.nodeIds[step.nodeIds.length - 1];
+  if (step.kind === 'door' && step.nodeId) { return { id: step.nodeId, outside: true }; }
+  if (step.kind === 'outdoor' && step.exitType === 'door') { return { id: last, outside: true }; }
+  if (step.kind === 'walk' && step.exitType === 'door') { return { id: last, outside: false }; }
+  return null;
+}
+
+function rerouteChoices() {
+  var r = NAV.route;
+  var step = r && !r.error ? r.steps[NAV.stepIndex] : null;
+  var out = [];
+  if (stepDoor(step)) { out.push({ id: 'locked', label: 'This door is locked', hint: 'Go to the next best door' }); }
+  if (step && step.kind === 'outdoor' && step.nodeIds.length > 1) { out.push({ id: 'blocked', label: 'Path blocked', hint: 'Avoid the path ahead, to the next corner' }); }
+  if (gpsOnCampus() && APP.graph && APP.graph.hasOutdoor) { out.push({ id: 'here', label: 'Reroute from here', hint: 'Start again where you are' }); }
+  if (hasAvoid()) { out.push({ id: 'clear', label: 'Clear marked doors and paths', hint: 'Use every door and path again' }); }
+  return out;
+}
+
+function rerouteHtml() {
+  var list = rerouteChoices();
+  var html = '<button type="button" class="route-reroute" id="route-reroute" aria-expanded="' + (NAV.rerouteOpen ? 'true' : 'false') +
+    '" aria-controls="route-reroute-menu"' + (list.length ? '' : ' disabled') + '>' + ICONS.navigate + '<span>Reroute</span></button>';
+  return html;
+}
+
+function rerouteMenuHtml() {
+  var list = rerouteChoices();
+  var html = '<div class="route-reroute-menu" id="route-reroute-menu" role="group" aria-label="Reroute"' + (NAV.rerouteOpen && list.length ? '' : ' hidden') + '>';
+  for (var i = 0; i < list.length; i++) {
+    html += '<button type="button" class="reroute-opt" id="reroute-' + list[i].id + '" data-reroute="' + list[i].id + '"><strong>' +
+      escapeHtml(list[i].label) + '</strong><span>' + escapeHtml(list[i].hint) + '</span></button>';
+  }
+  return html + '</div>';
+}
+
+function usingGps() { return !!NAV.route && NAV.route.startKind === 'gps' && gpsOnCampus(); }
+
+/* The visitor found a door locked: never that door again on this route; start from beside it (outside it when the
+   step walks in, inside when it walks out) unless the blue dot says where the visitor is. */
+function markDoorLocked(door) {
+  var g = APP.graph;
+  NAV.avoid.nodes[door.id] = true;
+  NAV.avoid.doors.push(door.id);
+  if (!usingGps()) {
+    var ids = [];
+    var adj = g.adj[door.id] || [];
+    for (var i = 0; i < adj.length; i++) {
+      var a = adj[i];
+      if (!!a.outdoor !== door.outside || a.access === 'emergency' || MSCNPath.accessOf(g.nodes[a.to]) === 'emergency') { continue; }
+      ids.push({ id: a.to, cost: a.cost });
+    }
+    if (ids.length) {
+      NAV.start = { kind: 'spot', ids: ids, label: 'the locked door', buildingId: door.outside ? null : MSCNPath.buildingOfNode(g, door.id) };
+    }
+  }
+  toast('Door marked locked. Finding the next best door.');
+  computeRoute({ reroute: true });
+}
+
+/* The stretch of the step's path ahead of the visitor (from the blue dot, else from the step's start) to the next
+   junction, as outdoor edges: [{edge, from, to}]. A door's short connector is not blocked unless it is all there is. */
+function blockedStretch(step) {
+  var g = APP.graph;
+  var ids = step.nodeIds;
+  function edgeOf(a, b) {
+    var adj = g.adj[a] || [];
+    for (var k = 0; k < adj.length; k++) { if (adj[k].to === b && adj[k].outdoor) { return adj[k]; } }
+    return null;
+  }
+  function degree(id) {
+    var n = 0;
+    var adj = g.adj[id] || [];
+    for (var k = 0; k < adj.length; k++) { if (adj[k].outdoor) { n++; } }
+    return n;
+  }
+  var from = 0;
+  if (usingGps() && GPS.fix) {
+    var here = [Number(GPS.fix.lng), Number(GPS.fix.lat)];
+    var best = Infinity;
+    for (var i = 0; i + 1 < ids.length; i++) {
+      var a = g.nodes[ids[i]];
+      var b = g.nodes[ids[i + 1]];
+      if (!MSCNPath.hasLngLat(a) || !MSCNPath.hasLngLat(b)) { continue; }
+      var d = MSCNGeo.distanceToLine(here, [[Number(a.lng), Number(a.lat)], [Number(b.lng), Number(b.lat)]]);
+      if (d < best) { best = d; from = i; }
+    }
+  }
+  while (from + 2 < ids.length && (edgeOf(ids[from], ids[from + 1]) || {}).kind === 'connector') { from++; }
+  var out = [];
+  for (var j = from; j + 1 < ids.length; j++) {
+    var e = edgeOf(ids[j], ids[j + 1]);
+    if (!e) { break; }
+    if (out.length && e.kind === 'connector') { break; }
+    out.push({ edge: e, from: ids[j], to: ids[j + 1] });
+    if (degree(ids[j + 1]) >= 3) { break; }
+  }
+  return out;
+}
+
+function markPathBlocked(step) {
+  var stretch = blockedStretch(step);
+  if (!stretch.length) { toast('This step has no path to avoid.'); return; }
+  var meters = 0;
+  var edges = [];
+  for (var i = 0; i < stretch.length; i++) {
+    NAV.avoid.edges[stretch[i].edge.edgeId] = true;
+    edges.push(stretch[i].edge.edgeId);
+    meters += stretch[i].edge.cost;
+  }
+  NAV.avoid.paths.push({ edges: edges, meters: meters });
+  if (!usingGps()) { NAV.start = { kind: 'spot', ids: [{ id: stretch[0].from, cost: 0 }], label: 'where the path is blocked' }; }
+  toast('Path marked blocked (' + MSCNPath.formatMeters(meters) + '). Finding another way.');
+  computeRoute({ reroute: true });
+}
+
+function rerouteFromHere() {
+  NAV.start = { kind: 'gps' };
+  computeRoute({ reroute: true });
+}
+
+function chooseReroute(id) {
+  var r = NAV.route;
+  var step = r && !r.error ? r.steps[NAV.stepIndex] : null;
+  NAV.rerouteOpen = false;
+  MSCNAnalytics.track('route_reroute', id);
+  if (id === 'locked' && stepDoor(step)) { markDoorLocked(stepDoor(step)); } else if (id === 'blocked' && step) { markPathBlocked(step); } else if (id === 'here') { rerouteFromHere(); } else if (id === 'clear') {
+    NAV.avoid = emptyAvoid();
+    computeRoute({ reroute: true });
+  } else { renderRoutePanel(); }
+  focusSoon('route-reroute');
+}
 
 function renderRoutePanel() {
   var p = $('route-panel');
@@ -513,12 +869,13 @@ function renderRoutePanel() {
     var step = r.steps[NAV.stepIndex];
     var n = r.steps.length;
     html += '<div class="route-summary" id="route-summary">' + escapeHtml(MSCNPath.formatMeters(r.meters)) + ' · about ' +
-      escapeHtml(MSCNPath.formatMinutes(r.meters)) + ' · ' + n + (n === 1 ? ' step' : ' steps') + '</div>';
+      escapeHtml(MSCNPath.formatMinutes(r.meters)) + ' · ' + n + (n === 1 ? ' step' : ' steps') +
+      (r.marks ? ' · avoiding the ' + escapeHtml(r.marks) : '') + '</div>';
     html += '<div class="route-step" id="route-step" aria-live="polite" data-step-kind="' + escapeHtml(step.kind) + '"><div class="count">Step ' + (NAV.stepIndex + 1) + ' of ' + n +
       ' · ' + escapeHtml(stepWhere(step)) + '</div>' +
       '<div class="title">' + escapeHtml(step.title) + '</div><div class="detail">' + escapeHtml(step.detail) +
       (step.url ? ' <a href="' + escapeHtml(step.url) + '" target="_blank" rel="noopener">Open directions</a>' : '') +
-      '</div></div>';
+      '</div>' + (step.why ? '<div class="why" id="route-why">' + escapeHtml(step.why) + '</div>' : '') + '</div>';
     var dots = '';
     for (var i = 0; i < n; i++) { dots += '<span class="' + (i === NAV.stepIndex ? 'on' : '') + '"></span>'; }
     var lastStep = NAV.stepIndex === n - 1;
@@ -530,9 +887,8 @@ function renderRoutePanel() {
   }
   var target = r.error ? null : routeCampusTarget(r);
   html += '<div class="route-options"><label class="switch"><input type="checkbox" id="avoid-stairs"' + (NAV.avoidStairs ? ' checked' : '') + '>' +
-    '<span class="track" aria-hidden="true"></span>Avoid stairs</label>' +
-    '<label class="switch"><input type="checkbox" id="use-side-doors"' + (NAV.useSideDoors ? ' checked' : '') + '>' +
-    '<span class="track" aria-hidden="true"></span>Use side doors and paths</label></div>' +
+    '<span class="track" aria-hidden="true"></span>Avoid stairs</label>' + rerouteHtml() + '</div>' + rerouteMenuHtml() +
+    entranceChoiceHtml() +
     '<div class="route-options route-options-links">' + DOOR_LEGEND_HTML +
     (target ? '<a class="route-campus" id="route-campus" href="' + escapeHtml(directionsToCampusUrl(target.lat, target.lng)) + '" target="_blank" rel="noopener">Directions to campus</a>' : '') +
     '</div>';
@@ -555,11 +911,27 @@ function renderRoutePanel() {
     computeRoute();
     focusSoon('avoid-stairs');
   };
-  $('use-side-doors').onchange = function (e) {
-    NAV.useSideDoors = !!e.target.checked;
-    lsSet(LS_KEYS.useSideDoors, NAV.useSideDoors ? '1' : '0');
-    computeRoute();
-    focusSoon('use-side-doors');
+  var radios = $('route-entrance').querySelectorAll('input[name="route-entrance"]');
+  for (var k = 0; k < radios.length; k++) {
+    radios[k].onchange = function (e) {
+      if (!e.target.checked) { return; }
+      NAV.entrance = e.target.value;
+      lsSet(LS_KEYS.entrance, NAV.entrance);
+      computeRoute();
+      focusSoon('entrance-' + NAV.entrance);
+    };
+  }
+  $('route-reroute').onclick = function () {
+    NAV.rerouteOpen = !NAV.rerouteOpen;
+    renderRoutePanel();
+    focusSoon(NAV.rerouteOpen ? (rerouteChoices()[0] ? 'reroute-' + rerouteChoices()[0].id : 'route-reroute') : 'route-reroute');
+  };
+  var opts = $('route-reroute-menu').querySelectorAll('.reroute-opt');
+  for (var m = 0; m < opts.length; m++) {
+    opts[m].onclick = function () { chooseReroute(this.getAttribute('data-reroute')); };
+  }
+  $('route-reroute-menu').onkeydown = function (e) {
+    if (e.key === 'Escape') { e.stopPropagation(); NAV.rerouteOpen = false; renderRoutePanel(); focusSoon('route-reroute'); }
   };
 }
 

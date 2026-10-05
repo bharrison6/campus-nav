@@ -49,6 +49,7 @@ banner. It loads only when a site code is configured.
 |---|---|---|
 | `search` | a search result is chosen | `room` or `building` |
 | `route_start` | "Navigate here" | the destination building id |
+| `route_reroute` | a Reroute choice on the route panel | `locked`, `blocked`, `here` or `clear` |
 | `floor_change` | the visitor picks another floor | the floor id |
 | `qr_scan` | a campus QR code is opened (camera or link) | `camera`/`link` and the code type |
 | `sched_open` | an official schedule is opened | the schedule id |
